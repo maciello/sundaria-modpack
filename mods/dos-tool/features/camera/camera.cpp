@@ -8,7 +8,7 @@ namespace {
         bool ovrDist = false; float dist = 650.0f;
         bool noCollision = false;
 
-        Camera() : Feature("Camera", true) {}
+        Camera() : Feature("Camera", feature::Stage::Stable) {}
 
         void OnFrame(const feature::Frame& f) override {
             if (!seeded && f.snap.haveCamera) {

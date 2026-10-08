@@ -18,11 +18,16 @@ namespace feature {
         const std::vector<combat::Sample>& chars; // every character with health, this frame
     };
 
+    // Kubernetes feature-gate stages. Default on only when Stable; Alpha is shown only with dos-tool.dev.
+    // The player's on/off choice is local (dos-tool.ini next to the game exe), never in the repo.
+    enum class Stage { Alpha, Beta, Stable, Deprecated };
+
     struct Feature {
         const char* name;
+        Stage stage;
         bool enabled;
         bool wasEnabled;
-        Feature(const char* n, bool on) : name(n), enabled(on), wasEnabled(on) { All().push_back(this); }
+        Feature(const char* n, Stage s) : name(n), stage(s), enabled(s == Stage::Stable), wasEnabled(enabled) { All().push_back(this); }
         virtual void OnFrame(const Frame&) {}
         virtual void Menu() {}
         virtual void Off() {}

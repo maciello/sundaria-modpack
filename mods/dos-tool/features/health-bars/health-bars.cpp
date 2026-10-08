@@ -10,7 +10,7 @@ namespace {
         float width = 1.0f;
         double last = 0;
 
-        HealthBars() : Feature("Health bars", true) {}
+        HealthBars() : Feature("Health bars", feature::Stage::Beta) {}
 
         void OnFrame(const feature::Frame& f) override {
             const double dt = last > 0 ? f.now - last : 0.0;

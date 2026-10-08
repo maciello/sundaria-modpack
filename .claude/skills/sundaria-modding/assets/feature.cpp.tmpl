@@ -4,7 +4,7 @@
 // __TITLE__: <one line: what the player gets>
 namespace {
     struct __TYPE__ : feature::Feature {
-        __TYPE__() : Feature("__TITLE__", true) {}
+        __TYPE__() : Feature("__TITLE__", feature::Stage::Alpha) {}
 
         // Render thread, every Present: memory reads/writes only, no ProcessEvent.
         void OnFrame(const feature::Frame& f) override {

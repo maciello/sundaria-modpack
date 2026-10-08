@@ -9,7 +9,7 @@ runtime: Windows build under Proton; launch option WINEDLLOVERRIDES="winmm=n,b" 
 core/:   # shared; features never include each other
   game.hpp/.cpp: the ONLY SDK translation unit; add a small SDK-free function here for any new game read/write
   combat.hpp: health-diff → stacked hit events, typical hit, fight/DPS (Frame.combat)
-  feature.hpp: Feature {name, enabled, OnFrame(Frame), Menu(), Off()}; Frame {now, w, h, font, snap, combat, chars}
+  feature.hpp: Feature {name, stage (Alpha|Beta|Stable|Deprecated), enabled, OnFrame(Frame), Menu(), Off()}; on/off + font persist in dos-tool.ini (local); Frame {now, w, h, font, snap, combat, chars}
   overlay.cpp: D3D11 Present hook, ImGui, Insert menu, runs every feature, calls Off() on toggle-off and unload
   draw.hpp: FormatAmount, OutlinedText
 features/<kebab>/:   # one player-facing feature per folder; CMake globs features/*/*.cpp

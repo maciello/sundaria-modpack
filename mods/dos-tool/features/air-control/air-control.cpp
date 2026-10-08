@@ -9,7 +9,7 @@ namespace {
         game::Movement m{0.8f, 2.0f, 25.0f, 0.0f, 0.0f};
         bool seeded = false;
 
-        AirControl() : Feature("Air control", true) {}
+        AirControl() : Feature("Air control", feature::Stage::Beta) {}
 
         void OnFrame(const feature::Frame&) override {
             game::ApplyMovement(&m);

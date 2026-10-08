@@ -24,7 +24,7 @@ namespace {
         std::unordered_map<uintptr_t, float> last;
         bool hooked = false;
 
-        DebugProbe() : Feature("Debug probe", false) {}
+        DebugProbe() : Feature("Debug probe", feature::Stage::Alpha) {}
 
         void OnFrame(const feature::Frame& f) override {
             if (!hooked) { game::SetEventProbe(true); hooked = true; }

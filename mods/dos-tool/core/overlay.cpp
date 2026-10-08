@@ -14,6 +14,7 @@
 #include "kiero.h"
 #include "fonts.h"
 #include "imgui.h"
+#include "imgui_internal.h"  // ImGuiSettingsHandler
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
 
@@ -37,6 +38,8 @@ static bool                    g_imguiReady = false;
 static bool                    g_showMenu = false;
 static ImFont*                 g_fonts[sizeof(kFonts) / sizeof(kFonts[0])] = {};
 static int                     g_font = 1;  // Titan One
+static bool                    g_dev = false;      // dos-tool.dev next to the exe: show Alpha features
+static char                    g_ini[MAX_PATH] = {};
 
 static combat::Tracker g_combat;
 
@@ -75,7 +78,32 @@ static bool InitImGui(IDXGISwapChain* sc) {
 
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;
+    GetModuleFileNameA(nullptr, g_ini, MAX_PATH);
+    if (char* slash = strrchr(g_ini, '\\')) slash[1] = 0;
+    char devFlag[MAX_PATH];
+    snprintf(devFlag, MAX_PATH, "%sdos-tool.dev", g_ini);
+    g_dev = GetFileAttributesA(devFlag) != INVALID_FILE_ATTRIBUTES;
+    strncat(g_ini, "dos-tool.ini", MAX_PATH - strlen(g_ini) - 1);
+    io.IniFilename = g_ini;  // window layout + [DosTool][Settings] below; local to this install
+    ImGuiSettingsHandler h{};
+    h.TypeName = "DosTool";
+    h.TypeHash = ImHashStr("DosTool");
+    h.ReadOpenFn = [](ImGuiContext*, ImGuiSettingsHandler*, const char*) -> void* { return (void*)1; };
+    h.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler*, void*, const char* line) {
+        int v;
+        if (sscanf(line, "Font=%d", &v) == 1 && v >= 0 && v < IM_ARRAYSIZE(kFonts)) { g_font = v; return; }
+        const char* eq = strrchr(line, '=');
+        if (!eq) return;
+        for (feature::Feature* f : feature::Feature::All())
+            if (strlen(f->name) == size_t(eq - line) && !strncmp(f->name, line, eq - line))
+                f->enabled = f->wasEnabled = eq[1] == '1';
+    };
+    h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* hh, ImGuiTextBuffer* out) {
+        out->appendf("[%s][Settings]\nFont=%d\n", hh->TypeName, g_font);
+        for (feature::Feature* f : feature::Feature::All()) out->appendf("%s=%d\n", f->name, f->enabled ? 1 : 0);
+        out->append("\n");
+    };
+    ImGui::AddSettingsHandler(&h);
     io.LogFilename = nullptr;
     ImGui::StyleColorsDark();
     io.Fonts->AddFontDefault();
@@ -106,14 +134,19 @@ static void DrawMenu(const game::Snapshot& snap) {
         ImGui::TextColored(ImVec4(1, 0.5f, 0.2f, 1), "Waiting for UWorld...");
     if (ImGui::BeginCombo("Font", kFonts[g_font].name)) {
         for (int i = 0; i < IM_ARRAYSIZE(kFonts); i++)
-            if (ImGui::Selectable(kFonts[i].name, i == g_font)) g_font = i;
+            if (ImGui::Selectable(kFonts[i].name, i == g_font)) { g_font = i; ImGui::MarkIniSettingsDirty(); }
         ImGui::EndCombo();
     }
 
+    static const char* const kStage[] = {"ALPHA", "BETA", "", "DEPRECATED"};
+    static const ImVec4 kStageColor[] = {{1, 0.35f, 0.35f, 1}, {1, 0.8f, 0.3f, 1}, {}, {0.6f, 0.6f, 0.6f, 1}};
     for (feature::Feature* f : feature::Feature::All()) {
+        const int st = int(f->stage);
+        if (f->stage == feature::Stage::Alpha && !g_dev) continue;
         ImGui::SeparatorText(f->name);
         ImGui::PushID(f->name);
-        ImGui::Checkbox("Enabled", &f->enabled);
+        if (ImGui::Checkbox("Enabled", &f->enabled)) ImGui::MarkIniSettingsDirty();
+        if (*kStage[st]) { ImGui::SameLine(); ImGui::TextColored(kStageColor[st], "%s", kStage[st]); }
         if (f->enabled) f->Menu();
         ImGui::PopID();
     }
