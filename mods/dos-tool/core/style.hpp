@@ -126,7 +126,6 @@ namespace style {
         constexpr Motion kBarFlash{0.18f, C::Linear};
         constexpr float kChipHold = 0.4f, kDrainPerSec = 0.8f, kLinger = 3.0f;
         constexpr Motion kPipFill{0.18f, C::OutBack, 2.0f};
-        constexpr float kShimmerPeriod = 2.4f;  // idle loot shimmer sweep
         constexpr float kPulsePeriod = 1.6f;    // badge / glow breathing
         constexpr Motion kCardIn{0.45f, C::OutCubic};
         constexpr Motion kCardOut{0.35f, C::InQuad};

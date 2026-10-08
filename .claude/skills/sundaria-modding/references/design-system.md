@@ -43,7 +43,7 @@ stroke:  {Outline(px) = max(1.5, px/16), kOutlineAlpha .85, kGlowWidth 3 (× Out
 ease:    Apply(Curve, x, k): Linear, OutCubic, InQuad, InOutCubic, OutBack(k overshoot)   # Penner closed forms
 motion:  {kPop .22 OutBack 1.7, kRise .6 OutCubic, kBump .25 InQuad amp .35, kTick .12 OutCubic from 1.25, kFlash .12,
           kNumberLife 1.4, kFadeTail .3, kFadeIn .15, kFadeOut .4, kBarFlash .18, kChipHold .4, kDrainPerSec .8, kLinger 3,
-          kPipFill .18 OutBack 2, kShimmerPeriod 2.4, kPulsePeriod 1.6, kCardIn .45, kCardOut .35, kCardHold 2.6}   # seconds
+          kPipFill .18 OutBack 2, kPulsePeriod 1.6, kCardIn .45, kCardOut .35, kCardHold 2.6}   # seconds
 Layer:   WorldGlow < WorldBar (ImGui background list) < WorldNumber < Hud < Cinematic (foreground list) ; Menu = Insert window
 ```
 Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same call, fill alpha 0, outline = fill colour at
