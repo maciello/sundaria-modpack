@@ -23,6 +23,7 @@
 namespace {
     using namespace boss_intro;
     constexpr double kWaitForBoss = 5.0;  // s: an arena entered before the boss spawned
+    constexpr double kCamGrace = 0.25;    // s without a fresh game pose before it is logged as stale
     struct Key { int vk; const char* name; };
     constexpr Key kKeys[] = {{VK_SPACE, "Space"}, {VK_RETURN, "Enter"}, {VK_BACK, "Backspace"}, {'X', "X"}, {VK_F5, "F5"}};
 
@@ -39,6 +40,9 @@ namespace {
         std::uintptr_t fight = 0;
         float yaw = 0;
         game_side::Boss boss{};
+        cam::Pose live{};
+        double liveAt = -1;  // last fresh game pose
+        bool staleLogged = false;
         std::string name, epithet;
     };
     struct Names { std::string name, epithet; };
@@ -63,20 +67,27 @@ namespace {
 
         void End(const char* why, double now) {
             if (!run.on) return;
-            if (run.cam) game::SetFreeCam(nullptr, 0);
+            game::SetFreeCam(nullptr, 0);  // also clears a slot taken while outranked
             char buf[160];
-            std::snprintf(buf, sizeof(buf), "[boss-intro] camera %s after %.1f s", why, run.cam ? now - run.t0 : 0.0);
+            std::snprintf(buf, sizeof(buf), "[boss-intro] camera %s after %.1f s (camera overrides so far %d)", why,
+                          run.cam ? now - run.t0 : 0.0, game::FreeCamOverrides());
             logger::log(buf);
             run = {};
         }
 
-        bool Live(cam::Pose& out) {
+        // The game's own camera pose. A frame without a fresh one reuses the last (#72: the intro ended at once when
+        // the first frames after the override, a hitch, or a camera Blueprint that computes no pose gave none).
+        bool Live(cam::Pose& out, double now) {
             game::CamPose g;
-            if (game::GameCamPose(g)) { out = {g.x, g.y, g.z, g.pitch, g.yaw, g.fovDelta}; return true; }
             combat::View v;
-            if (run.cam || !game::GetView(v)) return false;  // overriding: the cached view is our own pose
-            out = {v.x, v.y, v.z, v.pitch, v.yaw, v.fov};
-            return true;
+            if (game::GameCamPose(g)) run.live = {g.x, g.y, g.z, g.pitch, g.yaw, g.fovDelta}, run.liveAt = now;
+            else if (!run.cam && game::GetView(v)) run.live = {v.x, v.y, v.z, v.pitch, v.yaw, v.fov}, run.liveAt = now;  // overriding: the view is ours
+            else if (run.liveAt >= 0 && now - run.liveAt > kCamGrace && !run.staleLogged) {
+                run.staleLogged = true;
+                Log("[boss-intro] game camera pose stale for %.2f s: holding the last one", now - run.liveAt);
+            }
+            out = run.live;
+            return run.liveAt >= 0;
         }
 
         const char* Interrupted(const feature::Frame& f) {
@@ -104,12 +115,16 @@ namespace {
             const float t = float(f.now - run.t0);
             if (t >= cam::kTotal) { End("done", f.now); return; }
             cam::Pose live;
-            if (!Live(live)) { End("lost the game camera", f.now); return; }
+            if (!Live(live, f.now)) { End("lost the game camera", f.now); return; }
             if (!run.haveYaw) { run.yaw = cam::YawTo(live.x, live.y, run.boss.x, run.boss.y); run.haveYaw = true; }
             const cam::Pose shot = cam::Shot(run.boss.x, run.boss.y, run.boss.z, run.boss.halfHeight, run.yaw + cam::Orbit(t), live.fov);
             const cam::Pose p = cam::Blend(live, shot, cam::Weight(t));
             const game::CamPose cp{p.x, p.y, p.z, p.pitch, p.yaw, p.fov - live.fov};
-            game::SetFreeCam(&cp, 0);
+            const bool shown = game::SetFreeCam(&cp, 0);
+            if (!run.cam && !shown) {  // no window focus yet: the sequence has not started
+                if (f.now - run.asked > kWaitForBoss) End("skipped (camera override unavailable)", f.now);
+                return;
+            }
             if (!run.cam) Log("[boss-intro] camera start, boss half height %.0f", run.boss.halfHeight);
             run.cam = true;
 
