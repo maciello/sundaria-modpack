@@ -14,8 +14,6 @@ namespace cast_indicator {
     constexpr int kMinHits = 2;         // single-hit casts get no indicator
     constexpr int kBarFrom = 11;        // N > 10: one segmented bar
     constexpr float kPipHalf = 6;       // diamond half-diagonal, × Ui
-    constexpr float kBarW = 120, kBarH = 6;  // × Ui
-    constexpr float kAnchorY = 0.62f;   // row centre, × screen height
     constexpr float kGlowR = 1.8f;      // glow disc radius, × kPipHalf
     constexpr float kPunch = 1.15f, kPunchDur = 0.25f, kHold = 0.5f;
     constexpr double kLateHits = 0.6;   // s after the montage ends that arrows in flight still count (tuning knob)

@@ -195,10 +195,10 @@ namespace {
         void Draw(ImDrawList* dl, const feature::Frame& f) const {
             using namespace style;
             const float ui = type::Ui(f.h), alpha = pips.Alpha(f.now), s = pips.RowScale(f.now);
-            const ImVec2 c{f.w * 0.5f, f.h * kAnchorY};
+            const ImVec2 c{f.w * 0.5f, f.h * hud::kPipsY};
             const Rgba fill = element::Of(combat::Element::Physical);  // ponytail: Physical only; ability element when #4 names it
             if (pips.hits >= kBarFrom) {
-                const float w = kBarW * ui * s, h = kBarH * ui * s, x0 = c.x - w * 0.5f, y0 = c.y - h * 0.5f, seg = w / pips.hits;
+                const float w = hud::kBarW * ui * s, h = hud::kBarH * ui * s, x0 = c.x - w * 0.5f, y0 = c.y - h * 0.5f, seg = w / pips.hits;
                 dl->AddRectFilled({x0, y0}, {x0 + w, y0 + h}, Pack(color::kInk, .55f * alpha), radius::Pill(h));
                 for (int i = 0; i < pips.hits; i++) {
                     const ImVec2 a{x0 + seg * i, y0}, b{x0 + seg * (i + 1), y0 + h};
