@@ -6,7 +6,8 @@ paths:
 - New feature = new folder under `features/`. Never grow another feature's file to host it.
 - A feature talks to the game only through `core/game.hpp` or its own SDK-including `.cpp`. Only `.cpp` files include the SDK.
 - Features do not include each other. Shared needs move into their domain's `shared/`, or `core/` if domain-free.
-- Render thread (`OnFrame`, Present hook): memory reads/writes only. No `ProcessEvent` / UFunction calls.
+- Render thread (`OnFrame`, Present hook): memory reads only. No `ProcessEvent` / UFunction calls.
+- Render thread never walks or dereferences world actors (level actor lists, actor `TArray`s, actors/components/attribute sets kept across frames) and never writes game memory: the game thread does (core `CoreTick`, or a listener behind `game::OnGameThread()`) and hands plain data over under SRWLOCK; the game thread frees actors meanwhile (#79, #80). Fresh reads down the local controller → pawn / camera manager chain are fine. `just test` enforces the walks (`scripts/actor-walk-check.sh`, allowlist by file:function).
 - Every engine pointer kept beyond the current call (UFunction, UClass, UObject, actor, widget …⊇) is stored only in `core/ref.hpp` (`ref::Ref` / `Cached` / `Fn`) and validated by GObjects index + name on each use (O(1)): map travel frees Blueprint classes and world objects and reuses their memory (#63). `PtrOk` is for null and garbage only, never for liveness. `IsA` before casting. `just test` enforces this (`scripts/ref-check.py`, allowlist by file:symbol).
 - Server-simulated changes (movement, stats) apply to every player character, not only the local one.
 - Every feature is toggleable (Insert menu); `Off()` restores the captured vanilla values.

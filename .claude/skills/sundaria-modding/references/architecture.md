@@ -25,7 +25,7 @@ features/<domain>/:  # features of one domain + their shared code (new-feature.s
 ```
 
 ## Rules and why
-- Render thread (`OnFrame`) does memory reads/writes only, no `ProcessEvent`/UFunction calls: UE isn't thread-safe there and it crashes intermittently.
+- Render thread (`OnFrame`) does memory reads only, no `ProcessEvent`/UFunction calls: UE isn't thread-safe there and it crashes intermittently. It never walks or keeps world actors and never writes game memory: the game thread reads/writes and hands plain copies over (#79, #80; rule in `.claude/rules/mod-code.md`).
 - Game-thread hooks (ProcessEvent) record and return fast; hand data to the render thread under an `SRWLOCK` (never `std::mutex`, see gotchas).
 - Check every pointer (`PtrOk`) and `IsA` before casting: the same objects are different classes in menus/lobby. A pointer kept past the call goes into `core/ref.hpp`: actors die between frames and Blueprint classes with the map (#63).
 - Movement/stats are server-simulated: apply to every player character; co-op only works when the host runs the pack.
