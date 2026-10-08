@@ -13,10 +13,12 @@ namespace combat {
     // hit* = the actor's last hit record (AArchonCharacter::LastTakeHitInfo): hitStamp changes per record,
     // hitType = opaque id of damage-type class × instigator (the class is mostly one per ability: Range_AimedShot vs
     // Range_C; DoTs have their own class), element from the class name,
-    // hitDamage = that record's damage (the game sums same-frame hits from one instigator into it, type = the last one).
+    // hitDamage = that record's damage (the game sums same-frame hits from one instigator into it, type = the last one),
+    // hitBy = the record's instigator pawn (an id like `id`, 0 = none).
     struct Sample {
         uintptr_t id; float x, y, z; float health; bool isPlayer; float maxHealth = 0; float level = 0; float seen = 0;
         unsigned hitStamp = 0; uintptr_t hitType = 0; Element element = Element::Physical; float hitDamage = 0;
+        uintptr_t hitBy = 0;
     };
 
     enum class Kind { Dealt, Taken, Heal };
