@@ -1,5 +1,6 @@
 #include "feature.hpp"
 #include "item-sort.hpp"
+#include "inventory-ui.hpp"
 #include "logger.hpp"
 #include "imgui.h"
 #include "imgui_internal.h"  // MarkIniSettingsDirty
@@ -480,6 +481,7 @@ namespace {
         void Off() override {
             g_on = false;
             game::SetEventListener(&OnEvent, false);
+            item_sort::ui::Off();
         }
 
         // profile=<i> | w.<profile>.<stat>=<weight> | a.<profile>.<attack>=<weight>
@@ -539,6 +541,7 @@ namespace {
             if (!g_haveNames.load(std::memory_order_acquire)) LoadNames();
             if (!g_haveNames.load(std::memory_order_acquire)) return;
             if (!resolved && (resolved = Resolve())) { g_on = true; game::SetEventListener(&OnEvent, true); }
+            if (resolved) item_sort::ui::Frame();  // game buttons in the inventory/bank header (inventory-ui.cpp)
 
             // Bank: storage containers owned by the local controller (memory scan, every second).
             std::vector<Ref> banks;
