@@ -64,6 +64,7 @@ static bool KeyPassed(unsigned vk) {
 // Registered on the window's (game) thread only if the game hasn't registered the mouse itself; removed after.
 static std::atomic<long> g_rawDX{0}, g_rawDY{0};
 static std::atomic<bool> g_rawSeen{false};
+static std::atomic<long> g_wheel{0};  // WHEEL_DELTA units, while captured
 static bool g_rawOurs = false;
 
 static void UpdateRawMouse(bool want) {
@@ -95,6 +96,7 @@ static LRESULT WINAPI hkWndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     }
     const bool captured = !g_showMenu && InputCaptured();
     UpdateRawMouse(captured);
+    if (msg == WM_MOUSEWHEEL && captured) g_wheel += GET_WHEEL_DELTA_WPARAM(w);
     if (msg == WM_INPUT && captured) {
         RAWINPUT ri{};
         UINT size = sizeof(ri);
@@ -311,6 +313,7 @@ static void RunFeatures(const game::Snapshot& snap) {
     fr.mouseDX = float(g_rawDX.exchange(0));
     fr.mouseDY = float(g_rawDY.exchange(0));
     fr.rawMouse = g_rawSeen.load();
+    fr.wheel = float(g_wheel.exchange(0)) / WHEEL_DELTA;
     for (feature::Feature* f : feature::Feature::All()) {
         if (f->wasEnabled && !f->enabled) f->Off();
         f->wasEnabled = f->enabled;

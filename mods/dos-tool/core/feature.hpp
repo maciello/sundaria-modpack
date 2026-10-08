@@ -20,6 +20,7 @@ namespace feature {
         const std::vector<combat::Sample>& chars; // every character with health, this frame
         float mouseDX = 0, mouseDY = 0;  // raw mouse motion since last frame while a feature captures input (cursor-independent)
         bool rawMouse = false;           // raw mouse input is arriving (else fall back to the cursor position)
+        float wheel = 0;                 // mouse wheel notches since last frame while a feature captures input (+ = away)
     };
 
     // Kubernetes feature-gate stages. Default on only when Stable; Alpha is shown only with dos-tool.dev.
