@@ -19,6 +19,7 @@ namespace combat {
         uintptr_t id; float x, y, z; float health; bool isPlayer; float maxHealth = 0; float level = 0; float seen = 0;
         unsigned hitStamp = 0; uintptr_t hitType = 0; Element element = Element::Physical; float hitDamage = 0;
         uintptr_t hitBy = 0;
+        int32_t index = -1;  // GObjects index when sampled: the game thread checks GObjects[index] == id before touching it
     };
 
     enum class Kind { Dealt, Taken, Heal };

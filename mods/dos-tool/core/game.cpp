@@ -189,6 +189,7 @@ std::vector<combat::Sample> SampleNow() {
             out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z, status->CurrentHealth,
                            PtrOk(c->PlayerState), secondary ? secondary->Health : 0.0f, status->CurrentLevel, seen,
                            hit.EnsureReplicationByte, source, ElementOf(type), hit.ActualDamage, by});
+            out.back().index = c->Index;
         }
     }
     return out;
