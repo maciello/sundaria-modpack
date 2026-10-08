@@ -1,6 +1,7 @@
 #include "hub_ui.hpp"
 #include "game.hpp"
 #include "logger.hpp"
+#include "ref.hpp"
 
 #include <Windows.h>
 #include <atomic>
@@ -16,7 +17,6 @@ namespace {
         const uintptr_t v = reinterpret_cast<uintptr_t>(p);
         return v > 0x10000 && v < 0x7FFFFFFFFFFFull;
     }
-    bool Alive(const UObject* o) { return PtrOk(o) && UObject::GObjects->GetByIndex(o->Index) == o; }
 
     APlayerController* LocalPC() {
         UWorld* w = UWorld::GetWorld();
@@ -41,12 +41,12 @@ namespace {
     float g_talkAt[3] = {};                // written before g_talkReq is set
     std::atomic<int> g_focusReq{-1};       // -1 none, 0 unfocus, 1 focus g_focusAt
     float g_focusAt[3] = {};
-    AActor* g_focused = nullptr;           // game thread
+    ref::Ref g_focused;                    // game thread
     std::atomic<bool> g_listening{false};
 
     // game thread
-    std::vector<AActor*> g_hidden;         // what we hid (restored only if still alive)
-    UWorld* g_hiddenWorld = nullptr;
+    std::vector<ref::Ref> g_hidden;        // what we hid (restored only if still alive)
+    ref::Ref g_hiddenWorld;
 
     template <class F> void ForEachButton(UWorld* w, F&& fn) {
         for (int li = 0; li < w->Levels.Num(); li++) {
@@ -62,9 +62,10 @@ namespace {
     void ApplyHide(bool hide) {  // once per toggle: walks the levels' actors, not per frame
         UWorld* w = UWorld::GetWorld();
         if (!PtrOk(w)) return;
-        if (w != g_hiddenWorld) { g_hidden.clear(); g_hiddenWorld = w; }
+        if (!g_hiddenWorld.Is(w)) { g_hidden.clear(); g_hiddenWorld = ref::Ref(w); }
         if (!hide) {
-            for (AActor* a : g_hidden) if (Alive(a)) { a->SetActorHiddenInGame(false); a->SetActorEnableCollision(true); }
+            for (const ref::Ref& r : g_hidden)
+                if (auto* a = r.Get<AActor>()) { a->SetActorHiddenInGame(false); a->SetActorEnableCollision(true); }
             logger::log("[hub-ui] hub buttons back: " + std::to_string(g_hidden.size()));
             g_hidden.clear();
             return;
@@ -73,7 +74,7 @@ namespace {
             if (a->bHidden || a->Class->GetName() == "BP_TriggerVolumeButton_Character_C") return;  // NPC zones stay; hub-hidden ones aren't ours
             a->SetActorHiddenInGame(true);
             a->SetActorEnableCollision(false);
-            g_hidden.push_back(a);
+            g_hidden.push_back(ref::Ref(a));
             logger::log("[hub-ui] hidden " + a->Class->GetName() + " " + a->GetName());
         });
         logger::log("[hub-ui] hub buttons hidden: " + std::to_string(g_hidden.size()));
@@ -111,9 +112,10 @@ namespace {
         APlayerController* pc = LocalPC();
         if (!PtrOk(w) || !PtrOk(pc)) return;
         AActor* next = on ? NpcButtonNear(w, g_focusAt) : nullptr;
-        if (next == g_focused) return;
-        if (Alive(g_focused)) SetFocused(g_focused, pc, false);
-        g_focused = next;
+        AActor* prev = g_focused.Get<AActor>();
+        if (next == prev) return;
+        if (prev) SetFocused(prev, pc, false);
+        g_focused = ref::Ref(next);
         if (next) SetFocused(next, pc, true);
     }
 
