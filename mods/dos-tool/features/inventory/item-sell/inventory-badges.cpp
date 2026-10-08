@@ -5,6 +5,7 @@
 #include "umg.hpp"
 #include "ref.hpp"
 #include "cost.hpp"
+#include "drain.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -43,8 +44,10 @@ namespace {
         ref::Fn setFont{UTextBlock::StaticClass, "TextBlock", "SetFont"};
         ref::Fn setText{UTextBlock::StaticClass, "TextBlock", "SetText"};
         ref::Fn convert{UFItemContainerFunctions_C::StaticClass, "FItemContainerFunctions_C", "ConvertCompressedItemSlot"};
+        ref::Fn remove{UWidget::StaticClass, "Widget", "RemoveFromParent"};
         ref::Fn detailTick{UWidgetItemDisplayDetail_C::StaticClass, "WidgetItemDisplayDetail_C", "Tick"};
     } g_fn;
+    game::Drain g_drain;  // Off(): the game thread removes our badges and lines
     ref::Ref g_tex[2];  // UTexture2D by Action: Sell, Salvage
     bool g_texSearched = false;
 
@@ -222,6 +225,16 @@ namespace {
         l.shown = std::move(want);
     }
 
+    void RemoveAll() {  // game thread (or Off() after its wait ran out)
+        for (const Badge& b : g_badges) if (UObject* w = b.img.Get()) CallNative(w, g_fn.remove.Get(), nullptr);
+        for (const Line& l : g_lines) if (UObject* w = l.text.Get()) CallNative(w, g_fn.remove.Get(), nullptr);
+        g_badges.clear();
+        g_lines.clear();
+        g_bags.clear();
+        g_newDetails.clear();
+        g_noLine.clear();
+    }
+
     void Track(std::vector<ref::Ref>& v, UObject* w) {
         for (const ref::Ref& t : v) if (t.Is(w)) return;
         v.push_back(ref::Ref(w));
@@ -232,6 +245,7 @@ namespace {
     void OnEvent(void* objp, void* fnp, void*) {
         if (t_busy || !g_on.load(std::memory_order_relaxed) || !PtrOk(objp) || !game::OnGameThread()) return;  // shared state, UFunction calls and ref resolution: game thread only
         t_busy = true;
+        if (umg::IsWorldTick(fnp) && g_drain.Serve(RemoveAll)) { t_busy = false; return; }
         auto* obj = static_cast<UObject*>(objp);
         if (g_fn.detailTick.Is(fnp)) {  // O(lines + badges on screen)
             static cost::Path path{"item-sell details tick"};
@@ -301,8 +315,9 @@ namespace item_sell::badges {
         g_on = true;  // game functions resolve on use (ref::Fn; Blueprint classes are null at the main menu, #54)
         game::SetEventListener(&OnEvent, true);
     }
-    // ponytail: shown badges stay (inert) until the game rebuilds its menus; hiding needs the game thread
+    // Runs with the ProcessEvent hook alive (#84): the next world tick removes the badges and lines.
     void Off() {
+        g_drain.Request(!g_badges.empty() || !g_lines.empty(), "item-sell", RemoveAll);
         g_on = false;
         game::SetEventListener(&OnEvent, false);
         g_badges.clear();
