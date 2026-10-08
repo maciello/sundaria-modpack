@@ -181,7 +181,8 @@ namespace {
             for (const items::Item& it : items)
                 if (it.specId == k.spec && it.level == k.level && it.grade == k.grade) {
                     Show(it, now);
-                    logger::log("[pickup-toast] " + it.name + " (grade " + std::to_string(it.grade) + ", lv " + std::to_string(it.level) + ")");
+                    logger::log("[pickup-toast] " + it.name + " (grade " + std::to_string(it.grade) + ", lv " + std::to_string(it.level) +
+                                ", icon " + std::to_string(io::IconId(it.specId)) + ")");
                     break;
                 }
     }
