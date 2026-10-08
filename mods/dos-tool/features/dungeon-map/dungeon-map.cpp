@@ -5,6 +5,7 @@
 #include "game.hpp"
 #include "logger.hpp"
 #include "ref.hpp"
+#include "drain.hpp"
 #include "umg.hpp"
 
 #include <Windows.h>
@@ -44,6 +45,9 @@ namespace {
     } g_ev;
     ref::Ref g_gameState;
     bool g_inDungeon = false, g_drawn = false;
+    game::Drain g_drain;  // Off(): the game thread removes our overlay
+
+    void RemoveAll() { dungeon_map::draw::Clear(); g_drawn = false; }  // game thread (or Off() after its wait ran out)
     double g_replanAt = INFINITY;
     dungeon_map::Plan g_plan;
     std::map<std::pair<int, int>, dungeon_map::Frontier> g_frontiers;  // (dungeon seed, floor number), this dungeon run
@@ -110,6 +114,7 @@ namespace {
     void OnEvent(void* obj, void* fn, void* parms) {
         if (t_busy || !game::OnGameThread()) return;
         t_busy = true;
+        if (umg::IsWorldTick(fn) && g_drain.Serve(RemoveAll)) { t_busy = false; return; }
         const bool on = g_on.load(std::memory_order_relaxed);
         if (umg::IsWorldTick(fn)) WorldTick();
         else if (on && g_minimapTick.Is(fn)) {
@@ -142,8 +147,11 @@ namespace {
             DeleteFileA(p.c_str());
             g_probe = true;
         }
-        // ponytail: the listener stays registered (O(1) per event) so the next world tick removes our widgets;
-        // unregister after that if the 8-listener cap gets tight.
-        void Off() override { g_on = false; }
+        // The listener stays registered (O(1) per event). Off() runs with the ProcessEvent hook alive (#84):
+        // the next world tick removes the overlay; the world-tick path clears it too once g_on is false.
+        void Off() override {
+            g_on = false;
+            g_drain.Request(g_drawn, "dungeon-map", RemoveAll);
+        }
     } g_feature;
 }
