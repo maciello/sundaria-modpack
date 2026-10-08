@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CUE4Parse" Version="1.2.2.202610" />
+    <PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.12" />  <!-- CUE4Parse pulls 9.0.0: GHSA-73j8-2gch-69rq -->
   </ItemGroup>
 </Project>
