@@ -162,3 +162,7 @@ weapon_types (SDK only, values unread in game; probe: features/weapon-probe, `we
   speed: ShootArrow/RapidShot WeaponTypePlayRate TMap<EWeaponType,float>; Salvo PlayRateScaleCrossbow @0x918
   forum (steamcommunity.com/app/587520/discussions/0/4030223221276280137/, user posts, not verified): bow skill fires instantly, no draw; only a Ranger has an aim animation on one skill; Rogue can slot "shoot arrow"
   forum (…/5946473955238289588/): two 1H crossbows give magic pen (user claim, unverified)
+
+dps_probe (#89, Alpha optIn, features/inventory/dps-probe): file trigger `dps-probe.probe` next to the exe -> `dos-tool-dps-state.yaml`
+  content: hero + 3 nearest non-player characters: every float of each SpawnedAttributes set (Primary/Secondary/Heroism/Status/Config), hero's equipped items with rolled stats (items::io::Read)
+  not in it: tables, curves, bytecode (offline pak extractor), active gameplay effects (buffs)   # unverified in game
