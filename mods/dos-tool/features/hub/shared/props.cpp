@@ -24,7 +24,7 @@ namespace {
     std::atomic<bool> g_pending{false}, g_listening{false};
 
     // render thread → game thread: the last Scan request and its answer, guarded by g_mu
-    struct NearReq { float x, y, z, radius; };
+    struct NearReq { float x, y, z, radius; std::vector<std::string> skip; };
     NearReq g_scan{};
     bool g_scanAsked = false;
     std::vector<props::Prop> g_near;
@@ -54,10 +54,15 @@ namespace {
         return nullptr;
     }
 
-    UStaticMeshComponent* MeshOf(AActor* a) {
-        if (!a->IsA(AStaticMeshActor::StaticClass())) return nullptr;
-        UStaticMeshComponent* c = static_cast<AStaticMeshActor*>(a)->StaticMeshComponent;
-        return PtrOk(c) ? c : nullptr;
+    UStaticMeshComponent* MeshOf(AActor* a) {  // a prop = an actor whose root is a static mesh
+        USceneComponent* r = a->RootComponent;
+        return PtrOk(r) && r->IsA(UStaticMeshComponent::StaticClass()) ? static_cast<UStaticMeshComponent*>(r) : nullptr;
+    }
+
+    std::string PathOf(UObject* o) {  // /Game/…/x.x - the package's raw FName keeps the folders, GetName() drops them
+        std::string pkg;
+        for (UObject* p = o->Outer; PtrOk(p); p = p->Outer) pkg = p->Name.GetRawString();
+        return pkg + "." + o->GetName();
     }
 
     void Run(const Req& r) {
@@ -115,41 +120,47 @@ namespace {
         Wake();
     }
 
-// Game thread. ponytail: walks the loaded levels' actors; build mode asks only after the hero moved 2 m
+// ponytail: walks the loaded levels' actors; build mode asks only after the eye moved 2 m
 std::vector<props::Prop> NearNow(const NearReq& q) {
     using props::Prop;
     const float x = q.x, y = q.y, z = q.z, radius = q.radius;
     std::vector<Prop> out;
     UWorld* w = UWorld::GetWorld();
     if (!PtrOk(w)) return out;
-    UClass* smaCls = AStaticMeshActor::StaticClass();
+    UClass* smcCls = UStaticMeshComponent::StaticClass();
+    UClass* pawnCls = APawn::StaticClass();
     for (int li = 0; li < w->Levels.Num(); li++) {
         ULevel* lvl = w->Levels[li];
         if (!PtrOk(lvl)) continue;
         for (int ai = 0; ai < lvl->Actors.Num(); ai++) {
             AActor* a = lvl->Actors[ai];
-            if (!PtrOk(a) || !PtrOk(a->RootComponent) || !a->IsA(smaCls)) continue;
+            if (!PtrOk(a) || !PtrOk(a->RootComponent) || !a->RootComponent->IsA(smcCls) || a->IsA(pawnCls) || a->bHidden) continue;
             const FVector p = a->RootComponent->RelativeLocation;
             const float dx = p.X - x, dy = p.Y - y, dz = p.Z - z;
             if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
-            UStaticMeshComponent* c = static_cast<AStaticMeshActor*>(a)->StaticMeshComponent;
-            if (!PtrOk(c) || !PtrOk(c->StaticMesh)) continue;  // shapeless props too (the anvil has no collision)
+            auto* c = static_cast<UStaticMeshComponent*>(a->RootComponent);
+            if (c->bHiddenInGame || !PtrOk(c->StaticMesh)) continue;  // hidden: our collision proxies; shapeless props count
+            const std::string name = a->GetName();
+            bool skipped = false;
+            for (const std::string& s : q.skip) skipped |= s == name;
+            if (skipped) continue;
             const FBoxSphereBounds& b = c->StaticMesh->ExtendedBounds;
             const FVector s = a->RootComponent->RelativeScale3D;
             const float scale = std::fmax(std::fabs(s.X), std::fmax(std::fabs(s.Y), std::fabs(s.Z)));
             const float r = b.SphereRadius * scale;
-            if (r > 250.0f || r < 10.0f) continue;  // walls/houses or crumbs
+            if (r > 400.0f || r < 10.0f) continue;  // walls/houses or crumbs
             const float base = (b.BoxExtent.Z - b.Origin.Z) * std::fabs(s.Z);  // pivot above the bottom
-            out.push_back({a->GetName(), p.X, p.Y, p.Z, p.Z + b.Origin.Z * s.Z, a->RootComponent->RelativeRotation.Yaw, r, base});
+            out.push_back({name, p.X, p.Y, p.Z, p.Z + b.Origin.Z * s.Z, a->RootComponent->RelativeRotation.Yaw, r, base,
+                           PathOf(c->StaticMesh), s.X});
         }
     }
     return out;
 }
 }
 
-void props::Scan(float x, float y, float z, float radius) {
+void props::Scan(float x, float y, float z, float radius, const std::vector<std::string>& skip) {
     AcquireSRWLockExclusive(&g_mu);
-    g_scan = {x, y, z, radius};
+    g_scan = {x, y, z, radius, skip};
     g_scanAsked = true;
     ReleaseSRWLockExclusive(&g_mu);
     Wake();
