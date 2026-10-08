@@ -87,6 +87,7 @@ namespace {
         const FVector& p = root->RelativeLocation;  // unattached root: relative == world
         const ref::Ref r(a);
         AcquireSRWLockExclusive(&g_mu);
+        std::erase_if(g_list, [](const Entry& e) { return !e.a.Get(); });  // streamed-out / destroyed loot: O(tracked) per spawn
         if (std::none_of(g_list.begin(), g_list.end(), [&](const Entry& e) { return e.a == r; })) g_list.push_back({r, kind, p.X, p.Y, p.Z});
         ReleaseSRWLockExclusive(&g_mu);
     }
