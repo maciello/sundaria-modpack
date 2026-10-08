@@ -1,6 +1,6 @@
 ---
 name: sundaria-modding
-description: Main entrypoint for ALL work on Dungeons of Sundaria (UE 4.27, Steam 587520) and the sundaria-modpack repo — the dos-tool DLL (ImGui overlay, damage numbers, DPS meter, camera, air control, health bars), the Dumper-7 SDK, hot reload into the running game, crash dumps, and the GitHub-release auto-updater friends use. Use whenever the user mentions Sundaria, the modpack, dos-tool, a new in-game feature/tweak (UI, numbers, colours, design system, visuals, movement, camera, stats), a game crash, "the game patched and the mod broke", re-dumping the SDK, releasing to friends, or finding a game class/field/offset — even if they don't say "mod".
+description: Main entrypoint for ALL work on Dungeons of Sundaria (UE 4.27, Steam 587520) and the sundaria-modpack repo — the dos-tool DLL (ImGui overlay, damage numbers, DPS meter, camera, air control, health bars), the Dumper-7 SDK, hot reload into the running game, crash dumps, and the GitHub-release auto-updater friends use. Use whenever the user mentions Sundaria, the modpack, dos-tool, a new in-game feature/tweak (UI, numbers, colours, design system, visuals, movement, camera, stats), a game crash, "the game patched and the mod broke", re-dumping the SDK, releasing to friends, finding a game class/field/offset, or asking how the game works (who calls a function, who writes a variable, what an event triggers, live values in the running game) — even if they don't say "mod".
 ---
 
 # Sundaria modding: router
@@ -14,6 +14,11 @@ Maintenance contract:
 - Learned something the hard way (crash, wrong assumption, workaround)? Add it to `references/gotchas.md` in the same commit as the fix.
 - A step you ran by hand twice becomes a script here.
 - Keep this file under ~60 lines.
+
+## Ask the game before guessing
+Unsure how the game works? Look it up first (≤1 s each); guesses + probe builds cost hours.
+- game logic (who calls / writes / reads X, what an event triggers, why our hook never sees a call): `just data callers|writers|readers|calls|events|ast <name>`, offline
+- running game (live values, nearby actors, what fires now, the screen): `just game get|find|call|trace|shot|log`, dev install
 
 ## Route by task
 | task | read / run |
