@@ -145,6 +145,8 @@ ability_hits (verified in game 2026-10-08, dump removed after: read the montage 
   hits per cast = notifies in the playing montage: UAnimSequenceBase::Notifies[].Notify IsA UBP_GameplayAnimNotify_C, mGameplayAnimNotifyType {ApplyEffect 0, ShootProjectile 1, AnimLockStart 2, AnimLockEnd 3}; hits = count(0)+count(1). SlotAnimTracks notifies not counted (unverified whether used)
   playing montage: local AArchonCharacter->mAbilitySystemComponent->LocalAnimMontageInfo {AnimMontage, AnimatingAbility}
   example: BP_GameAbility_RapidShot_C, Mon_RapidShot_H_M_Crossbow2H: 1.65 s, ShootProjectile ×8 → 8 hits
+  landed_projectile_hit: UArchonGameplayAbility::OnProjectileHit(FHitResult Hit @0x0, AActor* InstigatorActor @0x88) is a BlueprintEvent (BP_GameAbilityBase_C overrides it) → passes ProcessEvent with obj = the ability; Hit.Actor (weak @+0x68) = what the arrow hit. Match by FName (override ≠ native UFunction). features/cast-indicator; UNVERIFIED in game (co-op client: likely host-only)
+  montage_end: ASC.LocalAnimMontageInfo.AnimatingAbility clears when the montage ends (UE 4.27 GAS; unverified here); PlayBit flips per play, so a recast of the same montage is a change
   montage per ability/weapon: soft ptrs in UBP_GameAbilityBase_C::{AnimSkeleton_OverrideWeaponAnims, OverrideAnims}, UBP_GameAbility_WeaponMontage_C::OverrideWeaponAnims{Left,Right}; their weak index is unset → resolve a loaded montage by object name; only montages of equipped weapons are loaded (300/1339)
   sdk_quirk: SDK TMap iteration/operator[] fails to compile (SetElement::Value private) → read raw: Data ptr at +0, stride = sizeof(TPair)+8, skip free slots with IsValidIndex
 
