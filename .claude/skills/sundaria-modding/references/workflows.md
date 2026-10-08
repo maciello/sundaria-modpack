@@ -14,6 +14,12 @@ scripts/sdk.py subs UDamageType            # what IsA() will catch
 ```
 Read `game-facts.md` first; add every newly confirmed path there.
 
+Live game data (game running, dev install), no user clicks needed:
+```bash
+just abilities   # → path of dos-tool-abilities.yaml: every ability class, tags, cooldown/cast GE, montages, hits per montage
+```
+Montage data (length, notifies, hits) exists only for montages loaded right now (weapons in use); others say `loaded: false`.
+
 ## Dev loop
 ```bash
 just test               # every host test + updater

@@ -367,12 +367,19 @@ namespace {
         return out;
     }
 
+    std::unordered_map<std::string, UAnimMontage*> g_montages;  // loaded montages by object name, rebuilt per dump
+
     void AddSoft(const TSoftObjectPtr<UAnimMontage>& sp, std::vector<Montage>& out) {
         std::string path = sp.ObjectID.AssetPathName.ToString();
         if (path.empty() || path == "None") return;
         for (const Montage& m : out) if (m.path == path) return;
         UObject* o = sp.Get();  // memory read via GObjects index
-        out.push_back(ReadMontage(PtrOk(o) && o->IsA(UAnimMontage::StaticClass()) ? static_cast<UAnimMontage*>(o) : nullptr, path));
+        UAnimMontage* m = PtrOk(o) && o->IsA(UAnimMontage::StaticClass()) ? static_cast<UAnimMontage*>(o) : nullptr;
+        if (!m) {  // the weak index is often unset: match a loaded montage by name
+            auto it = g_montages.find(path.substr(path.find_last_of('.') + 1));
+            if (it != g_montages.end()) m = it->second;
+        }
+        out.push_back(ReadMontage(m, path));
     }
 
     // The SDK's TMap accessors don't compile (SetElement::Value is private), so read the sparse array raw:
@@ -422,6 +429,14 @@ void game::DumpAbilities(std::vector<ability_dump::Ability>& out, ability_dump::
     UClass* abilityCls = UArchonGameplayAbility::StaticClass();
     UClass* baseCls = UBP_GameAbilityBase_C::StaticClass();
     UClass* weaponCls = UBP_GameAbility_WeaponMontage_C::StaticClass();
+    g_montages.clear();
+    if (UObject::GObjects) {
+        UClass* montageCls = UAnimMontage::StaticClass();
+        for (int i = 0; i < UObject::GObjects->Num(); i++) {
+            UObject* o = UObject::GObjects->GetByIndex(i);
+            if (PtrOk(o) && PtrOk(o->Class) && o->IsA(montageCls)) g_montages[o->GetName()] = static_cast<UAnimMontage*>(o);
+        }
+    }
     if (UObject::GObjects) {
         const int n = UObject::GObjects->Num();
         for (int i = 0; i < n; i++) {
