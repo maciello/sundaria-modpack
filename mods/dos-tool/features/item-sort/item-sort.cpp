@@ -32,7 +32,7 @@
 // by the active profile (item-sort.hpp: score, order). Game thread (ProcessEvent listener): read items +
 // stats, compute our order, apply it through the game's reorder UFunction, read the container back.
 // Render thread: enum/attribute names, bank lookup, dev triggers. API for the UI: item_sort::api (item-sort.hpp).
-// Dev loop: files next to the exe trigger work once: item-sort.probe (log only), item-sort.apply / item-sort.apply-bank.
+// Dev loop: files next to the exe trigger work once: item-sort.probe (log only), item-sort.profile<i>, item-sort.apply / item-sort.apply-bank.
 using namespace SDK;
 
 namespace {
@@ -177,7 +177,8 @@ namespace {
         for (int i = 0; i < int(v.size()) && i < n; i++) s += " " + I(v[i]);
         return s + (int(v.size()) > n ? " …" : "");
     }
-    long long KeyOf(const Item& it) { return (static_cast<long long>(it.specId) << 32) ^ (static_cast<long long>(it.changeId) << 8) ^ it.level; }
+    // Item identity across a reorder. Not ChangedID: the game rewrites it on every reorder.
+    long long KeyOf(const Item& it) { return (static_cast<long long>(it.specId) << 32) | static_cast<unsigned>(it.level); }
 
     UFunction* Fn(UObject* o, const char* cls, const char* name) { return PtrOk(o) ? o->Class->GetFunction(cls, name) : nullptr; }
 
@@ -370,7 +371,9 @@ namespace {
             std::string keys;
             char buf[24];
             for (long long k : intended) { std::snprintf(buf, sizeof buf, " %llx", static_cast<unsigned long long>(k)); keys += buf; }
-            logger::log("[item-sort] intended keys:" + keys);
+            std::vector<long long> u = intended;
+            std::sort(u.begin(), u.end());
+            logger::log("[item-sort] intended keys (" + I(int(std::unique(u.begin(), u.end()) - u.begin())) + " unique):" + keys);
             logger::log("[item-sort] layout before:" + Layout(c, bank, specs));
         }
         for (const Try& t : tries) {
@@ -549,6 +552,8 @@ namespace {
             AcquireSRWLockExclusive(&g_mu); g_bankScan = std::move(banks); ReleaseSRWLockExclusive(&g_mu);
 
             if (TakeFile("item-sort.probe")) g_probe = true;
+            for (int i = 0; i < 4; i++)
+                if (TakeFile(("item-sort.profile" + std::to_string(i)).c_str())) api::SetActiveProfile(i);
             if (TakeFile("item-sort.apply")) g_request |= 1;
             if (TakeFile("item-sort.apply-bank")) g_request |= 2;
         }
