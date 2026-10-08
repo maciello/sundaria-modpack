@@ -25,10 +25,6 @@
 #include "BP_SpecItemCommon_classes.hpp"
 #include "WidgetitemBagHeaderMenu_classes.hpp"
 #include "BP_HUDInventoryComponent_classes.hpp"
-#include "FItemContainerFunctions_classes.hpp"
-#include "FItemContainerFunctions_parameters.hpp"
-#include "FItemSortFunctions_classes.hpp"
-#include "FItemSortFunctions_parameters.hpp"
 
 // Item sort (non-visual part; the inventory UI is the designer's): the game's own Sort button sorts the bag
 // by the active profile (item-sort.hpp: score, order). Game thread (ProcessEvent listener): read items +
@@ -57,7 +53,7 @@ namespace {
     std::atomic<int> g_active{0};
     std::vector<Profile> g_profiles = Presets();  // weights from dos-tool.ini; guarded by g_mu
     std::atomic<unsigned> g_request{0};           // 1 inventory, 2 bank (API, dev files)
-    std::atomic<bool> g_probe{false}, g_on{false};
+    std::atomic<bool> g_probe{false}, g_on{false}, g_verbose{false};  // verbose: per-item sort dump, set by item-sort.probe
     std::unordered_map<UFunction*, std::string> g_triggers;  // read-only once g_on
     unsigned g_pendingMask = 0;  // vanilla sort seen: 1 inventory, 2 bank
     ULONGLONG g_due = 0;
@@ -72,17 +68,6 @@ namespace {
     void SetStatus(const std::string& s) {
         AcquireSRWLockExclusive(&g_mu); g_status = s; ReleaseSRWLockExclusive(&g_mu);
         logger::log("[item-sort] " + s);
-    }
-    std::vector<int> ReadInts(const TArray<int32>& a) {
-        const RawArray& r = reinterpret_cast<const RawArray&>(a);
-        std::vector<int> v;
-        if (r.num > 0 && r.num < 100000 && PtrOk(r.data)) v.assign(static_cast<int32*>(r.data), static_cast<int32*>(r.data) + r.num);
-        return v;
-    }
-    std::string Head(const std::vector<int>& v, int n = 16) {
-        std::string s;
-        for (int i = 0; i < int(v.size()) && i < n; i++) s += " " + I(v[i]);
-        return s + (int(v.size()) > n ? " …" : "");
     }
     UFunction* Fn(UObject* o, const char* cls, const char* name) { return PtrOk(o) ? o->Class->GetFunction(cls, name) : nullptr; }
 
@@ -125,16 +110,6 @@ namespace {
         return keys;
     }
 
-    // "slot=key" for every bag item, ascending slot: lets the log prove what a reorder call did.
-    std::string Layout(UBP_ItemContainerComponent_C* c, bool bank) {
-        std::vector<Item> items = Bag(io::Read(c, bank, false));
-        std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.slot < b.slot; });
-        std::string out;
-        char buf[48];
-        for (const Item& it : items) { std::snprintf(buf, sizeof buf, " %d=%llx", it.slot, static_cast<unsigned long long>(KeyOf(it))); out += buf; }
-        return out;
-    }
-
     void CallWithArray(UObject* obj, UFunction* fn, void* parms, TArray<int32>& field, const std::vector<int>& v) {
         RawArray arr{const_cast<int*>(v.data()), int32(v.size()), int32(v.size())};
         std::memcpy(&field, &arr, sizeof(arr));
@@ -142,98 +117,58 @@ namespace {
         std::memset(&field, 0, sizeof(arr));  // our memory, not the game's
     }
 
-    // The game's sort list for this bag (its own format): FItemSortFunctions_C::SortItems.
-    std::vector<int> GameSortList(UBP_ItemContainerComponent_C* c, UObject* ctx) {
-        UFunction* fn = UFItemSortFunctions_C::StaticClass()->GetFunction("FItemSortFunctions_C", "SortItems");
-        if (!fn) return {};
-        // ponytail: the out TArray is allocated by the game and leaked (a few hundred bytes per sort)
-        Params::FItemSortFunctions_C_SortItems p{};
-        p.ItemContainer = c;
-        p.ContainerType = EItemContainerType(0);
-        p.Sort = EItemSort(0);
-        p.Descending = false;
-        p.__WorldContext = ctx;
-        UFItemSortFunctions_C::GetDefaultObj()->ProcessEvent(fn, &p);
-        return ReadInts(p.SorteditemSlots);
+    double Ms(LARGE_INTEGER& t) {  // ms since t; t = now
+        LARGE_INTEGER n, f;
+        QueryPerformanceCounter(&n);
+        QueryPerformanceFrequency(&f);
+        const double ms = double(n.QuadPart - t.QuadPart) * 1000.0 / double(f.QuadPart);
+        t = n;
+        return ms;
     }
+    std::string Ms2(double ms) { return std::to_string(ms).substr(0, 5); }
 
-    // Sort one bag by the active profile; every step logged, success proven by reading the bag back.
+    // Sort one bag by the active profile through InvManager.ReorderItems (verified path), proven by one readback.
+    // One log line; the per-item dump only after item-sort.probe (g_verbose).
     void RunSort(bool bank) {
         const char* what = bank ? "bank" : "inventory";
+        LARGE_INTEGER t;
+        QueryPerformanceCounter(&t);
         Where2 w = Locate();
-        logger::log(std::string("[item-sort] sort ") + what + ": pc " + (w.pc ? "ok" : "-") + ", inv manager " + (w.inv ? "ok" : "-") +
-                    ", bag " + (w.bag ? I(w.bag->Items.Num()) : "-") + ", " + w.how);
         UBP_ItemContainerComponent_C* c = bank ? w.bank : w.bag;
-        if (!c || !w.inv) return SetStatus(std::string(what) + ": container not found (" + w.how + ")");
+        UFunction* fn = Fn(w.inv, "BP_InvManagerComponent_C", "ReorderItems");
+        if (!c || !fn) return SetStatus(std::string(what) + ": container not found (" + w.how + ")");
         AcquireSRWLockShared(&g_mu);
         const Profile prof = g_profiles[std::clamp(g_active.load(), 0, int(g_profiles.size()) - 1)];
         ReleaseSRWLockShared(&g_mu);
 
         std::vector<Item> items = Bag(io::Read(c, bank, true));
-        LogItems(what, items);
+        const double readMs = Ms(t);
         if (items.size() < 2) return SetStatus(std::string(what) + ": nothing to sort");
         std::vector<float> score;
         const std::vector<int> idx = Order(items, prof, io::GetNames().stat, &score);
         std::vector<long long> intended;
         std::vector<int> bySlots;
         for (int i : idx) { intended.push_back(KeyOf(items[i])); bySlots.push_back(items[i].slot); }
-        logger::log(std::string("[item-sort] profile '") + prof.name + "' order (group/bucket name score lv):");
-        for (int k = 0; k < int(idx.size()) && k < 20; k++) {
+        const double orderMs = Ms(t);
+
+        Params::BP_InvManagerComponent_C_ReorderItems p{};
+        p.IsStorage = bank;
+        CallWithArray(w.inv, fn, &p, p.SlotsToMove, bySlots);
+        const double applyMs = Ms(t);
+        const int ok = InOrder(intended, CurrentOrder(c, bank));
+        const double checkMs = Ms(t);
+        SetStatus(std::string(what) + (ok == int(intended.size()) ? ": sorted by '" : ": NOT in order after ReorderItems, profile '") + prof.name +
+                  "' " + I(ok) + "/" + I(intended.size()) + " | ms read " + Ms2(readMs) + " order " + Ms2(orderMs) + " apply " + Ms2(applyMs) +
+                  " check " + Ms2(checkMs) + " total " + Ms2(readMs + orderMs + applyMs + checkMs));
+        if (!g_verbose) return;
+        LogItems(what, items);
+        for (int k = 0; k < int(idx.size()); k++) {
             const Item& it = items[idx[k]];
             const Bucket bk = BucketOf(it, prof.focus);
             const std::string sub = bk.group == 0 ? it.typeName : bk.group == 3 ? "" : At(io::GetNames().equipSlot, it.equipSlot) + "#" + I(it.equipSlot);
             logger::log("[item-sort]   " + I(k + 1) + ". " + kKindName[int(it.kind)] + (bk.group == 2 ? "(equipable)" : "") + "/" + sub + " '" +
                         it.name + "' " + std::to_string(score[idx[k]]).substr(0, 5) + " lv" + I(it.level));
         }
-
-        // Try the game's reorder paths until the bag reads back in our order.
-        struct Try { const char* name; std::vector<int> list; int how; };
-        std::vector<Try> tries;
-        tries.push_back({"InvManager.ReorderItems(slots in new order)", bySlots, 0});
-        tries.push_back({"Container.Request_ReorderItems(slots in new order)", bySlots, 1});
-        tries.push_back({"Container.RemapItemSlots(slots in new order)", bySlots, 2});
-        const std::vector<long long> before = CurrentOrder(c, bank);
-        {
-            std::string keys;
-            char buf[24];
-            for (long long k : intended) { std::snprintf(buf, sizeof buf, " %llx", static_cast<unsigned long long>(k)); keys += buf; }
-            std::vector<long long> u = intended;
-            std::sort(u.begin(), u.end());
-            logger::log("[item-sort] intended keys (" + I(int(std::unique(u.begin(), u.end()) - u.begin())) + " unique):" + keys);
-            logger::log("[item-sort] layout before:" + Layout(c, bank));
-        }
-        for (const Try& t : tries) {
-            if (t.how == 0) {
-                UFunction* fn = Fn(w.inv, "BP_InvManagerComponent_C", "ReorderItems");
-                if (!fn) continue;
-                Params::BP_InvManagerComponent_C_ReorderItems p{};
-                p.IsStorage = bank;
-                CallWithArray(w.inv, fn, &p, p.SlotsToMove, t.list);
-            } else if (t.how == 1) {
-                UFunction* fn = Fn(c, "BP_ItemContainerComponent_C", "Request_ReorderItems");
-                if (!fn) continue;
-                Params::BP_ItemContainerComponent_C_Request_ReorderItems p{};
-                p.ContainerType = EItemContainerType(0);
-                CallWithArray(c, fn, &p, p.RemappedItemSlots, t.list);
-            } else {
-                UFunction* fn = Fn(c, "BP_ItemContainerComponent_C", "RemapItemSlots");
-                if (!fn) continue;
-                Params::BP_ItemContainerComponent_C_RemapItemSlots p{};
-                p.ContainerType = EItemContainerType(0);
-                CallWithArray(c, fn, &p, p.NewItemSlots, t.list);
-            }
-            const std::vector<long long> after = CurrentOrder(c, bank);
-            const int ok = InOrder(intended, after), was = InOrder(intended, before);
-            logger::log("[item-sort] full list:" + Head(t.list, 1 << 20));
-            logger::log("[item-sort] layout after:" + Layout(c, bank));
-            logger::log(std::string("[item-sort] tried ") + t.name + ": list" + Head(t.list, 8) + " -> in intended order " + I(ok) + "/" +
-                        I(intended.size()) + " (before " + I(was) + "), bag changed " + (after != before ? "yes" : "no"));
-            if (ok == int(intended.size()))
-                return SetStatus(std::string(what) + ": sorted by '" + prof.name + "' via " + t.name);
-            if (after != before)  // the bag moved but not into our order: stop, the next list was built for the old layout
-                return SetStatus(std::string(what) + ": " + t.name + " moved items but not into the profile order (see log)");
-        }
-        SetStatus(std::string(what) + ": no reorder path produced the profile order (see log)");
     }
 
     void Probe() {
@@ -250,8 +185,6 @@ namespace {
                         I(c->ArmorData.Num()) + " SortedSimplified " + I(c->SortedSimplifiedItems.Num()) + " ContainerSize " + I(c->ContainerSize) +
                         " MaxItemSlot " + I(c->MaxItemSlot));
                 LogItems(c == w.bag ? "probe bag" : "probe bank", io::Read(c, c == w.bank, true));
-            logger::log("[item-sort] probe layout:" + Layout(c, c == w.bank));
-            logger::log("[item-sort] probe game sorter list:" + Head(GameSortList(c, w.inv ? static_cast<UObject*>(w.inv) : c), 24));
         }
     }
 
@@ -358,7 +291,7 @@ namespace {
             if (!resolved && (resolved = Resolve())) { g_on = true; game::SetEventListener(&OnEvent, true); }
             if (resolved) item_sort::ui::Frame();  // game buttons in the inventory/bank header (inventory-ui.cpp)
 
-            if (TakeFile("item-sort.probe")) g_probe = true;
+            if (TakeFile("item-sort.probe")) g_probe = g_verbose = true;
             for (int i = 0; i < 4; i++)
                 if (TakeFile(("item-sort.profile" + std::to_string(i)).c_str())) api::SetActiveProfile(i);
             if (TakeFile("item-sort.apply")) g_request |= 1;

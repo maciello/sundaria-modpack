@@ -35,10 +35,11 @@ namespace {
     std::vector<Placed> g_placed;
     std::atomic<bool> g_on{false};
     thread_local bool t_busy = false;
-    ULONGLONG g_nextScan = 0;
     int g_shown = -1;  // profile index the labels show
+    UClass* g_headerCls = nullptr;
 
     bool Resolve() {
+        g_headerCls = UWidgetitemBagHeaderMenu_C::StaticClass();
         g_fn.create = UWidgetBlueprintLibrary::StaticClass()->GetFunction("WidgetBlueprintLibrary", "Create");
         g_fn.addChild = UPanelWidget::StaticClass()->GetFunction("PanelWidget", "AddChild");
         g_fn.removeChild = UPanelWidget::StaticClass()->GetFunction("PanelWidget", "RemoveChild");
@@ -123,27 +124,36 @@ namespace {
         return b;
     }
 
-    bool Scan() {  // true = a button was placed or adopted
+    // One bag header: adopt our button already in it, else place one. true = newly tracked.
+    bool Consider(UWidgetitemBagHeaderMenu_C* h, APlayerController* pc) {
+        for (const Placed& p : g_placed) if (p.header == h) return false;
+        if ((int(h->Flags) & 0x30) || !PtrOk(h->Button_Sort) || !PtrOk(h->Button_Sort->Slot) || !PtrOk(h->Button_Sort->Slot->Parent)) return false;  // CDO / archetype: never touch
+        UPanelWidget* row = h->Button_Sort->Slot->Parent;
+        if (!row->IsA(UHorizontalBox::StaticClass()) || !h->Button_Sort->Slot->IsA(UHorizontalBoxSlot::StaticClass())) return false;
+        UWidgetButton01_C* b = Existing(row);
+        if (!b) b = Place(h, row, pc);
+        if (b) g_placed.push_back({h, h->Index, b, b->Index});
+        return b != nullptr;
+    }
+
+    // Once per enable (headers built before a hot reload): one GObjects walk, timed. Afterwards headers come from
+    // their own ProcessEvent calls (OnEvent), so nothing walks GObjects per tick.
+    bool ScanOnce(APlayerController* pc) {
+        LARGE_INTEGER t0, t1, f;
+        QueryPerformanceCounter(&t0);
         bool added = false;
-        APlayerController* pc = umg::LocalPC();
-        if (!pc) return false;
-        std::erase_if(g_placed, [](const Placed& p) { return !Alive(p.header, p.headerIdx) || !Alive(p.button, p.buttonIdx); });
         UClass* cls = UWidgetitemBagHeaderMenu_C::StaticClass();
         for (int i = 0; PtrOk(cls) && i < UObject::GObjects->Num(); i++) {
             UObject* o = UObject::GObjects->GetByIndex(i);
-            if (!PtrOk(o) || !o->IsA(cls) || (int(o->Flags) & 0x30)) continue;  // CDO / archetype (class templates): never touch
-            auto* h = static_cast<UWidgetitemBagHeaderMenu_C*>(o);
-            bool known = false;
-            for (const Placed& p : g_placed) known |= p.header == h;
-            if (known || !PtrOk(h->Button_Sort) || !PtrOk(h->Button_Sort->Slot) || !PtrOk(h->Button_Sort->Slot->Parent)) continue;
-            UPanelWidget* row = h->Button_Sort->Slot->Parent;
-            if (!row->IsA(UHorizontalBox::StaticClass()) || !h->Button_Sort->Slot->IsA(UHorizontalBoxSlot::StaticClass())) continue;
-            UWidgetButton01_C* b = Existing(row);
-            if (!b) b = Place(h, row, pc);
-            if (b) { g_placed.push_back({h, h->Index, b, b->Index}); added = true; }
+            if (PtrOk(o) && o->IsA(cls)) added |= Consider(static_cast<UWidgetitemBagHeaderMenu_C*>(o), pc);
         }
+        QueryPerformanceCounter(&t1);
+        QueryPerformanceFrequency(&f);
+        logger::log("[item-sort] header scan (once): " + std::to_string(UObject::GObjects->Num()) + " objects, " +
+                    std::to_string(double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart)).substr(0, 5) + " ms");
         return added;
     }
+    bool g_scanned = false;
 
     void OnEvent(void* objp, void* fnp, void*) {
         if (t_busy || !g_on.load(std::memory_order_relaxed)) return;
@@ -157,8 +167,15 @@ namespace {
                     break;
                 }
         const int active = item_sort::api::ActiveProfile();
-        const ULONGLONG now = GetTickCount64();
-        if (now >= g_nextScan) { g_nextScan = now + 500; if (Scan()) g_shown = -1; }
+        auto* obj = static_cast<UObject*>(objp);
+        const bool header = PtrOk(obj) && obj->Class == g_headerCls;  // one compare per event
+        if (!g_scanned || header) {
+            if (APlayerController* pc = umg::LocalPC()) {
+                std::erase_if(g_placed, [](const Placed& p) { return !Alive(p.header, p.headerIdx) || !Alive(p.button, p.buttonIdx); });
+                if (!g_scanned ? ScanOnce(pc) : Consider(static_cast<UWidgetitemBagHeaderMenu_C*>(obj), pc)) g_shown = -1;
+                g_scanned = true;
+            }
+        }
         if (active != g_shown) {
             for (const Placed& p : g_placed) SetLabel(p.button, Label(active));
             g_shown = active;
@@ -185,5 +202,6 @@ namespace item_sort::ui {
         g_on = false;
         game::SetEventListener(&OnEvent, false);
         g_placed.clear();
+        g_scanned = false;
     }
 }
