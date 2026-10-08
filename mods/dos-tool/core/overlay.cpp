@@ -338,10 +338,15 @@ bool overlay::Init() {
 }
 
 void overlay::Shutdown() {
-    kiero::shutdown();  // restores Present/ResizeBuffers
-    Sleep(200);         // let an in-flight hkPresent finish before tearing down
-    // unload = vanilla; only after the hook is gone, else a frame in between re-applies what Off() restored
+    // Present/Resize first: else a frame in between re-applies what Off() restored.
+    kiero::unbind(kIdxPresent);
+    kiero::unbind(kIdxResize);
+    Sleep(200);  // let an in-flight hkPresent finish before tearing down
+    // unload = vanilla. Off() runs with the ProcessEvent hook still alive: restores and widget removals that need the
+    // game thread complete on a real world tick (kiero::shutdown disables every MinHook hook, that one included) (#84).
     for (feature::Feature* f : feature::Feature::All()) if (f->enabled) f->Off();
+    kiero::shutdown();  // any ProcessEvent hook still left is gone here
+    Sleep(100);         // in-flight hooked calls leave our code before the DLL goes
     if (g_oWndProc) { SetWindowLongPtr(g_hwnd, GWLP_WNDPROC, (LONG_PTR)g_oWndProc); g_oWndProc = nullptr; }
     if (g_rawOurs) { RAWINPUTDEVICE rid{1, 2, RIDEV_REMOVE, nullptr}; RegisterRawInputDevices(&rid, 1, sizeof(rid)); g_rawOurs = false; }
     if (g_imguiReady) {
