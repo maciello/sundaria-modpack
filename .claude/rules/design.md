@@ -1,6 +1,7 @@
 # Design (every visual)
 Visual = anything drawn, animated or framed: overlay text/shapes, icons, glow, particles, HUD, menu styling, camera moves and cutscenes.
 - Who: visual work is designed AND implemented by an Opus agent (maintainer, 2026-10-08: "all visuals by opus"). Sonnet agents do only the non-visual parts (data, SDK reads, logic, filing) and hand drawing to Opus.
+- Game screens: a feature that extends a game screen (inventory, bank, map, menus) adds the game's own UMG widgets (its button/dropdown classes and styles) into that screen on the game thread. ImGui only for our own HUD overlays (numbers, bars) and the Insert menu. Maintainer, 2026-10-08: "it should be INSIDE THE FUCING INVENTORY UI not a fucking mod thing", "doesnt even use the builtin ui stuff like button styles".
 - Tokens: colours, sizes, spacing, radii, strokes, easing, durations and layers come from `mods/dos-tool/core/style.hpp`. No literal RGB in feature code; component-only geometry from the spec goes into a named constexpr in the feature's header. A value two features share becomes a token there (with a `style_test.cpp` assertion when it is an invariant).
 - Specs: components follow `.claude/skills/sundaria-modding/references/design-system.md` (anatomy, sizes, tokens, motion, states, do/don't).
 - Not covered: label the GitHub issue `design`, note "implementer: Opus", comment what is needed, and wait. The design lead answers with a "Design spec" comment and adds it to design-system.md; build from that.
