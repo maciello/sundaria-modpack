@@ -9,7 +9,7 @@
 #include "UMG_classes.hpp"
 
 // UI probe (dev): dumps the game's live UMG widget trees with their style data (button brushes, fonts, colours,
-// paddings, slot layout) to dos-tool-ui.yaml next to the DLL. Agent tool: `just ui [class-substrings]` writes
+// paddings, slot layout) and the designer templates of loaded widget classes (+ property bindings, named slots) to dos-tool-ui.yaml next to the DLL. Agent tool: `just ui [class-substrings]` writes
 // dos-tool-ui.request (its text = space-separated root class substrings); the probe answers and deletes it once a
 // matching widget exists (open the screen in game), so a request may wait.
 // Render thread, plain memory reads of UPROPERTY fields only. Feeds references/game-ui.md.
@@ -149,7 +149,22 @@ namespace {
         int roots = 0, budget = 20000;
         for (int i = 0; i < UObject::GObjects->Num(); i++) {
             UObject* o = UObject::GObjects->GetByIndex(i);
-            if (!PtrOk(o) || o->IsDefaultObject() || !o->IsA(UUserWidget::StaticClass())) continue;
+            if (!PtrOk(o) || o->IsDefaultObject()) continue;
+            if (o->IsA(UWidgetBlueprintGeneratedClass::StaticClass())) {  // designer template: exists while the class is loaded
+                auto* c = static_cast<UWidgetBlueprintGeneratedClass*>(o);
+                if (!Wanted(Name(c), filter) || !PtrOk(c->WidgetTree)) continue;
+                roots++;
+                out += "- class: " + Name(c) + "  # designer template\n  bindings:\n";
+                for (int k = 0; k < c->Bindings.Num(); k++)
+                    out += "    - " + c->Bindings[k].ObjectName.ToString() + "." + c->Bindings[k].PropertyName.ToString() + " <- " +
+                           c->Bindings[k].FunctionName.ToString() + "\n";
+                out += "  namedSlots:";
+                for (int k = 0; k < c->NamedSlots.Num(); k++) out += " " + c->NamedSlots[k].ToString();
+                out += "\n  tree:\n";
+                Walk(c->WidgetTree->RootWidget, 2, out, budget);
+                continue;
+            }
+            if (!o->IsA(UUserWidget::StaticClass())) continue;
             const std::string cls = Cls(o);
             if (!Wanted(cls, filter)) continue;
             UObject* tree = o->Outer;  // nested in a matching user widget: printed under that one
