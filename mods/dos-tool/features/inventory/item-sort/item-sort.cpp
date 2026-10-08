@@ -108,12 +108,12 @@ namespace {
         return out;
     }
 
-    // Order of the bag right now: item keys by ascending slot.
-    std::vector<long long> CurrentOrder(UBP_ItemContainerComponent_C* c, bool bank) {
+    // Order of the bag right now: item keys by ascending slot; slots: those slots.
+    std::vector<long long> CurrentOrder(UBP_ItemContainerComponent_C* c, bool bank, std::vector<int>& slots) {
         std::vector<Item> items = Bag(io::Read(c, bank, false));
         std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.slot < b.slot; });
         std::vector<long long> keys;
-        for (const Item& it : items) keys.push_back(KeyOf(it));
+        for (const Item& it : items) { keys.push_back(KeyOf(it)); slots.push_back(it.slot); }
         return keys;
     }
 
@@ -167,10 +167,12 @@ namespace {
             CallWithArray(w.inv, fn, &p, p.SlotsToMove, bySlots);
         }
         const double applyMs = Ms(t);
-        const int ok = InOrder(intended, CurrentOrder(c, bank));
+        std::vector<int> after;
+        const int ok = InOrder(intended, CurrentOrder(c, bank, after));
+        const int holes = Holes(after);
         const double checkMs = Ms(t);
-        SetStatus(std::string(what) + (ok == int(intended.size()) ? ": sorted by '" : ": NOT in order after ReorderItems, profile '") + prof.name +
-                  "' " + I(ok) + "/" + I(intended.size()) + ", " + I(bySlots.size()) + " sent | ms read " + Ms2(readMs) + " order " + Ms2(orderMs) + " apply " + Ms2(applyMs) +
+        SetStatus(std::string(what) + (ok == int(intended.size()) && !holes ? ": sorted by '" : ": NOT in order after ReorderItems, profile '") + prof.name +
+                  "' " + I(ok) + "/" + I(intended.size()) + ", " + I(bySlots.size()) + " sent, holes " + I(holes) + " | ms read " + Ms2(readMs) + " order " + Ms2(orderMs) + " apply " + Ms2(applyMs) +
                   " check " + Ms2(checkMs) + " total " + Ms2(readMs + orderMs + applyMs + checkMs));
         if (!g_verbose) return;
         LogItems(what, items);
