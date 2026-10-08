@@ -725,6 +725,8 @@ namespace {
             if (!npc) continue;
             npc->K2_SetActorLocationAndRotation(p.loc, FRotator{0.0f, p.yaw, 0.0f}, false, nullptr, true);
             if (auto* button = p.button.Get<AActor>()) {
+                // click zones are static level actors: the move is silently refused unless they become movable
+                if (PtrOk(button->RootComponent)) button->RootComponent->SetMobility(EComponentMobility::Movable);
                 const FVector b{p.loc.X + p.offset.X, p.loc.Y + p.offset.Y, p.loc.Z + p.offset.Z};
                 button->K2_SetActorLocationAndRotation(b, button->K2_GetActorRotation(), false, nullptr, true);
             }
