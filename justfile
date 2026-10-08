@@ -7,9 +7,16 @@ xwin := env_var_or_default("XWIN", if path_exists("/srv/toolchains/xwin-msvc") =
 repo := "maciello/sundaria-modpack"
 win64 := env_var_or_default("GAME_WIN64", env_var("HOME") / ".steam/steam/steamapps/common/DungeonsofSundaria/Archon/Binaries/Win64")
 
-# SDK for the installed game build from the shared dump store (ssh alias `dumps`)
+# SDK for the installed game build + MSVC kit from the shared dump store (ssh alias `dumps`)
 sdk-pull host="dumps":
-    mkdir -p {{sdk}} && rsync -a --delete {{host}}:/srv/dumps/sundaria/{{buildid}}/CppSDK/ {{sdk}}/
+    mkdir -p {{sdk}} {{xwin}}
+    rsync -a --delete {{host}}:/srv/dumps/sundaria/{{buildid}}/CppSDK/ {{sdk}}/
+    rsync -a --delete {{host}}:/srv/toolchains/xwin-msvc/ {{xwin}}/
+
+# once per clone: rebase on pull, run `just test` before every push
+setup:
+    git config pull.rebase true
+    git config core.hooksPath .githooks
 
 # start of work: get the other's commits
 sync:
@@ -17,7 +24,7 @@ sync:
     git log --oneline -10
 
 # end of work: test, rebase on the other's commits, push
-ship: test
+ship:
     git pull --rebase
     git push
 
@@ -25,7 +32,9 @@ test:
     python3 updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
     mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); c++ -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp) && build/$(basename $t .cpp) || exit 1; done
 
+# fetches SDK + MSVC kit first if this machine has none
 build:
+    [ -d "{{sdk}}/SDK" ] && [ -d "{{xwin}}/crt" ] || just sdk-pull
     SDK_DIR={{sdk}} XWIN={{xwin}} mods/dos-tool/build.sh
 
 # release layout = paths relative to the game root
