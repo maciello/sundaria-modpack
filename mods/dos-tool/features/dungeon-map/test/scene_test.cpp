@@ -43,5 +43,10 @@ int main() {
     int icons = 0;
     for (const Quad& x : q) icons += x.z >= kZIcon;
     assert(icons == 3 + 2);  // plate + X, lever plate + handle
+    // #83 diagnostic: doors around a partial path's end.
+    const std::vector<Trigger> gts{{{3000, 0, 0}, 0, true, false, true, false}, {{500, 0, 0}, 0, true, false, false, false}, {{100, 0, 0}, 0, false, true, true, false}};
+    const DoorGap g = DoorsAround(gts, {0, 0, 0});
+    assert(g.doors == 2 && g.closed == 1 && Near(g.nearestClosed, 3000) && Near(g.nearestDoor, 500));
+    assert(DoorsAround({}, {0, 0, 0}).nearestDoor < 0);
     std::puts("ok");
 }

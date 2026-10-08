@@ -1,4 +1,5 @@
 #include "plan.hpp"
+#include "logger.hpp"
 #include "ref.hpp"
 #include "umg.hpp"
 
@@ -24,6 +25,7 @@ using umg::PtrOk;
 
 namespace {
     ref::Fn g_findPath{UNavigationSystemV1::StaticClass, "NavigationSystemV1", "FindPathToLocationSynchronously"};
+    ref::Fn g_project{UNavigationSystemV1::StaticClass, "NavigationSystemV1", "K2_ProjectPointToNavigation"};
     ref::Fn g_isPartial{UNavigationPath::StaticClass, "NavigationPath", "IsPartial"};
 
     dungeon_map::V3 W(const FVector& v) { return {v.X, v.Y, v.Z}; }
@@ -71,7 +73,7 @@ namespace {
     }
 
     // The game's own synchronous navmesh query (≈0.2–0.3 ms, game-facts.md). Closed doors cut it: partial.
-    bool Nav(UObject* world, dungeon_map::V3 a, dungeon_map::V3 b, dungeon_map::Path& out, bool& partial) {
+    bool Nav(UObject* world, dungeon_map::V3 a, dungeon_map::V3 b, dungeon_map::Path& out, bool& partial, bool* engine = nullptr) {
         UFunction* fn = g_findPath.Get();
         if (!fn) return false;
         Params::NavigationSystemV1_FindPathToLocationSynchronously q{};
@@ -84,12 +86,37 @@ namespace {
         for (int i = 0; i < np->PathPoints.Num(); i++) out.push_back(W(np->PathPoints[i]));
         Params::NavigationPath_IsPartial p{};
         if (UFunction* ip = g_isPartial.Get()) umg::CallNative(np, ip, &p);
+        if (engine) *engine = p.ReturnValue;
         partial = p.ReturnValue || dungeon_map::Dist(out.back(), b) > dungeon_map::kPartial;
         return true;
     }
 
+    std::string F(const char* fmt, ...);
+
+    // Navmesh projection of p (extent 100/100/500): offset from p, or "off" when nothing lies within the extent.
+    std::string OnNav(UObject* world, dungeon_map::V3 p) {
+        UFunction* fn = g_project.Get();
+        if (!fn) return "n/a";
+        Params::NavigationSystemV1_K2_ProjectPointToNavigation q{};
+        q.WorldContextObject = world;
+        q.Point = {p.x, p.y, p.z};
+        q.QueryExtent = {100, 100, 500};
+        umg::CallNative(UNavigationSystemV1::GetDefaultObj(), fn, &q);
+        if (!q.ReturnValue) return "off";
+        return F("on(%.0f,%.0f,%.0f)", q.ProjectedLocation.X - p.x, q.ProjectedLocation.Y - p.y, q.ProjectedLocation.Z - p.z);
+    }
+    std::string Pt(dungeon_map::V3 v) { return F("(%.0f,%.0f,%.0f)", v.x, v.y, v.z); }
+
+    // One extra query for the diagnostic: points, length, end distance to b, partial.
+    std::string Try(UObject* world, dungeon_map::V3 a, dungeon_map::V3 b) {
+        dungeon_map::Path p;
+        bool partial = false, engine = false;
+        if (!Nav(world, a, b, p, partial, &engine)) return "none";
+        return F("%zu pts %.0f long end %.0f from goal engine-partial %d", p.size(), dungeon_map::Length(p), dungeon_map::Dist(p.back(), b), engine);
+    }
+
     std::string F(const char* fmt, ...) {
-        char b[256];
+        char b[768];
         va_list v;
         va_start(v, fmt);
         std::vsnprintf(b, sizeof b, fmt, v);
@@ -129,7 +156,8 @@ namespace dungeon_map {
         AActor* goal = Goal(floor);
         if (!goal) return p.why = F("floor %d: no stairs down or exit volume", p.floor), p;
         const V3 from = Loc(floor.actor), to = Loc(goal);  // floor actor = its entry door
-        if (!Nav(w, from, to, p.path, p.partial)) return p.why = F("floor %d: no navmesh path", p.floor), p;
+        bool engineFlag = false;
+        if (!Nav(w, from, to, p.path, p.partial, &engineFlag)) return p.why = F("floor %d: no navmesh path", p.floor), p;
 
         int door = -1;
         if (p.partial) {
@@ -140,6 +168,15 @@ namespace dungeon_map {
             for (int j = 0; j < floor.actor->ChunkSpawnedActors.Num(); j++)
                 if (AActor* a = floor.actor->ChunkSpawnedActors[j]; AddTrigger(ts, a, -1)) ts.back().room = RoomOf(floor.rooms, ts.back().at);
             door = StoppingDoor(ts, p.path.back());
+            if (door < 0) {  // partial with no door to blame (#83): log what tells the causes apart
+                const V3 end = p.path.back();
+                const DoorGap g = DoorsAround(ts, end);
+                logger::log("[dungeon-map] partial: " + F("goal %s %s end %s end-goal %.0f engine-partial %d; goal-on-navmesh %s end-on-navmesh %s start-on-navmesh %s; "
+                    "doors %d closed %d nearest-closed %.0f nearest-door %.0f (kDoorNear %.0f); end->goal %s; pawn->goal %s",
+                    goal->IsA(ABP_DungeonExitVolume_C::StaticClass()) ? "exit-volume" : "stairs-room", Pt(to).c_str(), Pt(end).c_str(), Dist(end, to), engineFlag,
+                    OnNav(w, to).c_str(), OnNav(w, end).c_str(), OnNav(w, from).c_str(), g.doors, g.closed, g.nearestClosed, g.nearestDoor, kDoorNear,
+                    Try(w, end, to).c_str(), Try(w, pawn, to).c_str()));
+            }
             p.marks = MarksFor(ts, door);
         }
         p.ok = true;

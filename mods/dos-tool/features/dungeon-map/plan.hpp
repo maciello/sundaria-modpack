@@ -24,6 +24,22 @@ namespace dungeon_map {
         return best;
     }
 
+    // Doors near the end of a partial path, for the diagnostic log (#83): counts and nearest distances, -1 = none.
+    struct DoorGap { int doors = 0, closed = 0; float nearestClosed = -1, nearestDoor = -1; };
+    inline DoorGap DoorsAround(const std::vector<Trigger>& ts, V3 end) {
+        DoorGap g;
+        for (const Trigger& t : ts) {
+            if (!t.door) continue;
+            const float d = Dist(t.at, end);
+            g.doors++;
+            if (g.nearestDoor < 0 || d < g.nearestDoor) g.nearestDoor = d;
+            if (!t.closed) continue;
+            g.closed++;
+            if (g.nearestClosed < 0 || d < g.nearestClosed) g.nearestClosed = d;
+        }
+        return g;
+    }
+
     // Marks for a path that stopped at door i. Levers: ponytail heuristic (#68): no data links a lever to its door, so
     // every unpulled lever in the door's room is marked; replace with the real link once a probe finds one.
     inline Marks MarksFor(const std::vector<Trigger>& ts, int i) {
