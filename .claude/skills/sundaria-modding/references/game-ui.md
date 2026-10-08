@@ -81,8 +81,11 @@ SizeBox_0: {min: 100x100}
   `LootToastWidget` (`I_PlayerControllerToast_C`). When the game shows it: not seen yet.
 - Row `WidgetLootToastEntry_C`: HorizontalBox [SizeBox 40×40 > Overlay > `WidgetIconWithUV_C` (icon atlas by id) + `Image_ContentBorder`
   (`ItemIcon_QualityBorder`, Box 0.1)] + `TextBlock_ItemName` (Narkisim 24, outline 1 black). A list entry: fill it with
-  `OnListItemObjectSet(WidgetLootToastEntryObject_C{DisplayName, IconId, Grade})`; outside a ListView (pickup toast): unverified.
-- Icon id of an item: its spec's `I_GetIconID` (`items::io::IconId`).
+  `OnListItemObjectSet(WidgetLootToastEntryObject_C{DisplayName, IconId, Grade})`; works outside a ListView (pickup toast, in game).
+  It sets icon and name only: name and border stay white. Grade colour: `BP_ArchonClientFunctionLibrary_C::GetItemColorForGrade`.
+- Icon id of an item: its spec data's `mIconID` (`items::io::IconId`); `I_GetIconID` on weapons/armor gave a black icon.
+- Own widget on the HUD: `Create` → `AddToViewport` → `SetAnchorsInViewport` + `SetAlignmentInViewport`. Never `SetPositionInViewport`
+  after anchoring: it resets the anchors to (0,0), the widget lands off-screen.
 - Pickup event: `BP_PlayerControllerGame_C::OnItemAddedDispatcherEvent(FSItemLocator)`, once per slot, also for every slot of a
   reorder/sort.
 

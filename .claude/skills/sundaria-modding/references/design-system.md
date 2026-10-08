@@ -112,7 +112,8 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 ### Pickup toast (#64, game widgets on the HUD)
 - Ref: `genshin-obtained-feed` (rows of icon + rarity-coloured name, right of the character, slide in).
 - Row: the game's own loot-toast row `WidgetLootToastEntry_C` (40×40 atlas icon, `ItemIcon_QualityBorder`, name Narkisim 24 with black
-  outline), filled by the game's `OnListItemObjectSet` from {name, icon id, grade}: icon and rarity colours are the game's, none ours.
+  outline), filled by the game's `OnListItemObjectSet` from {name, icon id, grade}; name and quality border tinted with the game's
+  `GetItemColorForGrade`. Icon and rarity colours are the game's, none ours.
 - Place: viewport anchor (0.64w, 0.56h), row's bottom-left on the anchor; newest at the anchor, older rows move up 48 units
   (OutCubic 0.18 s). At most 5 rows; a 6th fades the oldest out at once.
 - Motion: slide in from +56 units right, OutCubic 0.28 s, opacity with it; hold 4 s; fade `kFadeOut` (0.4 s InQuad). No bounce, no loop.
