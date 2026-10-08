@@ -217,7 +217,7 @@ namespace {
             if (!resolved) { ImGui::TextDisabled("waiting for game classes"); return; }
             ImGui::TextDisabled("presses %d  out %d  windup cancels %d  refunds %d  recovery cuts %d", g_presses.load(),
                                 g_outs.load(), g_windupCancels.load(), g_refunds.load(), g_recoveryCuts.load());
-            if (g_queueOff) ImGui::TextColored({1, 0.6f, 0.2f, 1}, "Game setting 'Disable input queue' is on: turn it off, cancels need the queue");
+            if (g_queueOff) ImGui::TextWrapped("Note: the game setting 'Disable input queue' is on. Turn it off: cancels need the queue.");
         }
     } g_input_feel;
 }
