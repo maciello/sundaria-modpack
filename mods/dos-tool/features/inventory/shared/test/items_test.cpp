@@ -16,8 +16,8 @@ int main() {
     assert(AttackOfWeapon("Staff2H") == Attack::Magic && AttackOfWeapon("") == Attack::Unknown);
     assert(AttackIn("MeleePower_Bonus") == Attack::Melee && AttackIn("RAP") == Attack::Ranged && AttackIn("CriticalDamage_Spell") == Attack::Magic);
     assert(AttackIn("Damage_Slash") == Attack::Unknown);
-    assert(WhereOf("Equipment", false) == Where::Equipped);
-    assert(WhereOf("MainInventory", false) == Where::Inventory);
+    assert(WhereOf("EquipContainer", false) == Where::Equipped);
+    assert(WhereOf("DefaultContainer", false) == Where::Inventory);  // the bag, as the game names it
     assert(WhereOf("Equipment", true) == Where::Bank);
     // weapons weigh their own attack stats, armor the profile's focus; a player override wins
     Item bow; bow.kind = Kind::Weapon; bow.attack = Attack::Ranged;

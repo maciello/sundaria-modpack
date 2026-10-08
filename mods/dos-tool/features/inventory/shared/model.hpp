@@ -56,11 +56,11 @@ namespace items {
         return Attack::Melee;
     }
 
-    // EItemContainerType display name → where. Unverified in game.
+    // EItemContainerType display name → where. In game: bag = DefaultContainer (0), equipped = EquipContainer (1).
     inline Where WhereOf(std::string_view containerTypeName, bool bankComponent) {
         if (bankComponent) return Where::Bank;
         if (Has(containerTypeName, "equip")) return Where::Equipped;
-        if (Has(containerTypeName, "main") || Has(containerTypeName, "inv") || Has(containerTypeName, "bag")) return Where::Inventory;
+        if (Has(containerTypeName, "default") || Has(containerTypeName, "inv") || Has(containerTypeName, "bag")) return Where::Inventory;
         return Where::Other;
     }
     inline std::string StatName(const std::vector<std::string>& names, int type) {
