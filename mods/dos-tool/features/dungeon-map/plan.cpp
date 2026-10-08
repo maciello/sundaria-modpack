@@ -1,4 +1,5 @@
 #include "plan.hpp"
+#include "route.hpp"
 #include "logger.hpp"
 #include "ref.hpp"
 #include "umg.hpp"
@@ -73,7 +74,7 @@ namespace {
     }
 
     // The game's own synchronous navmesh query (≈0.2–0.3 ms, game-facts.md). Closed doors cut it: partial.
-    bool Nav(UObject* world, dungeon_map::V3 a, dungeon_map::V3 b, dungeon_map::Path& out, bool& partial, bool* engine = nullptr) {
+    bool NavPath(UObject* world, dungeon_map::V3 a, dungeon_map::V3 b, dungeon_map::Path& out, bool& partial) {
         UFunction* fn = g_findPath.Get();
         if (!fn) return false;
         Params::NavigationSystemV1_FindPathToLocationSynchronously q{};
@@ -86,7 +87,6 @@ namespace {
         for (int i = 0; i < np->PathPoints.Num(); i++) out.push_back(W(np->PathPoints[i]));
         Params::NavigationPath_IsPartial p{};
         if (UFunction* ip = g_isPartial.Get()) umg::CallNative(np, ip, &p);
-        if (engine) *engine = p.ReturnValue;
         partial = p.ReturnValue || dungeon_map::Dist(out.back(), b) > dungeon_map::kPartial;
         return true;
     }
@@ -107,12 +107,19 @@ namespace {
     }
     std::string Pt(dungeon_map::V3 v) { return F("(%.0f,%.0f,%.0f)", v.x, v.y, v.z); }
 
-    // One extra query for the diagnostic: points, length, end distance to b, partial.
-    std::string Try(UObject* world, dungeon_map::V3 a, dungeon_map::V3 b) {
-        dungeon_map::Path p;
-        bool partial = false, engine = false;
-        if (!Nav(world, a, b, p, partial, &engine)) return "none";
-        return F("%zu pts %.0f long end %.0f from goal engine-partial %d", p.size(), dungeon_map::Length(p), dungeon_map::Dist(p.back(), b), engine);
+    // A navmesh point in the room: nearest to its centre within its box (route.hpp resumes there).
+    bool Anchor(UObject* world, const dungeon_map::Box& r, dungeon_map::V3& out) {
+        UFunction* fn = g_project.Get();
+        if (!fn) return false;
+        Params::NavigationSystemV1_K2_ProjectPointToNavigation q{};
+        q.WorldContextObject = world;
+        q.Point = {r.c.x, r.c.y, r.c.z};
+        const float e = std::max(r.e.x, r.e.y);  // box yaw: the square around it
+        q.QueryExtent = {e, e, r.e.z};
+        umg::CallNative(UNavigationSystemV1::GetDefaultObj(), fn, &q);
+        if (!q.ReturnValue) return false;
+        out = W(q.ProjectedLocation);
+        return true;
     }
 
     std::string F(const char* fmt, ...) {
@@ -155,9 +162,13 @@ namespace dungeon_map {
         p.floor = floor.actor->FloorNumber;
         AActor* goal = Goal(floor);
         if (!goal) return p.why = F("floor %d: no stairs down or exit volume", p.floor), p;
-        const V3 from = Loc(floor.actor), to = Loc(goal);  // floor actor = its entry door
-        bool engineFlag = false;
-        if (!Nav(w, from, to, p.path, p.partial, &engineFlag)) return p.why = F("floor %d: no navmesh path", p.floor), p;
+        const V3 to = Loc(goal);
+        const Nav nav{[&](V3 a, V3 b, Path& out, bool& partial) { return NavPath(w, a, b, out, partial); },
+                      [&](const Box& r, V3& out) { return Anchor(w, r, out); }};
+        const Route route = PlanRoute(pawn, to, floor.rooms, nav);
+        p.path = route.path;
+        p.partial = !route.stops.empty();
+        p.rooms = floor.rooms;
 
         int door = -1;
         if (p.partial) {
@@ -167,23 +178,23 @@ namespace dungeon_map {
                     if (UChildActorComponent* c = floor.slices[r]->TriggerBaseComponents[j]; PtrOk(c)) AddTrigger(ts, c->ChildActor, r);
             for (int j = 0; j < floor.actor->ChunkSpawnedActors.Num(); j++)
                 if (AActor* a = floor.actor->ChunkSpawnedActors[j]; AddTrigger(ts, a, -1)) ts.back().room = RoomOf(floor.rooms, ts.back().at);
-            door = StoppingDoor(ts, p.path.back());
-            if (door < 0) {  // partial with no door to blame (#83): log what tells the causes apart
-                const V3 end = p.path.back();
-                const DoorGap g = DoorsAround(ts, end);
-                logger::log("[dungeon-map] partial: " + F("goal %s %s end %s end-goal %.0f engine-partial %d; goal-on-navmesh %s end-on-navmesh %s start-on-navmesh %s; "
-                    "doors %d closed %d nearest-closed %.0f nearest-door %.0f (kDoorNear %.0f); end->goal %s; pawn->goal %s",
-                    goal->IsA(ABP_DungeonExitVolume_C::StaticClass()) ? "exit-volume" : "stairs-room", Pt(to).c_str(), Pt(end).c_str(), Dist(end, to), engineFlag,
-                    OnNav(w, to).c_str(), OnNav(w, end).c_str(), OnNav(w, from).c_str(), g.doors, g.closed, g.nearestClosed, g.nearestDoor, kDoorNear,
-                    Try(w, end, to).c_str(), Try(w, pawn, to).c_str()));
+            // Why each leg stopped short (#83): a closed door in front of it, else a navmesh island.
+            std::string why = F("goal %s %s on-navmesh %s; stops:", goal->IsA(ABP_DungeonExitVolume_C::StaticClass()) ? "exit-volume" : "stairs-room",
+                                Pt(to).c_str(), OnNav(w, to).c_str());
+            for (const V3& s : route.stops) {
+                const int sd = StoppingDoor(ts, s);
+                why += F(" %s room %d: %s, nearest door %.0f;", Pt(s).c_str(), NearestRoom(floor.rooms, s),
+                         sd < 0 ? "navmesh island" : ts[sd].locked ? "locked door" : "closed door", DoorsAround(ts, s).nearestDoor);
+                if (door < 0) door = sd;
             }
+            logger::log("[dungeon-map] partial: " + why);
             p.marks = MarksFor(ts, door);
         }
         p.ok = true;
         QueryPerformanceCounter(&t1);
         QueryPerformanceFrequency(&fq);
-        p.why = F("floor %d: %zu points, %.0f long, partial %d, stopping door %d, locked %d, levers %zu, %.2f ms", p.floor, p.path.size(),
-                  Length(p.path), p.partial, door >= 0, p.marks.locked, p.marks.levers.size(),
+        p.why = F("floor %d: %zu points, %.0f long, legs %d, stops %zu, stopping door %d, locked %d, levers %zu, %.2f ms", p.floor, p.path.size(),
+                  Length(p.path), route.legs, route.stops.size(), door >= 0, p.marks.locked, p.marks.levers.size(),
                   double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(fq.QuadPart));
         return p;
     }

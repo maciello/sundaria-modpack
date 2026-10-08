@@ -1,12 +1,12 @@
 #pragma once
-// The current floor's main path for the local player (plan.cpp reads the dungeon and asks the game's navmesh).
+// The local player's way to the current floor's exit (plan.cpp reads the dungeon and asks the game's navmesh, route.hpp).
 // SDK-free types and choices; facts: references/game-facts.md § Dungeon.
 #include <string>
 #include <vector>
 #include "scene.hpp"
 
 namespace dungeon_map {
-    constexpr float kDoorNear = 1500;  // a partial path's end lies this close to the door that stopped it
+    constexpr float kDoorNear = 1500;  // a navmesh leg that a door cuts ends this close to it
 
     struct Trigger {
         V3 at;
@@ -14,7 +14,7 @@ namespace dungeon_map {
         bool door = false, lever = false, closed = false, locked = false;
     };
 
-    // The closed door nearest the end of a partial path (the navmesh stops in front of it), -1 = none within kDoorNear.
+    // The closed door nearest the end of a navmesh leg that stopped short, -1 = none within kDoorNear.
     inline int StoppingDoor(const std::vector<Trigger>& ts, V3 end) {
         int best = -1;
         float bd = kDoorNear;
@@ -24,7 +24,7 @@ namespace dungeon_map {
         return best;
     }
 
-    // Doors near the end of a partial path, for the diagnostic log (#83): counts and nearest distances, -1 = none.
+    // Doors near where a leg stopped, for the log (#83): counts and nearest distances, -1 = none.
     struct DoorGap { int doors = 0, closed = 0; float nearestClosed = -1, nearestDoor = -1; };
     inline DoorGap DoorsAround(const std::vector<Trigger>& ts, V3 end) {
         DoorGap g;
@@ -61,12 +61,14 @@ namespace dungeon_map {
     struct Plan {
         bool ok = false;
         int seed = 0, floor = -1;  // key of the frontier
-        Path path;                 // floor entry → stairs down / exit volume; ends early at a closed door
-        bool partial = false;
+        Path path;                 // player → stairs down / exit volume (route.hpp)
+        bool partial = false;      // the navmesh stopped short somewhere; the route jumps on to the next room
+        std::vector<Box> rooms;    // the floor's room chain, for replanning on a room change
         Marks marks;
         std::string why;           // log line: what was found or why there is no plan
     };
 
-    // Game thread, dungeon only. pawn decides the floor. O(rooms + triggers of the dungeon) + one navmesh query.
+    // Game thread, dungeon only. Routes from pawn, which also decides the floor. O(rooms + triggers of the dungeon)
+    // + O(rooms of the floor) navmesh queries (one when nothing cuts the way).
     Plan Compute(V3 pawn);
 }
