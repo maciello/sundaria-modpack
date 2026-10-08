@@ -14,6 +14,7 @@ namespace {
     struct DamageNumbers : feature::Feature {
         float height = 40.0f;  // cm above capsule center
         float size = 1.0f;
+        float maxStack = 1.6f;  // stacked numbers grow at most to this × a typical hit
         struct Preview { float sx, sy; combat::Number n; std::vector<std::pair<double, float>> ticks; };
         std::vector<Preview> preview;
         float previewTypical = 20;
@@ -24,7 +25,8 @@ namespace {
         void DrawNumber(ImDrawList* dl, ImFont* font, float base, float sx, float sy, const combat::Number& n, double now) {
             const double sinceBorn = now - n.born, sinceBump = now - n.bump;
             if (sinceBorn < 0) return;
-            const float big = std::clamp((n.scale - 1.0f) / 0.8f, 0.0f, 1.0f);
+            const float scale = combat::Shown(n, maxStack);
+            const float big = std::clamp((scale - 1.0f) / 0.8f, 0.0f, 1.0f);
             const dmgnum::Anim an = dmgnum::Animate(sinceBorn, sinceBump, lifetime, n.drift,
                                                     n.kind == combat::Kind::Dealt ? big : 0.0f, n.hits > 1);
             if (an.scale <= 0.01f || an.alpha <= 0.0f) return;
@@ -40,7 +42,7 @@ namespace {
             }
             r += (255 - r) * an.flash; g += (255 - g) * an.flash; b += (255 - b) * an.flash;  // impact flash
             const int a = int(255 * an.alpha);
-            const float unit = base * size * n.scale;
+            const float unit = base * size * scale;
             const float sz = unit * an.scale;
             const ImVec2 ts = font->CalcTextSizeA(sz, FLT_MAX, 0.0f, buf);
             const ImVec2 pos(sx + an.dx * unit - ts.x * 0.5f, sy + an.dy * unit - ts.y * 0.5f);
@@ -68,7 +70,7 @@ namespace {
                     p.n.amount += p.ticks.front().second;
                     p.n.hits++;
                     p.n.bump = p.ticks.front().first;
-                    p.n.scale = rel.Rel(p.n.amount);
+                    p.n.scale = rel.Grow(p.n.amount);
                     p.ticks.erase(p.ticks.begin());
                 }
             std::erase_if(preview, [&](const Preview& p) { return p.ticks.empty() && f.now - p.n.bump > lifetime; });
@@ -87,6 +89,7 @@ namespace {
         void Menu() override {
             ImGui::SliderFloat("Number height", &height, -60.0f, 160.0f, "%.0f cm");
             ImGui::SliderFloat("Number size", &size, 0.5f, 2.0f, "%.2fx");
+            ImGui::SliderFloat("Max stack size", &maxStack, 1.0f, 2.4f, "%.1fx");
             if (!ImGui::Button("Preview numbers")) return;
             const ImVec2 c(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.45f);
             const double now = ImGui::GetTime();
