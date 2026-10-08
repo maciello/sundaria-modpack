@@ -1,2 +1,3 @@
 build/
 dist/
+.claude/settings.local.json
