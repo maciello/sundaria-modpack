@@ -110,7 +110,7 @@ static bool InitImGui(IDXGISwapChain* sc) {
         if (sscanf(eq + 1, "%d,%d", &on, &stage) != 2) return;
         for (feature::Feature* f : feature::Feature::All())
             if (strlen(f->name) == size_t(eq - line) && !strncmp(f->name, line, eq - line) && stage == int(f->stage))
-                f->enabled = f->wasEnabled = on == 1;
+            { f->enabled = f->wasEnabled = on == 1; logger::log(std::string("[flags] ") + f->name + (on == 1 ? " on" : " off") + " (ini)"); }
     };
     h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* hh, ImGuiTextBuffer* out) {
         out->appendf("[%s][Settings]\nFont=%d\n", hh->TypeName, g_font);
@@ -161,15 +161,23 @@ static void DrawMenu(const game::Snapshot& snap) {
 
     static const char* const kStage[] = {"ALPHA", "BETA", "", "DEPRECATED"};
     static const ImVec4 kStageColor[] = {{1, 0.35f, 0.35f, 1}, {1, 0.8f, 0.3f, 1}, {}, {0.6f, 0.6f, 0.6f, 1}};
-    for (feature::Feature* f : feature::Feature::All()) {
-        const int st = int(f->stage);
-        if (f->stage == feature::Stage::Alpha && !g_dev) continue;
-        ImGui::SeparatorText(f->name);
-        ImGui::PushID(f->name);
-        if (ImGui::Checkbox("Enabled", &f->enabled)) ImGui::MarkIniSettingsDirty();
-        if (*kStage[st]) { ImGui::SameLine(); ImGui::TextColored(kStageColor[st], "%s", kStage[st]); }
-        if (f->enabled) f->Menu();
-        ImGui::PopID();
+    // In-development features first; finished (Stable) ones folded away under one header.
+    for (feature::Stage stage : {feature::Stage::Alpha, feature::Stage::Beta, feature::Stage::Stable, feature::Stage::Deprecated}) {
+        const int st = int(stage);
+        if (stage == feature::Stage::Alpha && !g_dev) continue;
+        if (stage == feature::Stage::Stable && !ImGui::CollapsingHeader("Finished features")) continue;
+        for (feature::Feature* f : feature::Feature::All()) {
+            if (f->stage != stage) continue;
+            ImGui::SeparatorText(f->name);
+            ImGui::PushID(f->name);
+            if (ImGui::Checkbox("Enabled", &f->enabled)) {
+                ImGui::MarkIniSettingsDirty();
+                logger::log(std::string("[flags] ") + f->name + (f->enabled ? " on" : " off") + " (menu)");
+            }
+            if (*kStage[st]) { ImGui::SameLine(); ImGui::TextColored(kStageColor[st], "%s", kStage[st]); }
+            if (f->enabled) f->Menu();
+            ImGui::PopID();
+        }
     }
 
     ImGui::Separator();
@@ -184,7 +192,7 @@ static void RunFeatures(const game::Snapshot& snap) {
     g_combat.Update(chars, now);
     const feature::Frame fr{now, screen.x, screen.y, g_fonts[g_font] ? g_fonts[g_font] : ImGui::GetFont(), snap, g_combat, chars};
     for (feature::Feature* f : feature::Feature::All()) {
-        if (f->wasEnabled && !f->enabled) f->Off();
+        if (f->wasEnabled && !f->enabled) { f->Off(); logger::log(std::string("[flags] ") + f->name + " Off() applied"); }
         f->wasEnabled = f->enabled;
         if (f->enabled) f->OnFrame(fr);
     }
