@@ -3,6 +3,7 @@
 #include "tmap.hpp"
 #include "umg.hpp"
 
+#include <Windows.h>
 #include <cstdarg>
 #include <cstdio>
 #include "Engine_classes.hpp"
@@ -19,7 +20,8 @@
 #include "BP_StaticMinimapObjectComponent_classes.hpp"
 #include "DungeonChunkComponentStatic_classes.hpp"
 #include "WidgetMinimap_classes.hpp"
-#include "BP_TriggerBase_parameters.hpp"
+#include "NavigationSystem_classes.hpp"
+#include "NavigationSystem_parameters.hpp"
 
 // Dev probe (dungeon-map.probe file trigger, game thread). Reaches everything through owners: world → game state →
 // DungeonActor → floors → chunk actors (slices) → crumbs / trigger child actors. No GObjects walk.
@@ -55,9 +57,9 @@ namespace {
     std::string Trigger(AActor* a) {
         if (!PtrOk(a) || !a->IsA(ABP_TriggerBase_C::StaticClass())) return F("{cls: %s, at: %s}", Cls(a).c_str(), At(a).c_str());
         auto* t = static_cast<ABP_TriggerBase_C*>(a);
-        std::string s = F("{cls: %s, name: %s, at: %s, anim: %d, lock: %d, canOpen: %d, canClose: %d, startOpen: %d, lockOnce: %d, autoOpenOnUnlock: %d, "
+        std::string s = F("{cls: %s, name: %s, at: %s, actorTags: %s, anim: %d, lock: %d, canOpen: %d, canClose: %d, startOpen: %d, lockOnce: %d, autoOpenOnUnlock: %d, "
                           "lockTags: %s, rules: %s, itemLockGroup: %s",
-                          Cls(a).c_str(), Name(a).c_str(), At(a).c_str(), int(t->mOpenCloseAnimState), int(t->LockStatus), t->CanBeOpened, t->CanBeClosed,
+                          Cls(a).c_str(), Name(a).c_str(), At(a).c_str(), Names(a->Tags).c_str(), int(t->mOpenCloseAnimState), int(t->LockStatus), t->CanBeOpened, t->CanBeClosed,
                           t->bStartOpen, t->LockOnlyOnce, t->AutoOpenOnUnlock, Names(t->LockTags).c_str(), Rules(t->LockRules_OR).c_str(),
                           Names(t->ItemLockGroup).c_str());
         if (a->IsA(ABP_Door_C::StaticClass())) s += ", doorLockTags: " + Names(static_cast<ABP_Door_C*>(a)->LockTags_0);
@@ -136,6 +138,31 @@ namespace {
         return o;
     }
 
+    // Navmesh path pawn -> goal (game's own synchronous query): point count, length, cost.
+    std::string Nav(APawn* pawn, const FVector& goal) {
+        UFunction* fn = UNavigationSystemV1::StaticClass()->GetFunction("NavigationSystemV1", "FindPathToLocationSynchronously");
+        if (!PtrOk(fn) || !PtrOk(pawn)) return "nav: no function/pawn\n";
+        Params::NavigationSystemV1_FindPathToLocationSynchronously q{};
+        q.WorldContextObject = pawn;
+        q.PathStart = pawn->K2_GetActorLocation();
+        q.PathEnd = goal;
+        LARGE_INTEGER t0, t1, f;
+        QueryPerformanceCounter(&t0);
+        umg::CallNative(UNavigationSystemV1::GetDefaultObj(), fn, &q);
+        QueryPerformanceCounter(&t1);
+        QueryPerformanceFrequency(&f);
+        const double ms = double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart);
+        UNavigationPath* np = q.ReturnValue;
+        if (!PtrOk(np)) return F("nav: {to: %s, path: none, ms: %.2f}\n", V(goal).c_str(), ms);
+        float len = 0;
+        std::string pts;
+        for (int i = 0; i < np->PathPoints.Num(); i++) {
+            if (i) len += std::hypot(np->PathPoints[i].X - np->PathPoints[i - 1].X, np->PathPoints[i].Y - np->PathPoints[i - 1].Y);
+            pts += (i ? ", " : "") + V(np->PathPoints[i]);
+        }
+        return F("nav: {to: %s, points: %d, length: %.0f, ms: %.2f, path: [%s]}\n", V(goal).c_str(), np->PathPoints.Num(), len, ms, pts.c_str());
+    }
+
     struct Watch {
         ref::Fn discovered{Abp_breadslice_C::StaticClass, "bp_breadslice_C", "BecomeDiscovered"};
         ref::Fn floorOn{ABP_DungeonFloor_C::StaticClass, "BP_DungeonFloor_C", "I_SetFloorActivated"};
@@ -185,6 +212,8 @@ namespace dungeon_map::probe {
                 if (PtrOk(c) && c->IsA(Abp_breadslice_C::StaticClass())) o += Slice(static_cast<Abp_breadslice_C*>(c), p);
                 else o += F("  - {cls: %s, at: %s}\n", Cls(c).c_str(), At(c).c_str());
             }
+            for (int j = 0; j < f->ChunkActors.Num(); j++)  // the floor's stairs-down room: navmesh path test
+                if (AActor* c = f->ChunkActors[j]; PtrOk(c) && Cls(c).find("Stairs_Down") != std::string::npos) o += "  " + Nav(pawn, c->K2_GetActorLocation());
             for (int j = 0; j < f->ChunkSpawnedActors.Num(); j++) {
                 AActor* a = f->ChunkSpawnedActors[j];
                 if (PtrOk(a) && (a->IsA(ABP_TriggerBase_C::StaticClass()) || a->IsA(ABP_DungeonExitVolume_C::StaticClass())))
