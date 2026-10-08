@@ -8,6 +8,7 @@
 #include <atomic>
 #include <vector>
 #include <cstdio>
+#include <cmath>
 #include "minhook/include/MinHook.h"
 
 // game.cpp is the ONLY translation unit that pulls in the generated SDK.
@@ -174,6 +175,8 @@ namespace {
     // ponytail: keyed by pointer, never pruned while on (a few entries per level); a reused address keeps the old original
     std::unordered_map<UCharacterMovementComponent*, game::Movement> g_origMove;
     bool g_haveLocalMove = false; game::Movement g_localMove{};
+    std::unordered_map<UCharacterMovementComponent*, game::Ground> g_origGround;
+    bool g_haveLocalGround = false; game::Ground g_localGround{};
 
     template <class F> void ForEachPlayerMovement(F&& fn) {
         UWorld* w = UWorld::GetWorld();
@@ -221,6 +224,42 @@ void game::ApplyMovement(const Movement* m) {
 }
 
 bool game::OriginalMovement(Movement& out) { out = g_localMove; return g_haveLocalMove; }
+
+void game::ApplyGround(GroundFn f, const void* ctx) {
+    APlayerController* pc = LocalPC();
+    APawn* local = PtrOk(pc) ? pc->Pawn : nullptr;
+    auto write = [](UCharacterMovementComponent* cm, const Ground& v) {
+        cm->MaxAcceleration = v.maxAccel; cm->BrakingDecelerationWalking = v.brakingWalking;
+        cm->GroundFriction = v.groundFriction; cm->BrakingFrictionFactor = v.brakingFrictionFactor;
+        cm->JumpZVelocity = v.jumpZ;
+    };
+    // Restore only components found in the live world: stale map keys may be freed.
+    ForEachPlayerMovement([&](ACharacter* c, UCharacterMovementComponent* cm) {
+        auto it = g_origGround.find(cm);
+        if (!f) {
+            if (it != g_origGround.end()) write(cm, it->second);
+            return;
+        }
+        if (it == g_origGround.end()) {
+            const Ground o{cm->MaxAcceleration, cm->BrakingDecelerationWalking, cm->GroundFriction,
+                           cm->BrakingFrictionFactor, cm->JumpZVelocity};
+            it = g_origGround.emplace(cm, o).first;
+            if (c == local) { g_localGround = o; g_haveLocalGround = true; }
+        }
+        write(cm, f(it->second, ctx));
+    });
+    if (!f) g_origGround.clear();
+}
+
+bool game::OriginalGround(Ground& out) { out = g_localGround; return g_haveLocalGround; }
+
+float game::LocalSpeed() {
+    APlayerController* pc = LocalPC();
+    if (!PtrOk(pc) || !PtrOk(pc->Pawn) || !pc->Pawn->IsA(ACharacter::StaticClass())) return 0.0f;
+    auto* cm = static_cast<ACharacter*>(pc->Pawn)->CharacterMovement;
+    if (!PtrOk(cm)) return 0.0f;
+    return std::sqrt(cm->Velocity.X * cm->Velocity.X + cm->Velocity.Y * cm->Velocity.Y);
+}
 
 float game::OriginalFOV()      { return g_origFov; }
 float game::OriginalDistance() { return g_origDist; }
