@@ -28,6 +28,17 @@ ship:
     git pull --rebase
     git push
 
+# repo admin, once: apply .github/rulesets/*.json to GitHub (skips names that already exist)
+protect:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    have=$(gh api repos/{{repo}}/rulesets --jq '.[].name')
+    for f in .github/rulesets/*.json; do
+      name=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$f")
+      grep -qxF "$name" <<< "$have" && { echo "exists: $name"; continue; }
+      gh api -X POST repos/{{repo}}/rulesets --input "$f" --jq '"created: " + .name'
+    done
+
 test:
     python3 updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
     mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); c++ -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp) && build/$(basename $t .cpp) || exit 1; done

@@ -1,0 +1,3 @@
+{"name":"trunk: no other branches","target":"branch","enforcement":"active",
+ "conditions":{"ref_name":{"include":["~ALL"],"exclude":["~DEFAULT_BRANCH"]}},
+ "rules":[{"type":"creation"}]}
