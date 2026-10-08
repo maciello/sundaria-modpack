@@ -24,9 +24,11 @@ namespace style {
         constexpr Rgba kText{255, 255, 255};       // primary text, Physical numbers
         constexpr Rgba kTextSoft{235, 225, 205};   // secondary: stack counter, subtitles
         constexpr Rgba kTextMuted{165, 155, 145};  // disabled, hints
-        constexpr Rgba kGold{255, 200, 90};        // chrome accent: card trim, menu accent. Never on numbers (reads as Holy)
+        constexpr Rgba kAccent{255, 166, 69};      // chrome accent = the game's accent orange (spinner values). Never on numbers
+        constexpr Rgba kGameText{239, 239, 239};   // the game's button text (0.937)
+        constexpr Rgba kGameHighlight{252, 255, 0}; // the game's counts / active marks
         constexpr Rgba kPanel{18, 15, 22, 214};    // menu/card plate
-        constexpr Rgba kPanelEdge{255, 200, 90, 90};
+        constexpr Rgba kPanelEdge{255, 166, 69, 90};
         constexpr Rgba kTrack{45, 32, 32, 153};    // empty bar track
         constexpr Rgba kHpFill{215, 45, 40};
         constexpr Rgba kHpSheen{255, 140, 120, 90};
