@@ -19,6 +19,7 @@ namespace feature {
     };
 
     // Kubernetes feature-gate stages. Default on only when Stable; Alpha is shown only with dos-tool.dev.
+    // With dos-tool.dev (a developer's install) every non-Deprecated feature defaults on, except optIn ones.
     // The player's on/off choice is local (dos-tool.ini next to the game exe), never in the repo.
     enum class Stage { Alpha, Beta, Stable, Deprecated };
 
@@ -27,6 +28,7 @@ namespace feature {
         Stage stage;
         bool enabled;
         bool wasEnabled;
+        bool optIn = false;  // off by default even with dos-tool.dev (risky hooks, log spam)
         Feature(const char* n, Stage s) : name(n), stage(s), enabled(s == Stage::Stable), wasEnabled(enabled) { All().push_back(this); }
         virtual void OnFrame(const Frame&) {}
         virtual void Menu() {}

@@ -8,7 +8,7 @@
 // SDK-free combat service: diff per-actor health between samples into stacked hit events,
 // learn the typical hit, keep fight stats. Consumed by features (damage numbers, DPS meter).
 namespace combat {
-    struct Sample { uintptr_t id; float x, y, z; float health; bool isPlayer; float maxHealth = 0; float level = 0; };  // 0 = unknown
+    struct Sample { uintptr_t id; float x, y, z; float health; bool isPlayer; float maxHealth = 0; float level = 0; float seen = 0; };  // 0 = unknown; seen = game time the mesh was last on screen
 
     enum class Kind { Dealt, Taken, Heal };
     struct Number {

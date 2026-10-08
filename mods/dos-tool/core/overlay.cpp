@@ -83,6 +83,9 @@ static bool InitImGui(IDXGISwapChain* sc) {
     char devFlag[MAX_PATH];
     snprintf(devFlag, MAX_PATH, "%sdos-tool.dev", g_ini);
     g_dev = GetFileAttributesA(devFlag) != INVALID_FILE_ATTRIBUTES;
+    if (g_dev)
+        for (feature::Feature* f : feature::Feature::All())
+            if (f->stage != feature::Stage::Deprecated && !f->optIn) f->enabled = f->wasEnabled = true;
     strncat(g_ini, "dos-tool.ini", MAX_PATH - strlen(g_ini) - 1);
     io.IniFilename = g_ini;  // window layout + [DosTool][Settings] below; local to this install
     ImGuiSettingsHandler h{};
