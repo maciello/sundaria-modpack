@@ -16,6 +16,7 @@
 #include "BP_SpecItemWeapon_classes.hpp"
 #include "BP_SpecItemArmor_classes.hpp"
 #include "BP_SpecItemCommon_classes.hpp"
+#include "BP_SpecItemBase_parameters.hpp"
 
 // Item reads for every item feature (#16). Facts: references/game-facts.md § items.
 using namespace SDK;
@@ -161,6 +162,32 @@ namespace {
     }
 }
 
+namespace items::profiles {
+    namespace {
+        SRWLOCK mu = SRWLOCK_INIT;
+        std::vector<Profile> all = Presets();
+        std::atomic<int> active{0};
+    }
+    std::vector<Profile> All() {
+        AcquireSRWLockShared(&mu); std::vector<Profile> v = all; ReleaseSRWLockShared(&mu);
+        return v;
+    }
+    void SetAll(std::vector<Profile> v) {
+        if (v.empty()) return;
+        AcquireSRWLockExclusive(&mu); all = std::move(v); ReleaseSRWLockExclusive(&mu);
+        SetActive(active.load());
+    }
+    int ActiveIndex() { return active.load(); }
+    void SetActive(int i) {
+        AcquireSRWLockShared(&mu); const int n = int(all.size()); ReleaseSRWLockShared(&mu);
+        active = std::clamp(i, 0, n - 1);
+    }
+    Profile Active() {
+        AcquireSRWLockShared(&mu); Profile p = all[std::clamp(active.load(), 0, int(all.size()) - 1)]; ReleaseSRWLockShared(&mu);
+        return p;
+    }
+}
+
 namespace items::io {
     void Tick() {
         const double now = GetTickCount64() / 1000.0;
@@ -245,6 +272,31 @@ namespace items::io {
         }
         AcquireSRWLockShared(&g_mu); b.items = g_bankCache; b.seen = g_bankSeen; ReleaseSRWLockShared(&g_mu);
         return b;
+    }
+
+    bool CanSalvage(int specId) {
+        static std::unordered_map<int, bool> cache;
+        if (auto it = cache.find(specId); it != cache.end()) return it->second;
+        bool rebuilt = false;
+        UArchonSpec* sp = Spec(specId, rebuilt);
+        bool can = false;
+        if (sp && sp->IsA(UBP_SpecItemBase_C::StaticClass()))
+            if (UFunction* fn = sp->Class->GetFunction("BP_SpecItemBase_C", "I_CanSalvage")) {
+                Params::BP_SpecItemBase_C_I_CanSalvage p{};
+                sp->ProcessEvent(fn, &p);
+                can = p.CanSalvage;
+            }
+        return cache[specId] = can;
+    }
+
+    std::uint64_t Signature(void* container) {
+        auto* c = Container(static_cast<UObject*>(container));
+        if (!c) return 0;
+        std::uint64_t h = 1469598103934665603ull;  // FNV-1a over the raw FBP_ItemStruct records
+        const auto* p = reinterpret_cast<const uint8*>(c->Items.GetDataPtr());
+        const size_t n = PtrOk(p) ? size_t(c->Items.Num()) * sizeof(FBP_ItemStruct) : 0;
+        for (size_t i = 0; i < n; i++) h = (h ^ p[i]) * 1099511628211ull;
+        return h ^ n;
     }
 
     std::string ContainersReport() {
