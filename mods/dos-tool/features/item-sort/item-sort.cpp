@@ -22,6 +22,7 @@
 #include "BP_AccountItemStorage_classes.hpp"
 #include "BP_SpecItemWeapon_classes.hpp"
 #include "BP_SpecItemArmor_classes.hpp"
+#include "BP_SpecItemCommon_classes.hpp"
 #include "WidgetitemBagHeaderMenu_classes.hpp"
 #include "BP_HUDInventoryComponent_classes.hpp"
 #include "FItemContainerFunctions_classes.hpp"
@@ -79,12 +80,16 @@ namespace {
         }
         return out;
     }
+    std::string Text(const FText& t, const std::string& fallback) {
+        const std::string s = PtrOk(t.TextData) ? t.ToString() : "";
+        return s.empty() ? fallback : s;
+    }
     std::string At(const std::vector<std::string>& v, int i) { return i >= 0 && i < int(v.size()) ? v[i] : ""; }
 
     // Written once on the render thread, then read-only (published by g_haveNames).
     struct Attr { std::string name; int32 offset; };
     struct Names {
-        std::vector<std::string> container, weaponType;
+        std::vector<std::string> container, weaponType, equipSlot;
         std::vector<Attr> attr;          // float properties of UArchonAttributeSet_Secondary = item stats
         std::vector<std::string> stat;   // attr names, Stat::type indexes this
     } g_names;
@@ -201,6 +206,7 @@ namespace {
         UClass* weapon = UBP_SpecItemWeapon_C::StaticClass();
         UClass* armor = UBP_SpecItemArmor_C::StaticClass();
         UClass* equipable = UBP_SpecItemEquipable_C::StaticClass();
+        UClass* common = UBP_SpecItemCommon_C::StaticClass();
         for (int i = 0; i < c->Items.Num(); i++) {
             const FBP_ItemStruct& r = c->Items[i];
             Item it;
@@ -217,9 +223,16 @@ namespace {
                 it.name = sp->GetName();
                 if (sp->IsA(equipable)) it.equipSlot = int(static_cast<UBP_SpecItemEquipable_C*>(sp)->equipSlot);
                 if (sp->IsA(weapon)) {
+                    auto* wp = static_cast<UBP_SpecItemWeapon_C*>(sp);
                     it.kind = Kind::Weapon;
-                    it.attack = AttackOfWeapon(At(g_names.weaponType, int(static_cast<UBP_SpecItemWeapon_C*>(sp)->WeaponAnimationType)));
-                } else if (sp->IsA(armor)) it.kind = Kind::Armor;
+                    it.weaponType = int(wp->WeaponAnimationType);
+                    it.attack = AttackOfWeapon(At(g_names.weaponType, it.weaponType));
+                    it.name = Text(wp->WeaponItemSpecData.mDisplayName_2_3062F8A64DE28500FF2B46B3C800B32B, it.name);
+                } else if (sp->IsA(armor)) {
+                    it.kind = Kind::Armor;
+                    it.name = Text(static_cast<UBP_SpecItemArmor_C*>(sp)->ItemArmorSpecData.mDisplayName_2_3062F8A64DE28500FF2B46B3C800B32B, it.name);
+                } else if (sp->IsA(common))
+                    it.name = Text(static_cast<UBP_SpecItemCommon_C*>(sp)->ItemSpecCommonData.mDisplayName_2_77D264014CB57F0A282FA187B8C21C04, it.name);
             } else it.name = "spec " + I(it.specId);
             if (stats && it.kind != Kind::Other)
                 if (UArchonAttributeSet_Secondary* set = AttrSet(c, it))
@@ -320,50 +333,22 @@ namespace {
         LogItems(what, items);
         if (items.size() < 2) return SetStatus(std::string(what) + ": nothing to sort");
         std::vector<float> score;
-        for (const Item& it : items) score.push_back(Score(it, prof, g_names.stat));
-
-        // Our order, expressed in the formats the game's reorder functions may take.
-        std::vector<int> idx(items.size());
-        for (int i = 0; i < int(idx.size()); i++) idx[i] = i;
-        std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return Before(items[a], score[a], items[b], score[b]); });
+        const std::vector<int> idx = Order(items, prof, g_names.stat, &score);
         std::vector<long long> intended;
-        std::vector<int> bySlots, used;
-        for (int i : idx) { intended.push_back(KeyOf(items[i])); bySlots.push_back(items[i].slot); used.push_back(items[i].slot); }
-        std::sort(used.begin(), used.end());
-        std::string top;
-        for (int k = 0; k < int(idx.size()) && k < 5; k++) top += " " + items[idx[k]].name + "(" + std::to_string(score[idx[k]]).substr(0, 6) + ")";
-        logger::log(std::string("[item-sort] profile '") + prof.name + "' top:" + top);
-
-        // Format 1: the game's own list (from its sorter) permuted by our order.
-        const std::vector<int> game = GameSortList(c, w.inv);
-        const int plain = PlainType(game, items);
-        logger::log("[item-sort] game sorter list " + I(game.size()) + ":" + Head(game) + (plain >= 0 ? " (plain slots)" : " (not plain)") +
-                    " | bag slots:" + Head(used));
-        std::vector<int> fromGame;
-        if (!game.empty()) {
-            std::vector<int> itemOf(game.size(), -1);
-            UFunction* dec = UFItemContainerFunctions_C::StaticClass()->GetFunction("FItemContainerFunctions_C", "ConvertCompressedItemSlot");
-            for (int i = 0; i < int(game.size()); i++) {
-                int slot = game[i], type = plain;
-                if (plain < 0 && dec) {
-                    Params::FItemContainerFunctions_C_ConvertCompressedItemSlot d{};
-                    d.CompressedItemSlot = game[i];
-                    d.__WorldContext = w.inv;
-                    UFItemContainerFunctions_C::GetDefaultObj()->ProcessEvent(dec, &d);
-                    slot = d.ItemSlot;
-                    type = int(d.ContainerType);
-                }
-                for (int k = 0; k < int(items.size()); k++)
-                    if (items[k].slot == slot && items[k].containerType == type) { itemOf[i] = k; break; }
-            }
-            fromGame = Reorder(game, itemOf, items, score);
-            logger::log("[item-sort] game list mapped to items: " + std::string(fromGame.empty() ? "no" : "yes"));
+        std::vector<int> bySlots;
+        for (int i : idx) { intended.push_back(KeyOf(items[i])); bySlots.push_back(items[i].slot); }
+        logger::log(std::string("[item-sort] profile '") + prof.name + "' order (group/bucket name score lv):");
+        for (int k = 0; k < int(idx.size()) && k < 20; k++) {
+            const Item& it = items[idx[k]];
+            const Bucket bk = BucketOf(it, prof.focus);
+            const std::string sub = bk.group == 0 ? At(g_names.weaponType, it.weaponType) : bk.group == 3 ? "" : At(g_names.equipSlot, it.equipSlot);
+            logger::log("[item-sort]   " + I(k + 1) + ". " + kKindName[int(it.kind)] + (bk.group == 2 ? "(equipable)" : "") + "/" + sub + " '" +
+                        it.name + "' " + std::to_string(score[idx[k]]).substr(0, 5) + " lv" + I(it.level));
         }
 
         // Try the game's reorder paths until the bag reads back in our order.
         struct Try { const char* name; std::vector<int> list; int how; };
         std::vector<Try> tries;
-        if (!fromGame.empty()) tries.push_back({"InvManager.ReorderItems(game format)", fromGame, 0});
         tries.push_back({"InvManager.ReorderItems(slots in new order)", bySlots, 0});
         tries.push_back({"Container.Request_ReorderItems(slots in new order)", bySlots, 1});
         tries.push_back({"Container.RemapItemSlots(slots in new order)", bySlots, 2});
@@ -510,9 +495,9 @@ namespace {
         }
 
         void LoadNames() {
-            Names n{EnumNames("EItemContainerType"), EnumNames("EWeaponType"), AttrFloats(), {}};
+            Names n{EnumNames("EItemContainerType"), EnumNames("EWeaponType"), EnumNames("EBP_ItemEquipmentSlotEnum"), AttrFloats(), {}};
             for (const Attr& a : n.attr) n.stat.push_back(a.name);
-            logger::log("[item-sort] names: containers " + I(n.container.size()) + ", weapon types " + I(n.weaponType.size()) +
+            logger::log("[item-sort] names: containers " + I(n.container.size()) + ", weapon types " + I(n.weaponType.size()) + ", equip slots " + I(n.equipSlot.size()) +
                         ", item stat attributes " + I(n.attr.size()));
             if (n.container.empty() || n.attr.empty()) return;  // retried next scan
             g_names = std::move(n);

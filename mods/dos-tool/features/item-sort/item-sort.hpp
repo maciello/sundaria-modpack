@@ -2,6 +2,8 @@
 // SDK-free item model + profile score/order/filter (#16, #21). Shared base for Suggested (#22) and selling (#23).
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <compare>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -27,6 +29,7 @@ namespace item_sort {
         Attack attack = Attack::Unknown;
         std::string name;
         std::vector<Stat> stats;
+        int weaponType = -1;              // EWeaponType raw (weapons)
     };
 
     inline std::string Lower(std::string_view s) {
@@ -83,29 +86,75 @@ namespace item_sort {
         auto it = p.weight.find(stat);
         return it != p.weight.end() ? it->second : DefaultWeight(p.focus, stat);
     }
-    inline float AttackWeight(const Profile& p, Attack a) {
-        auto it = p.attack.find(int(a));
-        if (it != p.attack.end()) return it->second;
-        if (p.focus == Attack::Unknown || a == Attack::Unknown) return 1.0f;
-        return a == p.focus ? 2.0f : 0.5f;
-    }
-
     inline std::string StatName(const std::vector<std::string>& names, int type) {
         return type >= 0 && type < int(names.size()) && !names[type].empty() ? names[type] : "Stat " + std::to_string(type);
     }
-    // Σ weight × value; weapons × their attack weight.
-    inline float Score(const Item& it, const Profile& p, const std::vector<std::string>& statNames) {
-        float s = 0;
-        for (const Stat& st : it.stats) s += Weight(p, StatName(statNames, st.type)) * st.value;
-        return it.kind == Kind::Weapon ? s * AttackWeight(p, it.attack) : s;
-    }
 
-    // Best first; ties: higher level, then lower spec id (the game's order), then slot.
-    inline bool Before(const Item& a, float sa, const Item& b, float sb) {
-        if (sa != sb) return sa > sb;
-        if (a.level != b.level) return a.level > b.level;
-        if (a.specId != b.specId) return a.specId < b.specId;
-        return a.slot < b.slot;
+    // ---- player order (ARPG convention): groups never mix; best first inside a group ----
+    // Weapons, then armor, then other equipables (jewelry), then the rest (consumables, materials).
+    inline int Group(const Item& it) {
+        if (it.kind == Kind::Weapon) return 0;
+        if (it.kind == Kind::Armor) return 1;
+        return it.equipSlot >= 0 ? 2 : 3;
+    }
+    // Weapon attack types in profile order: own focus first, the opposite style last.
+    inline int AttackRank(Attack focus, Attack a) {
+        using A = Attack;
+        static constexpr A order[4][3] = {{A::Melee, A::Ranged, A::Magic},   // Balanced
+                                          {A::Melee, A::Magic, A::Ranged},   // Melee
+                                          {A::Ranged, A::Magic, A::Melee},   // Ranged
+                                          {A::Magic, A::Ranged, A::Melee}};  // Magic
+        for (int i = 0; i < 3; i++) if (order[int(focus)][i] == a) return i;
+        return 3;
+    }
+    // Items compete on stats only inside one bucket: weapons by (attack rank, weapon type), equipables by the
+    // game's equipment slot (EBP_ItemEquipmentSlotEnum order), the rest as one bucket.
+    struct Bucket {
+        int group, a, b;
+        auto operator<=>(const Bucket&) const = default;
+    };
+    inline Bucket BucketOf(const Item& it, Attack focus) {
+        const int g = Group(it);
+        if (g == 0) return {0, AttackRank(focus, it.attack), it.weaponType};
+        return {g, g == 3 ? 0 : it.equipSlot, 0};
+    }
+    // Weapons weigh their own attack stats (a bow's RAP, a sword's Map); everything else by the profile's focus.
+    inline float WeightFor(const Profile& p, const Item& it, const std::string& stat) {
+        auto w = p.weight.find(stat);
+        return w != p.weight.end() ? w->second : DefaultWeight(it.kind == Kind::Weapon ? it.attack : p.focus, stat);
+    }
+    // Indexes of items in player order. score[i] = Σ weight × value / (max of that stat in the item's bucket),
+    // so flat stats (RAP 83) and percentages (0.03) count alike. Ties: level, grade desc; spec id, slot asc.
+    // ponytail: a stat only one item in the bucket has counts in full for it; rank-based scoring if that misorders.
+    inline std::vector<int> Order(const std::vector<Item>& items, const Profile& p, const std::vector<std::string>& statNames,
+                                  std::vector<float>* scoreOut = nullptr) {
+        std::vector<Bucket> bucket;
+        std::map<std::pair<Bucket, int>, float> maxOf;
+        for (const Item& it : items) {
+            bucket.push_back(BucketOf(it, p.focus));
+            for (const Stat& st : it.stats) {
+                float& m = maxOf[{bucket.back(), st.type}];
+                m = std::max(m, std::abs(st.value));
+            }
+        }
+        std::vector<float> score(items.size());
+        for (size_t i = 0; i < items.size(); i++)
+            for (const Stat& st : items[i].stats)
+                if (const float m = maxOf[{bucket[i], st.type}]; m > 0)
+                    score[i] += WeightFor(p, items[i], StatName(statNames, st.type)) * st.value / m;
+        std::vector<int> idx(items.size());
+        for (int i = 0; i < int(idx.size()); i++) idx[i] = i;
+        std::stable_sort(idx.begin(), idx.end(), [&](int x, int y) {
+            const Item &a = items[x], &b = items[y];
+            if (bucket[x] != bucket[y]) return bucket[x] < bucket[y];
+            if (score[x] != score[y]) return score[x] > score[y];
+            if (a.level != b.level) return a.level > b.level;
+            if (a.grade != b.grade) return a.grade > b.grade;
+            if (a.specId != b.specId) return a.specId < b.specId;
+            return a.slot < b.slot;
+        });
+        if (scoreOut) *scoreOut = std::move(score);
+        return idx;
     }
     struct Filter {
         bool where[4] = {true, true, true, true};
@@ -118,40 +167,6 @@ namespace item_sort {
         if (f.kind >= 0 && int(it.kind) != f.kind) return false;
         if (f.attack >= 0 && int(it.attack) != f.attack) return false;
         return f.text.empty() || Has(it.name, Lower(f.text));
-    }
-
-    // The game's own sort output (slot list in its format) → container type whose item slots are exactly those
-    // values (plain slots), or -1 (values are encoded: decode with the game's ConvertCompressedItemSlot).
-    inline int PlainType(std::vector<int> vals, const std::vector<Item>& cands) {
-        std::sort(vals.begin(), vals.end());
-        std::map<int, std::vector<int>> byType;
-        for (const Item& it : cands) byType[it.containerType].push_back(it.slot);
-        for (auto& [t, slots] : byType) {
-            std::sort(slots.begin(), slots.end());
-            if (slots == vals) return t;
-        }
-        return -1;
-    }
-    // vals reordered: items passing the filter first, then best profile score; itemOf[i] = index into items of vals[i].
-    // Empty (= do nothing) unless every entry maps to a distinct item.
-    inline std::vector<int> Reorder(const std::vector<int>& vals, const std::vector<int>& itemOf,
-                                    const std::vector<Item>& items, const std::vector<float>& score, const Filter& f = {}) {
-        if (vals.empty() || itemOf.size() != vals.size()) return {};
-        std::vector<bool> used(items.size());
-        for (int k : itemOf) {
-            if (k < 0 || k >= int(items.size()) || used[k]) return {};
-            used[k] = true;
-        }
-        std::vector<int> pos(vals.size());
-        for (int i = 0; i < int(pos.size()); i++) pos[i] = i;
-        std::stable_sort(pos.begin(), pos.end(), [&](int x, int y) {
-            const Item &a = items[itemOf[x]], &b = items[itemOf[y]];
-            const bool pa = Passes(a, f), pb = Passes(b, f);
-            return pa != pb ? pa : Before(a, score[itemOf[x]], b, score[itemOf[y]]);
-        });
-        std::vector<int> out;
-        for (int p : pos) out.push_back(vals[p]);
-        return out;
     }
 
     // ---- the game's own Sort, hooked (game thread) ----
