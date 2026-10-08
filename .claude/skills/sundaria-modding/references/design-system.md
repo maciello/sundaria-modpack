@@ -109,6 +109,16 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - On closed → open: flash disc r 40·Ui·depth `kTextSoft` @.5 → 0 over 0.25 s; 12 sparks = radial lines from r 0 → 60·Ui·depth (OutCubic, 0.6 s), length 10·Ui → 0; 6 motes (CircleFilled 2·Ui) rising 80·Ui over 1.2 s with drift ±10·Ui, alpha → 0.
 - Colour: highest item tier in the chest if known, else `kTextSoft`. Particles deterministic from hash(actor id) (SDK-free, tested).
 
+### Pickup toast (#64, game widgets on the HUD)
+- Ref: `genshin-obtained-feed` (rows of icon + rarity-coloured name, right of the character, slide in).
+- Row: the game's own loot-toast row `WidgetLootToastEntry_C` (40×40 atlas icon, `ItemIcon_QualityBorder`, name Narkisim 24 with black
+  outline), filled by the game's `OnListItemObjectSet` from {name, icon id, grade}: icon and rarity colours are the game's, none ours.
+- Place: viewport anchor (0.64w, 0.56h), row's bottom-left on the anchor; newest at the anchor, older rows move up 48 units
+  (OutCubic 0.18 s). At most 5 rows; a 6th fades the oldest out at once.
+- Motion: slide in from +56 units right, OutCubic 0.28 s, opacity with it; hold 4 s; fade `kFadeOut` (0.4 s InQuad). No bounce, no loop.
+- Constants: `features/inventory/pickup-toast/pickup-toast.hpp`.
+- Don't: toast reorders, sorts, equips or bank moves (only items whose owned count rose); ImGui rows; own rarity palette.
+
 ### Suggested sell/salvage (#23, game screen)
 - Where: every item slot of the game's bags (`WidgetItemIconContainer_C` in `WidgetItemBag_C::ItemContainers`): inventory, bank, vendor.
 - Mark: the game's own action icon (`Tooltip_Sell` / `Tooltip_Salvage`, the icon its item tooltip shows) as a UImage 32×32 in the slot's

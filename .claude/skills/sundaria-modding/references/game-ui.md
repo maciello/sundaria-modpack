@@ -75,6 +75,17 @@ SizeBox_0: {min: 100x100}
   price (`WidgetCurrency`). Narkisim 16. Shown item: `LoadedItemUIData`. Several instances live at once (compare panels).
 - Suggested sell/salvage marks use these (features/item-sell/inventory-badges.cpp).
 
+### Loot toast (`WidgetLootToast_C`, `WidgetLootToastEntry_C`, designer templates)
+- `WidgetLootToast_C`: Overlay > `WidgetStandardViewport_C` (header/footer/medallion images, `ListView_Items`, `FadeOut` animation);
+  data `DisplayTexts`/`IconIDs`/`Grades` arrays (ExposeOnSpawn: game-allocated TArrays, not fillable from our heap). Controller holds it as
+  `LootToastWidget` (`I_PlayerControllerToast_C`). When the game shows it: not seen yet.
+- Row `WidgetLootToastEntry_C`: HorizontalBox [SizeBox 40×40 > Overlay > `WidgetIconWithUV_C` (icon atlas by id) + `Image_ContentBorder`
+  (`ItemIcon_QualityBorder`, Box 0.1)] + `TextBlock_ItemName` (Narkisim 24, outline 1 black). A list entry: fill it with
+  `OnListItemObjectSet(WidgetLootToastEntryObject_C{DisplayName, IconId, Grade})`; outside a ListView (pickup toast): unverified.
+- Icon id of an item: its spec's `I_GetIconID` (`items::io::IconId`).
+- Pickup event: `BP_PlayerControllerGame_C::OnItemAddedDispatcherEvent(FSItemLocator)`, once per slot, also for every slot of a
+  reorder/sort.
+
 ## Adding a game widget to a screen (game thread only)
 1. Run inside a ProcessEvent listener (`game::SetEventListener`), never on the render thread. Guard re-entry (`thread_local` busy flag): our calls re-enter ProcessEvent.
 2. Find the target: scan GObjects for the screen's class; skip CDOs and archetypes (`Flags & 0x30`); check `PtrOk` on every field you follow.
