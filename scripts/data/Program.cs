@@ -3,12 +3,14 @@
 //   paths            every file path in the paks
 //   registry         "<object path>\t<class>" from AssetRegistry.bin
 //   export <out> <p>… one JSON file per package under <out>/<p>.json
+//   script <out> <p>… same, only the exports that carry Blueprint logic (functions, classes, delegate bindings)
 // Env: PAKS (Content/Paks dir), AES_KEY_FILE (0x… hex), OODLE_DIR (where the Oodle lib is cached).
 using System.Security.Cryptography;
 using CUE4Parse.Compression;
 using CUE4Parse.Encryption.Aes;
 using CUE4Parse.FileProvider;
 using CUE4Parse.UE4.AssetRegistry;
+using CUE4Parse.UE4.Assets;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Versions;
 using Newtonsoft.Json;
@@ -36,14 +38,17 @@ switch (args.FirstOrDefault())
         foreach (var a in new FAssetRegistryState(p.CreateReader(reg)).PreallocatedAssetDataBuffers)
             stdout.WriteLine($"{a.ObjectPath}\t{a.AssetClass}");
         break;
-    case "export":
+    case "export" or "script":
         var fail = 0;
         foreach (var path in args.Skip(2))
         {
             var dst = Path.Combine(args[1], path + ".json");
             try
             {
-                var json = JsonConvert.SerializeObject(p.LoadPackage(path).GetExports(), Formatting.Indented);
+                var pkg = p.LoadPackage(path);
+                var json = JsonConvert.SerializeObject(args[0] == "export" ? pkg.GetExports() : ((Package)pkg).ExportMap
+                    .Select((x, i) => (x.ClassName, i)).Where(x => x.ClassName is "Function" or "DelegateFunction" || x.ClassName.EndsWith("GeneratedClass")
+                        || x.ClassName.EndsWith("DelegateBinding")).Select(x => pkg.ExportsLazy[x.i].Value), Formatting.Indented);
                 Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
                 File.WriteAllText(dst, json);
                 stdout.WriteLine(dst);
@@ -52,7 +57,7 @@ switch (args.FirstOrDefault())
         }
         return fail == 0 ? 0 : 1;
     default:
-        Console.Error.WriteLine("usage: key <exe> <pak> | paths | registry | export <outdir> <package path>…");
+        Console.Error.WriteLine("usage: key <exe> <pak> | paths | registry | export|script <outdir> <package path>…");
         return 2;
 }
 return 0;

@@ -35,7 +35,7 @@ Maintenance contract:
 | path | does |
 |---|---|
 | `scripts/sdk.py` | query the SDK: `class`, `chain`, `field <regex>`, `subs` |
-| `just data` (repo `scripts/data.py`) | offline pak data: `find`, `show` JSON, `table` YAML, `bp` bytecode, `grep` values → `references/game-data.md` |
+| `just data` (repo `scripts/data.py`) | offline pak data: `find`, `show` JSON, `table` YAML, `bp` bytecode, `grep` values; Blueprint xref index: `callers`, `writers`/`readers`, `calls`, `events`, `ast` → `references/game-data.md` |
 | `just game` (repo `scripts/game.py`) | live game over 127.0.0.1 (dev install): `get` path, `find` actors, `call`, `trace` ProcessEvent, `shot` PNG, `log` → `references/live-bridge.md` |
 | `scripts/new-feature.sh` | scaffold `features/<kebab>/` (+ `--logic`: header + test) |
 | `scripts/dev-check.sh` | game alive? hot-swap happened? log tail |
