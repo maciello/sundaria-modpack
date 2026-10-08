@@ -26,3 +26,6 @@ updater/                     launch-option updater (py + ps1), shared by all mod
 ## Dev loop
 `just dev-install` once with the game closed, then `just dev` hot-reloads `DoS-Tool.dll` into the running game.
 `just test` before every commit. `just release vX.Y.Z` publishes; friends' updaters pick it up on next launch.
+
+## Skill
+`.claude/skills/sundaria-modding/` — SDK query (`scripts/sdk.py`), feature scaffold, hot-reload check, game facts, gotchas.

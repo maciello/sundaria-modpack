@@ -1,0 +1,21 @@
+#include "feature.hpp"
+#include "imgui.h"
+
+// __TITLE__: <one line: what the player gets>
+namespace {
+    struct __TYPE__ : feature::Feature {
+        __TYPE__() : Feature("__TITLE__", true) {}
+
+        // Render thread, every Present: memory reads/writes only, no ProcessEvent.
+        void OnFrame(const feature::Frame& f) override {
+        }
+
+        // Once when the toggle goes off (and on unload): restore vanilla.
+        void Off() override {
+        }
+
+        // Inside the Insert menu, under this feature's header, only while enabled.
+        void Menu() override {
+        }
+    } g___VAR__;
+}
