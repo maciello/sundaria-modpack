@@ -221,7 +221,9 @@ namespace boss_intro::game_side {
         const FVector& p = boss->RootComponent->RelativeLocation;  // root unattached: relative == world (game-facts.md)
         const UCapsuleComponent* c = boss->CapsuleComponent;
         const float meshYaw = PtrOk(boss->Mesh) ? boss->Mesh->RelativeRotation.Yaw : 0.0f;
-        out = {p.X, p.Y, p.Z, c->CapsuleHalfHeight * c->RelativeScale3D.Z, boss->RootComponent->RelativeRotation.Yaw, meshYaw};
+        const bool dead = boss->IsA(AArchonCharacter::StaticClass()) && static_cast<const AArchonCharacter*>(boss)->mDead;
+        out = {p.X, p.Y, p.Z, c->CapsuleHalfHeight * c->RelativeScale3D.Z, boss->RootComponent->RelativeRotation.Yaw, meshYaw,
+               reinterpret_cast<std::uintptr_t>(boss), dead, int(bf->Stage)};
         return out.halfHeight > 1.0f;
     }
 

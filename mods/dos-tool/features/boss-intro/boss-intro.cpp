@@ -149,6 +149,13 @@ namespace {
             if (haveBoss) run.boss = b;
             if (!run.cam) {  // not started: wait for the boss to exist
                 if (!haveBoss) { if (f.now - run.asked > kWaitForBoss) End("skipped (no boss actor)", f.now); return; }
+                if (Dead(b.dead, b.id, f.chars)) {
+                    char buf[160];
+                    std::snprintf(buf, sizeof(buf), "[boss-intro] boss dead (flag %d, fight stage %d)", int(b.dead), b.stage);
+                    logger::log(buf);
+                    End("skipped (boss dead)", f.now);
+                    return;
+                }
                 run.t0 = f.now;
             }
             const float t = float(f.now - run.t0);
@@ -183,7 +190,10 @@ namespace {
                 return;
             }
             if (!run.cam) {
-                Log("[boss-intro] camera start, boss half height %.0f", run.boss.halfHeight);
+                char st[120];
+                std::snprintf(st, sizeof(st), "[boss-intro] camera start, boss half height %.0f, fight stage %d",
+                              run.boss.halfHeight, run.boss.stage);
+                logger::log(st);
                 const auto adds = pause::Near(f.chars, game_side::LocalPawn(), run.boss.x, run.boss.y, run.boss.z);
                 game_side::PauseAdds(adds);  // #100: hostile ones only, decided on the game thread
                 char buf[160];

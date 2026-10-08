@@ -83,6 +83,12 @@ int main() {
         assert((ids(pause::Near(chars, 0, 10000, 0, 0)) == std::vector<std::uintptr_t>{3, 7}));  // no local pawn: around the boss only
         assert(pause::Near({}, 1, 0, 0, 0).empty());
     }
+    {   // #101: a dead boss gets no intro; a just-spawned one (no max health yet) or an unsampled one is not dead
+        auto ch = [](std::uintptr_t id, float hp, float max) { combat::Sample s{}; s.id = id, s.health = hp, s.maxHealth = max; return s; };
+        const std::vector<combat::Sample> chars = {ch(7, 0, 900), ch(8, 0, 0), ch(9, 500, 900)};
+        assert(Dead(false, 7, chars) && !Dead(false, 8, chars) && !Dead(false, 9, chars) && !Dead(false, 10, chars));
+        assert(Dead(true, 9, chars) && Dead(true, 10, {}));
+    }
     {   // camera: no pop at either end, full shot in the hold, orbit only in the hold
         using namespace cam;
         auto near = [](float a, float b, float e = 1e-3f) { return std::fabs(a - b) < e; };

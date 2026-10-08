@@ -14,7 +14,8 @@ namespace boss_intro::game_side {
         std::string name, subtitle;  // FightDisplayName, FightStartedMessage ("" if unset)
     };
     // capsule centre (cm), capsule half height; yaw = actor rotation (its forward, #99), meshYaw = the mesh's relative yaw
-    struct Boss { float x, y, z, halfHeight, yaw, meshYaw; };
+    // id = the boss actor (combat::Sample::id), dead = its death flag (AArchonCharacter::mDead), stage = the fight's Stage (raw)
+    struct Boss { float x, y, z, halfHeight, yaw, meshYaw; std::uintptr_t id; bool dead; int stage; };
     // The fight's first boss actor, if spawned: read on the game thread in each camera update while asked (#80); this
     // returns the last read (one frame behind). StopSweep ends the asking.
     bool BossOf(std::uintptr_t fight, Boss& out);

@@ -114,6 +114,10 @@ boss_fights:   # features/boss-intro/signals.cpp; SDK only, UNVERIFIED at runtim
     MulticastNotifyCombatStart, MulticastNotifyFinished(bFailed) (NetMulticast: every client), UserWidget Construct on WidgetBossSplashScreen_C,
     ReceiveBeginPlay on BP_LensEffect_bossAnnouncement_C (: AEmitterCameraLensEffectBase)
   match_by: function FName ComparisonIndex (int, outlives map travel) + IsA / class-name index; no Blueprint pointer kept
+  state: Stage @0x3C8 (EBossFightStage, uint8, enumerators unnamed in the dump; logged raw on `camera start`: values UNVERIFIED), IsFinished(bool*) (BP, unused)
+  boss_alive: AArchonCharacter::mDead @0x6B4 bit0 (Net) + sampled CurrentHealth with max > 0 (#101)
+  ally_test: AArchonCharacter::IsEnemyFor(AController*) native UFunction, game thread (#100: adds frozen only if enemy of the local controller); friendly summons e.g. NPC_Friendly_Karra_ItemSetSummon_C
+  facing: actor yaw = RootComponent RelativeRotation.Yaw (unattached root); `[boss-intro] facing:` logs it with the mesh's relative yaw (#99, mesh offset UNVERIFIED)
 
 loot:   # features/loot/shared (track.cpp); seen in game 2026-10-08 (Crypt of Horrors) unless marked
   classes: ABP_WorldSingleItemtLoot_C (floor items, weapon racks *_SwitchableMesh_COH_WeaponRacks_C, destructible bags) and ABP_WorldLootBase_C (chests, boss chests, tombs BP_dun_hcr_tombA_COH_C); both : ABP_TriggerBase_C

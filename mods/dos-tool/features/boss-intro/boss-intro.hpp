@@ -115,6 +115,15 @@ namespace boss_intro {
         }
     }
 
+    // #101: no intro for a dead boss (re-entering a cleared arena re-arms the detector; a hot reload forgets it all): the
+    // boss's own death flag, or its sampled health (core's character samples) at or below 0 once it has a max.
+    inline bool Dead(bool deadFlag, std::uintptr_t boss, const std::vector<combat::Sample>& chars) {
+        if (deadFlag) return true;
+        for (const combat::Sample& s : chars)
+            if (s.id == boss) return s.maxHealth > 0 && s.health <= 0;  // max 0 = attributes not set up yet (just spawned)
+        return false;  // not sampled (yet): the flag decides
+    }
+
     // Camera move (#18): live camera -> framing shot -> slow orbit -> back to the live camera, re-read every frame.
     namespace cam {
         constexpr float kApproach = 1.2f, kReturn = 0.8f;   // s, InOutCubic
