@@ -33,14 +33,18 @@ namespace item_sort {
         if (fn == "RequestSortItems") return 0x1;
         return -1;
     }
-    // ReorderItems(SlotsToMove) puts the listed items first, in list order, and keeps the rest in their order
-    // (verified in game). So only the prefix up to the last position that changes needs sending; 0 = in order.
+    // Empty slots below the last item (sold/salvaged items leave them). now: occupied slots ascending, from 0.
+    inline int Holes(const std::vector<int>& now) { return now.empty() ? 0 : now.back() + 1 - int(now.size()); }
+
+    // ReorderItems(SlotsToMove) puts the listed items first, in list order, keeps the rest in their order and
+    // packs slots 0..n-1 (verified in game). So only the prefix up to the last position that changes needs
+    // sending; 0 = in order and packed, holes alone need 1 (#75).
     // intended / now: item slots in the wanted order and in the current order.
     inline size_t PrefixToMove(const std::vector<int>& intended, const std::vector<int>& now) {
         size_t n = 0;
         for (size_t i = 0; i < intended.size(); i++)
             if (i >= now.size() || intended[i] != now[i]) n = i + 1;
-        return n;
+        return n || intended.empty() || !Holes(now) ? n : 1;
     }
 
     // Positions where the container's order after applying equals the intended order (item keys).

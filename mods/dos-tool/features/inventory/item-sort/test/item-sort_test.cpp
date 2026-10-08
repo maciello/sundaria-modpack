@@ -71,5 +71,10 @@ int main() {
     assert(PrefixToMove({0, 1, 2, 3}, {0, 1, 2, 3}) == 0);         // in order: no call
     assert(PrefixToMove({5, 0, 1, 2, 3, 4, 6}, {0, 1, 2, 3, 4, 5, 6}) == 6);  // item 5 to the front: 6 entries
     assert(PrefixToMove({0, 1, 3, 2}, {0, 1, 2, 3}) == 4);
+    // #75: sold slots 1 and 4 of a sorted bag; the rest is still in order but the bag has holes: pack it
+    assert(Holes({0, 2, 3, 5}) == 2 && Holes({0, 1, 2}) == 0 && Holes({}) == 0);
+    assert(PrefixToMove({0, 2, 3, 5}, {0, 2, 3, 5}) == 1);
+    assert(PrefixToMove({2, 3, 5}, {2, 3, 5}) == 1);  // slot 0 sold
+    assert(PrefixToMove({3, 0, 2, 5}, {0, 2, 3, 5}) == 3);  // a real move packs too
     std::puts("ok");
 }
