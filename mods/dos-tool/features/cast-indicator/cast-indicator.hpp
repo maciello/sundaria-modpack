@@ -11,12 +11,15 @@
 // SDK-free: the game thread publishes Montage, the render thread counts landed hits (Tracker + Records) and animates Pips. Spec: design-system.md § Hit pips.
 namespace cast_indicator {
     constexpr int kMaxHits = 64;
-    constexpr int kMinHits = 2;         // single-hit casts get no indicator
+    constexpr int kMinHits = 2;         // single-hit casts get pips only after a wind-up (PipsFor)
     constexpr int kBarFrom = 11;        // N > 10: one segmented bar
     constexpr float kPipHalf = 6;       // diamond half-diagonal, × Ui
     constexpr float kGlowR = 1.8f;      // glow disc radius, × kPipHalf
     constexpr float kPunch = 1.15f, kPunchDur = 0.25f, kHold = 0.5f;
     constexpr double kLateHits = 0.6;   // s after the montage ends that arrows in flight still count (tuning knob)
+    constexpr float kWindupMin = 0.3f;  // s before the first hit from which a cast gets the wind-up ring (tuning knob)
+    constexpr float kRingR = 11, kApproachR = 44;  // target ring / approach ring start radius, × Ui
+    constexpr float kRelease = 0.25f, kReleasePunch = 1.35f;  // release: target ring punches out and fades
 
     // UBP_GameplayAnimNotify_C::mGameplayAnimNotifyType: ApplyEffect 0, ShootProjectile 1 are hits.
     inline bool IsHit(int notifyType) { return notifyType == 0 || notifyType == 1; }
@@ -30,30 +33,49 @@ namespace cast_indicator {
     struct Section { std::uint64_t name, next; float time; };
     struct Notify { float time; bool hit; };
 
-    // Hits the cast should land: hit notifies in the start section and the sections it chains into (each once: a loop
-    // back counts once). start < 0 (unknown section) = the whole montage.
-    inline int HitsFrom(const std::vector<Section>& secs, const std::vector<Notify>& ns, float length, int start) {
+    // Times (montage s, sorted) of the hits the cast should land: hit notifies in the start section and the sections it
+    // chains into (each once: a loop back counts once). start < 0 (unknown section) = the whole montage.
+    inline std::vector<float> HitTimes(const std::vector<Section>& secs, const std::vector<Notify>& ns, float length, int start) {
+        std::vector<float> t;
         if (start < 0 || start >= int(secs.size())) {
-            int n = 0;
-            for (const Notify& x : ns) n += x.hit;
-            return n;
+            for (const Notify& x : ns) if (x.hit) t.push_back(x.time);
+            std::sort(t.begin(), t.end());
+            return t;
         }
         std::vector<bool> seen(secs.size());
-        int n = 0;
         for (int i = start; i >= 0 && !seen[i];) {
             seen[i] = true;
             float end = length;
             for (const Section& o : secs) if (o.time > secs[i].time) end = std::min(end, o.time);
-            for (const Notify& x : ns) n += x.hit && x.time >= secs[i].time && x.time < end;
+            for (const Notify& x : ns) if (x.hit && x.time >= secs[i].time && x.time < end) t.push_back(x.time);
             const std::uint64_t next = secs[i].next;
             i = -1;
             for (int j = 0; next && j < int(secs.size()); j++) if (secs[j].name == next) { i = j; break; }
         }
-        return n;
+        std::sort(t.begin(), t.end());
+        return t;
     }
 
-    // Game thread → render thread: the hero's current multi-hit montage. cast changes per montage start.
-    struct Montage { unsigned cast = 0; int hits = 0; bool ended = true; std::uintptr_t hero = 0; std::string ability, name; };
+    // Wind-up (#92): real seconds from montage position `pos` to the first hit at play rate `rate`; < 0 = fired or none.
+    inline float FireIn(const std::vector<float>& hits, float pos, float rate) {
+        return hits.empty() || rate <= 0 ? -1 : (hits.front() - pos) / rate;
+    }
+
+    // Pips a cast shows: multi-hit casts, or one pip for a single hit after a wind-up (the ring lands on it).
+    // Spread abilities show none: their notify count is not hits per target (#81: Salvo "hits 20, landed 4-9").
+    inline int PipsFor(int hits, float windup, bool spread) {
+        if (spread) return 0;
+        return hits >= kMinHits || (hits == 1 && windup >= kWindupMin) ? hits : 0;
+    }
+    // ponytail: one known cone ability by class name; volley count from ApplyEffectID once the notify dump shows its grouping
+    inline bool Spread(const std::string& ability) { return ability == "BP_GameAbility_Salvo_C"; }
+
+    // Game thread → render thread: the hero's current montage that shows something. cast changes per montage start.
+    // hits = pips (0: ring only); windup = s from start to the first hit; fireAt = steady-clock s of that hit (live).
+    struct Montage {
+        unsigned cast = 0; int hits = 0; bool ended = true; std::uintptr_t hero = 0; std::string ability, name;
+        float windup = 0; double fireAt = 0;
+    };
     // Tracker → Pips. done = no more hits will count.
     struct Cast { unsigned cast = 0; int hits = 0, landed = 0; bool done = true; };
 
@@ -84,7 +106,7 @@ namespace cast_indicator {
         double fillAt[kMaxHits] = {};
 
         void Update(const Cast& c, double now) {
-            if (c.hits < kMinHits) {  // a cast without an indicator ends the shown one
+            if (c.hits < 1) {  // a cast without pips ends the shown ones
                 if (c.cast != seen && doneAt < 0) doneAt = now;
                 seen = c.cast;
                 return;
@@ -130,6 +152,43 @@ namespace cast_indicator {
         const float step = (2 * kPipHalf + style::space::k2) * ui;
         return cx + (i - (n - 1) * 0.5f) * step;
     }
+
+    // Wind-up ring (render thread): an approach ring shrinks linearly from kApproachR onto the target ring and meets it at
+    // fireAt; release = punch + flash + fade; montage ended first = cancelled (muted, fade).
+    struct Ring {
+        unsigned cast = 0;
+        float total = 0;
+        double shown = -1e9, fireAt = 1e18, endAt = -1;
+
+        // fireAt: this frame's estimate (render clock); frozen once reached.
+        void Update(unsigned c, float windup, double fire, bool ended, double now) {
+            if (c != cast) { *this = {}; cast = c; total = windup; shown = now; }
+            if (total < kWindupMin) return;
+            if (!Fired(now) && endAt < 0) fireAt = fire;
+            if (ended && endAt < 0) endAt = now;
+        }
+        bool Fired(double now) const { return now >= fireAt && !Cancelled(); }
+        bool Cancelled() const { return endAt >= 0 && endAt < fireAt; }
+        double Until() const { return Cancelled() ? endAt + style::motion::kFadeOut.dur : fireAt + kRelease; }
+        bool Visible(double now) const { return total >= kWindupMin && now < Until(); }
+        float Approach(double now) const {  // approach radius, × Ui
+            return kRingR + (kApproachR - kRingR) * std::clamp(float((fireAt - now) / total), 0.0f, 1.0f);
+        }
+        float Alpha(double now) const {
+            using namespace style::motion;
+            const float in = style::ease::Apply(kFadeIn.curve, float((now - shown) / kFadeIn.dur));
+            if (Cancelled()) return in * (1 - style::ease::Apply(kFadeOut.curve, float((now - endAt) / kFadeOut.dur)));
+            if (!Fired(now)) return in;
+            return 1 - std::clamp(float((now - fireAt) / kRelease), 0.0f, 1.0f);
+        }
+        float Punch(double now) const {  // target ring scale
+            if (!Fired(now)) return 1;
+            return 1 + (kReleasePunch - 1) * style::ease::Apply(style::ease::Curve::OutCubic, float((now - fireAt) / kRelease));
+        }
+        float Flash(double now) const {
+            return Fired(now) ? 1 - std::clamp(float((now - fireAt) / style::motion::kFlash.dur), 0.0f, 1.0f) : 0;
+        }
+    };
 
     // One cast's bookkeeping (render thread): montage ended → late hits for kLateHits, then done.
     struct Tracker {

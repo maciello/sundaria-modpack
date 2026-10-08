@@ -19,12 +19,38 @@ int main() {
     // AimedShot-like: 4 sections, one shot each, no chaining → a cast of section 2 lands 1 hit
     const std::vector<Section> aimed = {{11, 0, 0.0f}, {12, 0, 1.0f}, {13, 0, 2.0f}, {14, 0, 3.0f}};
     const std::vector<Notify> shots = {{0.4f, true}, {1.4f, true}, {2.4f, true}, {3.4f, true}, {3.9f, false}};
-    assert(HitsFrom(aimed, shots, 4.0f, 1) == 1);
-    assert(HitsFrom(aimed, shots, 4.0f, -1) == 4);  // section unknown: whole montage
+    assert(HitTimes(aimed, shots, 4.0f, 1) == std::vector<float>{1.4f});
+    assert(HitTimes(aimed, shots, 4.0f, -1).size() == 4);  // section unknown: whole montage
     // chain 0 → 1 → 2 → back to 1: sections 0..2 once
     const std::vector<Section> chain = {{11, 12, 0.0f}, {12, 13, 1.0f}, {13, 12, 2.0f}, {14, 0, 3.0f}};
-    assert(HitsFrom(chain, shots, 4.0f, 0) == 3);
+    assert(HitTimes(chain, shots, 4.0f, 0).size() == 3);
     assert(Near(LinkTime(0, 1, 2, 0.5f), 0.5f) && Near(LinkTime(1, 1, 2, 0.5f), 1.5f) && Near(LinkTime(2, 1, 2, 0.5f), 2.0f));
+
+
+    // wind-up: first hit 0.8 s into the section, attack speed 2 → 0.4 s; past it → fired
+    const std::vector<float> one = HitTimes(aimed, shots, 4.0f, 1);
+    assert(Near(FireIn(one, 1.0f, 1.0f), 0.4f));
+    assert(Near(FireIn({0.8f}, 0.0f, 2.0f), 0.4f) && FireIn({0.8f}, 0.9f, 1.0f) < 0 && FireIn({}, 0, 1) < 0 && FireIn({1}, 0, 0) < 0);
+    // pips: multi-hit always; a single hit only after a wind-up; spread none
+    assert(PipsFor(8, 0, false) == 8 && PipsFor(1, 0.1f, false) == 0 && PipsFor(1, kWindupMin, false) == 1);
+    assert(PipsFor(20, 0.5f, true) == 0 && Spread("BP_GameAbility_Salvo_C") && !Spread("BP_GameAbility_RapidShot_C"));
+
+    // ring: 0.8 s wind-up from t=10, approach closes linearly, release at 10.8, gone after kRelease
+    Ring g;
+    g.Update(1, 0.8f, 10.8, false, 10.0);
+    assert(g.Visible(10.0) && Near(g.Approach(10.0), kApproachR) && Near(g.Approach(10.4), (kApproachR + kRingR) / 2));
+    g.Update(1, 0.8f, 10.82, false, 10.4);  // live correction before it fires
+    assert(Near(float(g.fireAt), 10.82f) && !g.Fired(10.81) && g.Fired(10.82) && Near(g.Approach(10.82), kRingR));
+    g.Update(1, 0.8f, 11.5, true, 10.9);  // fired: estimate frozen, a later montage end is no cancel
+    assert(Near(float(g.fireAt), 10.82f) && !g.Cancelled() && Near(g.Punch(10.82), 1) && Near(g.Flash(10.82), 1));
+    assert(Near(g.Punch(10.82 + kRelease), kReleasePunch) && !g.Visible(10.82 + kRelease));
+    // dodge-cancel before the shot: muted fade, never fires
+    g.Update(2, 0.6f, 20.6, false, 20.0);
+    g.Update(2, 0.6f, 20.6, true, 20.3);
+    assert(g.Cancelled() && !g.Fired(20.7) && g.Visible(20.6) && !g.Visible(20.3 + style::motion::kFadeOut.dur));
+    // short wind-up: no ring
+    g.Update(3, 0.1f, 30.1, false, 30.0);
+    assert(!g.Visible(30.0));
 
     // game thread: 8 hits, 5 land, montage ends, late arrow lands inside the window, then done once
     Tracker tr;
@@ -84,14 +110,16 @@ int main() {
     assert(q.Muted(6) && q.Muted(7) && !q.Muted(5));
     assert(!q.Visible(1.0 + style::motion::kFadeOut.dur));
 
-    // a single-hit cast is not shown, and ends the shown one
+    // a cast without pips (ring only) is not shown, and ends the shown one; one pip (wind-up shot) is
     Pips r;
-    r.Update({1, 1, 0, false}, 0.0);
+    r.Update({1, 0, 0, false}, 0.0);
     assert(!r.Visible(0.0));
     r.Update({2, 4, 0, false}, 1.0);
     assert(r.Visible(1.0));
-    r.Update({3, 1, 0, false}, 2.0);
+    r.Update({3, 0, 0, false}, 2.0);
     assert(r.doneAt == 2.0 && r.hits == 4);
+    r.Update({4, 1, 0, false}, 3.0);
+    assert(r.Visible(3.0) && r.hits == 1);
 
     // row layout: centred, symmetric
     assert(Near(PipX(0, 2, 100, 1) + PipX(1, 2, 100, 1), 200));

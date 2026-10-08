@@ -93,12 +93,23 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Cast timer (optional): 2·Ui line, `space::k2` below the row, row width, `kTextSoft` @.8 fill left → right.
 - Size: every pip the same. A bigger pip needs a deterministic per-hit difference (e.g. an empowered last shot) read from game data; landed damage is not one (crits, same-frame sums, multi-target), so learned weights were removed (#85).
 - N > 10: one segmented bar (w = 120·Ui, h = 6·Ui, `Pill`) with N−1 ink ticks, segments fill like pips.
+- Spread abilities (cone/volley, today Salvo): no pips; their notify count is not hits per target (#81). Volley pips once the notify dump shows how ApplyEffectID groups the notifies.
 - Motion: row fades in `kFadeIn`; each hit: pip scales 0.4 → 1 with `kPipFill` + white flash `kFlash`; all filled: row punch 1.15 → 1 over 0.25 s OutCubic, hold 0.5 s, fade `kFadeOut`. Cast ended with empty pips: those turn `kTextMuted`, row fades. No red, no shake.
 
-### Charge bar (arm / cast time, #82)
+### Wind-up ring (cast indicator, #92)
+- When: the first hit notify of the cast comes ≥ `kWindupMin` (0.3 s) after the montage starts, at the cast's live play rate (attack speed). Shorter wind-ups: no ring.
+- Anchor (HUD): centred on the first pip (row centre for N > 10 or no pips). A single-hit cast with a wind-up shows one pip inside the ring; it fills when the hit lands.
+- Target ring: r `kRingR` 11·Ui (clears the pip glow), line `kBarEdge`/2 ·Ui `kTextSoft` over a `kInk` underlay (+2 px) at `kOutlineAlpha`.
+- Approach ring: r `kApproachR` 44·Ui → `kRingR`, **linear in time** (constant closing speed reads as a timing, not progress), meets the target ring at the hit notify. Line `kBarEdge`·Ui `kTextSoft` + ink underlay + same-hue glow (`kGlowWidth`, `kGlowAlpha`).
+- Release (hit notify reached): approach ring gone; target ring punches 1 → `kReleasePunch` 1.35 OutCubic over `kRelease` 0.25 s, white flash `kFlash`, alpha 1 → 0 over the same 0.25 s. Pips take over.
+- Cancelled (montage ended before the notify): both rings `kTextMuted`, fade `kFadeOut`. Fade in `kFadeIn`.
+- Don't: a second "when it fires" bar (charge bar shows hold levels only), pulsing, red, shake.
+
+### Charge bar (hold levels, #82)
+- Shows only hold abilities (`kMaxHoldLevel` > 0, level ≥ 1). Cast time / wind-up is the wind-up ring above, never both.
 - Anchor (HUD): bar centred at (w/2, `hud::kChargeY`·h), just below the hit pips. Size `hud::kBarW` × `hud::kBarH` ·Ui, `Pill`.
-- Track `kTrack`; fill left → right `kTextSoft`; 1 px outline `kTextSoft` @.6. Hold abilities: `kMaxHoldLevel` segments, N−1 `kInk` ticks; the current level fills over `mHoldInterval`.
-- Motion: fade in `kFadeIn`; full = armed: white flash `kFlash` + punch 1.1 → 1 over 0.25 s OutCubic. Cast time: hold 0.3 s, fade `kFadeOut`. Hold: stays full until release, then fades. Ended before full: fill turns `kTextMuted`, fades. No red, no shake.
+- Track `kTrack`; fill left → right `kTextSoft`; 1 px outline `kTextSoft` @.6; `kMaxHoldLevel` segments, N−1 `kInk` ticks; the current level fills over `mHoldInterval`.
+- Motion: fade in `kFadeIn`; full = armed: white flash `kFlash` + punch 1.1 → 1 over 0.25 s OutCubic; stays full until release, then fades `kFadeOut`. Released before full: fill turns `kTextMuted`, fades. No red, no shake.
 
 ### Loot marker: rarity glow, beam, idle shimmer (#25, #27)
 - Anchor: projected item position. depth as above; cull beyond 30 m, fade 25–30 m.
