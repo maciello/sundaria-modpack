@@ -201,13 +201,17 @@ std::atomic<bool> g_moving{false};  // movement/ground settings on, or a restore
 std::atomic<bool> g_coreTick{false};
 
 void MoveTick();
+void HubTick();
+std::atomic<ULONGLONG> g_hubWantedAt{0};  // last HubHero/ListNpcs call
 int LogActorsNow();
 std::atomic<bool> g_logActorsReq{false};
 std::atomic<int> g_loggedActors{0};
 
 // Core's game-thread work: one listener slot for everything core reads or writes in the world.
 void CoreTick(void*, void* fn, void*) {
-    if (!umg::IsWorldTick(fn) || !game::OnGameThread()) return;
+    if (!game::OnGameThread()) return;
+    HubTick();  // any game-thread event: whether the hub's controller has a world tick is unverified
+    if (!umg::IsWorldTick(fn)) return;
     if (g_sampling.load()) {
         std::vector<combat::Sample> s = SampleNow();
         AcquireSRWLockExclusive(&g_samplesMu);
@@ -222,7 +226,8 @@ void CoreTick(void*, void* fn, void*) {
 
 // CoreTick is registered only while a core user needs it: with every feature off, no listener and no world reads.
 void UpdateCoreTick() {
-    const bool want = g_sampling.load() || g_moving.load() || GetTickCount64() - g_camPostedAt.load() < 500 || g_logActorsReq.load();
+    const bool want = g_sampling.load() || g_moving.load() || GetTickCount64() - g_camPostedAt.load() < 500 || g_logActorsReq.load()
+                   || GetTickCount64() - g_hubWantedAt.load() < 1000;
     if (want != g_coreTick.exchange(want)) game::SetEventListener(&CoreTick, want);
 }
 }
@@ -589,7 +594,7 @@ namespace {
     }
 
     // NPC placement: queued by the render thread, applied on the game thread.
-    struct Placement { ref::Ref npc, button; FVector offset; FVector loc; float yaw; };  // AActor
+    struct Placement { uintptr_t id; FVector loc; float yaw; };  // id = an NPC address ListNpcs handed out
     SRWLOCK g_placeMu = SRWLOCK_INIT;
     std::vector<Placement> g_placeQueue;
     std::atomic<bool> g_placePending{false};
@@ -866,6 +871,8 @@ namespace {
         }
     }
 
+    bool PairOf(uintptr_t id, ref::Ref& npc, ref::Ref& button, FVector& offset);
+
     void PlaceTick() {
         std::vector<Placement> batch;
         AcquireSRWLockExclusive(&g_placeMu);
@@ -873,13 +880,16 @@ namespace {
         g_placePending = false;
         ReleaseSRWLockExclusive(&g_placeMu);
         for (const Placement& p : batch) {
-            auto* npc = p.npc.Get<AActor>();
+            ref::Ref npcRef, buttonRef;
+            FVector offset{};
+            if (!PairOf(p.id, npcRef, buttonRef, offset)) continue;
+            auto* npc = npcRef.Get<AActor>();
             if (!npc) continue;
             npc->K2_SetActorLocationAndRotation(p.loc, FRotator{0.0f, p.yaw, 0.0f}, false, nullptr, true);
-            if (auto* button = p.button.Get<AActor>()) {
+            if (auto* button = buttonRef.Get<AActor>()) {
                 // click zones are static level actors: the move is silently refused unless they become movable
                 if (PtrOk(button->RootComponent)) button->RootComponent->SetMobility(EComponentMobility::Movable);
-                const FVector b{p.loc.X + p.offset.X, p.loc.Y + p.offset.Y, p.loc.Z + p.offset.Z};
+                const FVector b{p.loc.X + offset.X, p.loc.Y + offset.Y, p.loc.Z + offset.Z};
                 button->K2_SetActorLocationAndRotation(b, button->K2_GetActorRotation(), false, nullptr, true);
             }
         }
@@ -1048,7 +1058,7 @@ bool game::GameCamPose(CamPose& out) {
 int game::CamOwner() { return g_slotOn[1] ? 1 : g_slotOn[0] ? 0 : -1; }
 
 namespace {
-    // Render-thread class-name cache: hub blueprints aren't in the SDK, so they are told apart by name.
+    // Game-thread class-name cache: hub blueprints aren't in the SDK, so they are told apart by name.
     enum Kind { kOther, kNpc, kButton, kHero };
     std::unordered_map<ref::Ref, Kind, ref::Hash> g_kinds;  // by UClass
     std::unordered_map<ref::Ref, std::string, ref::Hash> g_npcNames;
@@ -1090,11 +1100,25 @@ namespace {
     FVector Loc(AActor* a) { return a->RootComponent->RelativeLocation; }  // unattached root: relative == world
 }
 
-game::Hero game::HubHero() {
+namespace {
+bool PairOf(uintptr_t id, ref::Ref& npc, ref::Ref& button, FVector& offset) {
+    auto it = std::find_if(g_pairs.begin(), g_pairs.end(), [&](const auto& kv) { return reinterpret_cast<uintptr_t>(kv.first.ptr) == id; });
+    if (it == g_pairs.end()) return false;
+    npc = it->first; button = it->second.button; offset = it->second.offset;
+    return true;
+}
+
+// Game thread (HubTick). Searches the levels for the hero at most once a second while none is known.
+ULONGLONG g_heroSearchAt = 0;
+game::Hero HeroNow() {
+    using Hero = game::Hero;
     Hero out;
     AActor* hero = HeroActor();
     if (!hero || !PtrOk(hero->RootComponent)) {
         hero = nullptr;
+        const ULONGLONG now = GetTickCount64();
+        if (now < g_heroSearchAt) return out;
+        g_heroSearchAt = now + 1000;
         ForEachActor([&](AActor* a) { if (!hero && KindOf(a) == kHero) hero = a; });
         AcquireSRWLockExclusive(&g_walkMu);
         g_hero = ref::Ref(hero);
@@ -1111,6 +1135,7 @@ game::Hero game::HubHero() {
     out.possessTries = g_possessTries.load();
     out.modeFixes = g_modeFixes.load();
     return out;
+}
 }
 
 void game::SetHubWalk(const WalkInput* in) {
@@ -1129,7 +1154,9 @@ void game::SetHubWalk(const WalkInput* in) {
     UpdatePEHook();
 }
 
-std::vector<game::Npc> game::ListNpcs() {
+namespace {
+std::vector<game::Npc> ListNpcsNow() {  // game thread (HubTick)
+    using Npc = game::Npc;
     std::vector<AActor*> npcs, buttons;
     ForEachActor([&](AActor* a) {
         const Kind k = KindOf(a);
@@ -1153,6 +1180,46 @@ std::vector<game::Npc> game::ListNpcs() {
         out.push_back({reinterpret_cast<uintptr_t>(n), g_npcNames[ref::Ref(n->Class)], p.X, p.Y, p.Z,
                        n->RootComponent->RelativeRotation.Yaw, g_pairs[key].button.ptr != nullptr});
     }
+    return out;
+}
+
+// Render thread → game thread: HubHero/ListNpcs ask, HubTick samples, they return the last copy (plain data).
+std::atomic<bool> g_heroReq{false}, g_npcReq{false};
+game::Hero g_heroOut;               // guarded by g_walkMu
+std::vector<game::Npc> g_npcsOut;   // guarded by g_walkMu
+
+void HubTick() {
+    const bool npcs = g_npcReq.exchange(false);
+    if (!g_heroReq.exchange(false) && !npcs) return;
+    const game::Hero h = HeroNow();  // the NPC list's once-a-second request keeps the hero fresh for F7/F9
+    std::vector<game::Npc> list;
+    if (npcs) list = ListNpcsNow();
+    AcquireSRWLockExclusive(&g_walkMu);
+    g_heroOut = h;
+    if (npcs) g_npcsOut.swap(list);
+    ReleaseSRWLockExclusive(&g_walkMu);
+}
+
+void AskHub(std::atomic<bool>& req) {
+    g_hubWantedAt = GetTickCount64();
+    req = true;
+    UpdateCoreTick();
+}
+}
+
+game::Hero game::HubHero() {
+    AskHub(g_heroReq);
+    AcquireSRWLockShared(&g_walkMu);
+    const Hero h = g_heroOut;
+    ReleaseSRWLockShared(&g_walkMu);
+    return h;
+}
+
+std::vector<game::Npc> game::ListNpcs() {
+    AskHub(g_npcReq);
+    AcquireSRWLockShared(&g_walkMu);
+    std::vector<Npc> out = g_npcsOut;
+    ReleaseSRWLockShared(&g_walkMu);
     if (!g_placePending.load() && !g_colPending.load() && !g_roomPending.load()) UpdatePEHook();  // drop the hook once queued work is done
     return out;
 }
@@ -1189,11 +1256,10 @@ void game::FixCollision(float x, float y, float z, float radius, bool fix) {
 }
 
 void game::PlaceNpc(uintptr_t id, float x, float y, float z, float yaw) {
-    // id = the address ListNpcs handed out; never dereferenced here, the game thread checks the Ref
-    auto it = std::find_if(g_pairs.begin(), g_pairs.end(), [&](const auto& kv) { return reinterpret_cast<uintptr_t>(kv.first.ptr) == id; });
-    if (it == g_pairs.end() || !EnsureGameTid()) return;
+    // id = the address ListNpcs handed out; never dereferenced here, the game thread looks it up (PairOf)
+    if (!EnsureGameTid()) return;
     AcquireSRWLockExclusive(&g_placeMu);
-    g_placeQueue.push_back({it->first, it->second.button, it->second.offset, FVector{x, y, z}, yaw});
+    g_placeQueue.push_back({id, FVector{x, y, z}, yaw});
     g_placePending = true;
     ReleaseSRWLockExclusive(&g_placeMu);
     UpdatePEHook();

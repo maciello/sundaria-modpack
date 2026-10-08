@@ -92,11 +92,11 @@ namespace game {
     struct WalkInput { float moveX, moveY; bool jump; };  // world-space XY direction, length 0..1
     void SetHubWalk(const WalkInput* in);
     struct Hero { bool found = false, possessed = false; float x = 0, y = 0, z = 0, yaw = 0; int moveMode = -1, possessTries = 0, modeFixes = 0; };
-    Hero HubHero();  // memory reads
+    Hero HubHero();  // sampled on the game thread: the last copy (a frame old; up to a second when only ListNpcs asks)
 
     // Characters you can talk to (class name starts with "NPC_") + the click zone next to each, paired at first sight.
     struct Npc { uintptr_t id; std::string name; float x, y, z, yaw; bool hasButton; };
-    std::vector<Npc> ListNpcs();  // memory reads; name = class without "NPC_"/"_C"
+    std::vector<Npc> ListNpcs();  // sampled on the game thread: the list asked for by the previous call; name = class without "NPC_"/"_C"
     // Move an NPC and its click zone (same offset as in vanilla); runs on the game thread.
     void PlaceNpc(uintptr_t id, float x, float y, float z, float yaw);
 
