@@ -33,9 +33,11 @@ namespace {
         dungeon_map::Event floorOn{ABP_DungeonFloor_C::StaticName, L"I_SetFloorActivated"};
         dungeon_map::Event floorEnter{ABP_DungeonFloor_C::StaticName,
                                       L"BndEvt__FloorActivation_K2Node_ComponentBoundEvent_306_ComponentBeginOverlapSignature__DelegateSignature"};
+        dungeon_map::Event floorLeave{ABP_DungeonFloor_C::StaticName,
+                                      L"BndEvt__FloorActivation_K2Node_ComponentBoundEvent_0_ComponentEndOverlapSignature__DelegateSignature"};
         dungeon_map::Event state{ABP_TriggerBase_C::StaticName, L"OnTriggerStateChanged"};
         dungeon_map::Event lock{ABP_TriggerBase_C::StaticName, L"OnRep_LockStatus"};
-        void Warm() { floorOn.Warm(), floorEnter.Warm(), state.Warm(), lock.Warm(); }
+        void Warm() { floorOn.Warm(), floorEnter.Warm(), floorLeave.Warm(), state.Warm(), lock.Warm(); }
     } g_ev;
 
     // Game thread state.
@@ -144,12 +146,15 @@ namespace {
         else if (g_inDungeon) {
             if (g_ev.state.Is(fn) || g_ev.lock.Is(fn)) g_replanAt = Now() + kDoorSettle;  // the last of a door's events counts
             else if (g_ev.floorOn.Is(fn)) ReplanIn(0);
-            else if (g_ev.floorEnter.Is(fn)) {
+            else if (g_ev.floorEnter.Is(fn) || g_ev.floorLeave.Is(fn)) {
+                // Both overlap events: OverlappedComponent, OtherActor, OtherComp first. The pawn's capsule only: its other
+                // components overlap separately, and one leaving while the capsule is still inside is not leaving.
                 APlayerController* pc = umg::LocalPC();
-                auto* p = static_cast<Params::BP_DungeonFloor_C_BndEvt__FloorActivation_K2Node_ComponentBoundEvent_306_ComponentBeginOverlapSignature__DelegateSignature*>(parms);
-                if (pc && p && PtrOk(obj) && p->OtherActor == pc->Pawn) {  // the local player walked onto a floor
-                    g_entered = static_cast<ABP_DungeonFloor_C*>(obj)->FloorNumber;
-                    ReplanIn(0);
+                auto* p = static_cast<Params::BP_DungeonFloor_C_BndEvt__FloorActivation_K2Node_ComponentBoundEvent_0_ComponentEndOverlapSignature__DelegateSignature*>(parms);
+                if (pc && p && PtrOk(obj) && PtrOk(pc->Pawn) && p->OtherActor == pc->Pawn && p->OtherComp == pc->Pawn->RootComponent) {
+                    const int floor = static_cast<ABP_DungeonFloor_C*>(obj)->FloorNumber;
+                    if (g_ev.floorEnter.Is(fn)) g_entered = floor, ReplanIn(0);  // walked onto a floor
+                    else if (g_entered == floor) g_entered = -1, ReplanIn(0);   // left it (back up the stairs, or on into the floor): rooms decide
                 }
             }
             if (const std::string line = dungeon_map::probe::Event(obj, fn); !line.empty()) logger::log(line);

@@ -91,7 +91,7 @@ namespace dungeon_map {
     // UFunctions), so no plan tick pays them.
     void Warm();
     // Game thread, dungeon only. Reads the dungeon, no navmesh query; the route starts at the floor's entry. floor = the
-    // floor the local player last walked onto (its activation overlap), -1 = none yet: the pawn's room decides. A stairs
+    // floor whose activation box the local player is in (overlap), -1 = none: the pawn's room decides. A stairs
     // room belongs to the floor above but lies inside the next floor's activation box, so a room never overrides the
     // overlap. O(rooms + triggers of the dungeon). false = no plan possible (out.plan.why says why).
     bool Begin(V3 pawn, int floor, Planning& out);
