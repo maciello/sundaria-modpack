@@ -19,7 +19,7 @@ Read `game-facts.md` first; add every newly confirmed path there.
 just test               # every host test + updater
 just dev                # build + hot-swap into the running game (~1 s); first time: just dev-install with game closed
 scripts/dev-check.sh    # game running? swap happened? log tail
-scripts/minidump.py     # game crashed: fault module+offset + stack (newest UE4Minidump.dmp)
+scripts/minidump.py     # game crashed: fault + stack, ours as function file:line (newest UE4Minidump.dmp)
 ```
 A swap is verified only when dev-check shows the newest `loaded<N>.dll` size equals `DoS-Tool.dll` and the log
 re-printed `ImGui (D3D11) initialised`. How it looks in game is the user's call: say "unverified visually" until

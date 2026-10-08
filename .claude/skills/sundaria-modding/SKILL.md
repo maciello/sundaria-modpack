@@ -35,5 +35,5 @@ Maintenance contract:
 | `scripts/sdk.py` | query the SDK: `class`, `chain`, `field <regex>`, `subs` |
 | `scripts/new-feature.sh` | scaffold `features/<kebab>/` (+ `--logic`: header + test) |
 | `scripts/dev-check.sh` | game alive? hot-swap happened? log tail |
-| `scripts/minidump.py` | crash dump → fault module+offset + stack |
+| `scripts/minidump.py` | crash dump → fault module+offset + stack, ours as function file:line (`--dll` for a rebuild) |
 | `assets/feature.cpp.tmpl`, `logic.hpp.tmpl`, `logic_test.cpp.tmpl` | templates used by new-feature.sh |

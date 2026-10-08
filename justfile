@@ -106,7 +106,7 @@ release:
 
 # once, game closed: hot-reload loader + dev flag
 dev-install: build
-    install -m 644 mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"
+    install -m 644 mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.dll mods/dos-tool/build/DoS-Tool.pdb "{{win64}}/"
     touch "{{win64}}/dos-tool.dev"
     mkdir -p "{{win64}}/dos-mods/abilities" && install -m 644 mods/dos-tool/abilities/_*.lua "{{win64}}/dos-mods/abilities/"
 
@@ -122,5 +122,5 @@ ui *classes:
 
 # game running: rebuild; the loader swaps DoS-Tool.dll in within ~1 s
 dev: build
-    install -m 644 mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"
+    install -m 644 mods/dos-tool/build/DoS-Tool.pdb mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"  # PDB first: minidump.py pairs it with the DLL
     mkdir -p "{{win64}}/dos-mods/abilities" && install -m 644 mods/dos-tool/abilities/_*.lua "{{win64}}/dos-mods/abilities/"

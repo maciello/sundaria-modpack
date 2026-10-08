@@ -4,7 +4,11 @@
 compiler: clang-cl + lld-link (system LLVM) with mods/dos-tool/msvc-clang-toolchain.cmake
 msvc_sdk: `xwin splat` output (~640 MB) → env XWIN (default <repo>/../tools/msvc)
 game_sdk: Dumper-7 CppSDK → env SDK_DIR (default <repo>/../sdk/CppSDK)   # game-derived: never commit, never publish
-build: just build → mods/dos-tool/build/{DoS-Tool.asi (loader), DoS-Tool.dll (mod)}
+build: just build → mods/dos-tool/build/{DoS-Tool.asi (loader), DoS-Tool.dll (mod), DoS-Tool.pdb, DoS-Loader.pdb}
+pdb: /Z7 -gline-tables-only + lld-link /DEBUG /OPT:REF,ICF /PDBALTPATH:%_PDB% (CMakeLists.txt)
+  why: functions + file:line for minidump.py; full /Z7 changed codegen of 3 functions, line tables leave every instruction as before
+  shipped: never (just dist copies named files); just dev / dev-install put it next to the installed DLL
+  verify_same_code: per-function sizes from .pdata equal, and `llvm-objdump -d` equal after masking hex; only RIP displacements into .rdata move (debug directory)
 sdk_translation_units: only core/game.cpp includes SDK headers (+ Basic.cpp, CoreUObject_functions.cpp, Engine_functions.cpp)
   why: each SDK-including TU costs seconds-to-minutes of compile and MBs of headers; features stay SDK-free
 host_tests: c++ -std=c++20 on SDK-free headers; `just test` compiles every mods/*/{core,features/*}/test/*_test.cpp

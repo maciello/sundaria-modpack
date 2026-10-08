@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 project(DoS-Tool LANGUAGES CXX C)
 
+# PDB per binary for crash dumps (minidump.py): functions + lines only, since full /Z7 changes codegen
+# of a few functions; /OPT:REF,ICF = what a non-/DEBUG link does; the DLL records only the PDB's file name.
+add_compile_options(/Z7 -gline-tables-only)
+add_link_options(/DEBUG /OPT:REF /OPT:ICF /PDBALTPATH:%_PDB%)
+
 # Generated Dumper-7 SDK for Dungeons of Sundaria (override with -DSDK_DIR=...).
 # build.sh auto-discovers the CppSDK folder under the build kit's output.
 set(SDK_DIR ""
@@ -56,7 +61,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 # Ultimate ASI Loader loads *.asi; this one loads (and in dev mode hot-reloads) DoS-Tool.dll.
 add_library(DoS-Loader SHARED core/loader.cpp)
 set_target_properties(DoS-Loader PROPERTIES PREFIX "" OUTPUT_NAME "DoS-Tool" SUFFIX ".asi"
-    ARCHIVE_OUTPUT_NAME "DoS-Loader")  # own import lib; Ninja rejects two targets writing DoS-Tool.lib
+    ARCHIVE_OUTPUT_NAME "DoS-Loader" PDB_NAME "DoS-Loader")  # own import lib; Ninja rejects two targets writing DoS-Tool.lib
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     core
