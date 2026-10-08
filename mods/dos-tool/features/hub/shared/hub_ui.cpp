@@ -74,6 +74,7 @@ namespace {
             a->SetActorHiddenInGame(true);
             a->SetActorEnableCollision(false);
             g_hidden.push_back(a);
+            logger::log("[hub-ui] hidden " + a->Class->GetName() + " " + a->GetName());
         });
         logger::log("[hub-ui] hub buttons hidden: " + std::to_string(g_hidden.size()));
     }

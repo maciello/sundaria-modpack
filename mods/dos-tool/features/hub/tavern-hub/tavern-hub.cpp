@@ -188,7 +188,8 @@ namespace {
         bool CapturesInput() const override { return walking && !ui; }
         bool PassesKey(unsigned vk) const override { return vk == 'I' || vk == 'P' || vk == VK_RETURN || vk == VK_ESCAPE; }
         bool uiKeysWas[4] = {}, talkWas = false;
-        std::string focusedName;  // NPC the camera looks at: focused like the gamepad does (its name shows)
+        std::string focusedName;
+        bool camHeld = false;  // our follow camera is on screen  // NPC the camera looks at: focused like the gamepad does (its name shows)
 
         // the NPC under the camera's aim (12°, 15 m), focused through its own click zone when it changes
         const game::Npc* UpdateFocus() {
@@ -306,9 +307,14 @@ namespace {
             tavern_hub::MoveDir(fwd, right, camYaw, in.moveX, in.moveY);
             in.jump = jump;
             game::SetHubWalk(&in);
+            if (ui) {  // a game screen (NPC menu, world map) switches camera views itself: let go of the camera
+                if (camHeld) { game::SetFreeCam(nullptr, 0); camHeld = false; }
+                return;
+            }
             const tavern_hub::Pose p = tavern_hub::Follow(h.x, h.y, h.z, camYaw, camPitch, dist, height);
             const game::CamPose cp{p.x, p.y, p.z, p.pitch, p.yaw};
             game::SetFreeCam(&cp, 0);
+            camHeld = true;
         }
 
         // Picked NPC to where the hero stands, facing the camera (= towards the player).
