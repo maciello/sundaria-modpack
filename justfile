@@ -100,6 +100,16 @@ dev-install: build
     install -m 644 mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"
     touch "{{win64}}/dos-tool.dev"
 
+# game running (dev install): dump live UMG trees + styles (roots whose class contains any of the words) and print the YAML path
+ui *classes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    req="{{win64}}/dos-tool-ui.request"; out="{{win64}}/dos-tool-ui.yaml"
+    echo "{{classes}}" > "$req"
+    for _ in $(seq 50); do [ -e "$req" ] || break; sleep 0.2; done
+    [ ! -e "$req" ] || { rm -f "$req"; echo "no answer: game not running, or UI probe off/not loaded (just dev)"; exit 1; }
+    sleep 0.3; echo "$out"
+
 # game running: rebuild; the loader swaps DoS-Tool.dll in within ~1 s
 dev: build
     install -m 644 mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"
