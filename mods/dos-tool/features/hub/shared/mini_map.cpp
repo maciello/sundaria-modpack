@@ -25,6 +25,7 @@ namespace {
     std::atomic<int> g_req{0};  // 0 none, 1 place g_desk, 2 restore
     std::atomic<bool> g_listening{false};
     std::vector<mini_map::Target> g_targets;  // guarded by g_mu
+    std::vector<std::string> g_sceneNames;    // guarded by g_mu
 
     // game thread: the scene as the hub built it
     struct Orig { ref::Ref actor; mini_map::Xf xf; FRotator rot; bool button; std::string name; };
@@ -112,6 +113,11 @@ namespace {
             const mini_map::SceneActor& sa = *it->second;
             g_orig.push_back({ref::Ref(a), {sa.x, sa.y, sa.z, sa.yaw, sa.scale}, FRotator{sa.pitch, sa.yaw, sa.roll}, sa.button, sa.name});
         });
+        std::vector<std::string> names;
+        for (const mini_map::SceneActor& sa : sc.actors) names.push_back(sa.name);
+        AcquireSRWLockExclusive(&g_mu);
+        g_sceneNames.swap(names);
+        ReleaseSRWLockExclusive(&g_mu);
         char buf[160];
         std::snprintf(buf, sizeof(buf), "[mini-map] scene: %d of %d recorded actors found, centre %.0f %.0f %.0f", int(g_orig.size()),
                       int(sc.actors.size()), g_cx, g_cy, g_cz);
@@ -186,4 +192,11 @@ std::vector<mini_map::Target> mini_map::Targets() {
 void mini_map::Stop() {
     for (int i = 0; i < 50 && g_req.load() != 0; i++) Sleep(2);
     if (g_listening.exchange(false)) game::OnGameTick(OnEvent, false);
+}
+
+std::vector<std::string> mini_map::SceneNames() {
+    AcquireSRWLockShared(&g_mu);
+    std::vector<std::string> n = g_sceneNames;
+    ReleaseSRWLockShared(&g_mu);
+    return n;
 }

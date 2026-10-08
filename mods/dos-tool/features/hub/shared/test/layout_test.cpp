@@ -15,5 +15,10 @@ int main() {
     assert(spots.size() == 3 && Near(spots[1].yaw, 10));
     auto again = ParseLayout(WriteLayout(spots));
     assert(again.size() == 3 && again[2].name == "Blacksmith_Kadrick" && Near(again[0].z, 9));
+    // spawn records round-trip; ids continue after the highest
+    std::vector<SpawnRec> rs{{3, "/Game/Env/Meshes/hp_frn_bedA.hp_frn_bedA", 1, 2, 3, 90, 1}, {7, "/Game/x.x", -1, 0, 5, 0, 0.5f}};
+    auto rb = ParseSpawns(WriteSpawns(rs) + "junk" + std::string(1, char(10)));
+    assert(rb.size() == 2 && rb[0].id == 3 && rb[0].mesh == "/Game/Env/Meshes/hp_frn_bedA.hp_frn_bedA" && Near(rb[1].scale, 0.5f));
+    assert(NextSpawnId(rb) == 8 && NextSpawnId({}) == 1);
     std::puts("ok");
 }

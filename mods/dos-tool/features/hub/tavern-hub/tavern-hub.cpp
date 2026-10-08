@@ -150,7 +150,7 @@ namespace {
                 if (!Home(n.name) && !moved) { home.push_back({n.name, n.x, n.y, n.z, n.yaw}); newHome = true; }
                 if (!applyLayout) continue;
                 for (const hub_layout::Spot& s : layout) {  // first sight or wandered off (AI walking home): put back
-                    if (s.name != n.name) continue;
+                    if (s.name != n.name || n.name == hub_state::carriedNpc) continue;  // build mode carries it
                     const float dx = n.x - s.x, dy = n.y - s.y, dz = n.z - s.z;  // z too: fell through a floor
                     if (dx * dx + dy * dy + dz * dz > 150.0f * 150.0f) Place(n, s.x, s.y, s.z + 10.0f, s.yaw);
                 }

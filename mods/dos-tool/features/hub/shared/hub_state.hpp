@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 
 // What the hub features need to know about each other (render thread only; features don't include each other).
 namespace hub_state {
@@ -7,4 +8,5 @@ namespace hub_state {
     inline float camYaw = 0;         // the follow camera's yaw (degrees)
     inline bool build = false;       // build mode is on: the tavern hub stops aiming at NPCs
     inline bool carrying = false;    // build mode carries something: Page Up/Down are its, not the room floor's
+    inline std::string carriedNpc;   // the NPC build mode carries: the tavern hub doesn't put it back meanwhile
 }

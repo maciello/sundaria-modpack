@@ -40,4 +40,41 @@ namespace hub_layout {
         for (Spot& o : spots) if (o.name == s.name) { o = s; return; }
         spots.push_back(s);
     }
+
+    // Spawned props (dos-tool-tavern-spawns.ini): copies the build mode made, one "id mesh x y z yaw scale" per line.
+    // The id is stable (actor names change every load); mesh is the full object path.
+    struct SpawnRec { int id; std::string mesh; float x, y, z, yaw, scale; };
+
+    inline std::vector<SpawnRec> ParseSpawns(const std::string& text) {
+        std::vector<SpawnRec> out;
+        std::istringstream in(text);
+        std::string line;
+        while (std::getline(in, line)) {
+            char mesh[400] = {};
+            SpawnRec r{};
+            if (line.empty() || line[0] == '#') continue;
+            if (std::sscanf(line.c_str(), "%d %399s %f %f %f %f %f", &r.id, mesh, &r.x, &r.y, &r.z, &r.yaw, &r.scale) != 7) continue;
+            r.mesh = mesh;
+            out.push_back(r);
+        }
+        return out;
+    }
+
+    inline std::string WriteSpawns(const std::vector<SpawnRec>& rs) {
+        std::string out = "# tavern hub spawns: id mesh x y z yaw scale (written by dos-tool)";
+        out += char(10);
+        char buf[600];
+        for (const SpawnRec& r : rs) {
+            std::snprintf(buf, sizeof(buf), "%d %s %.1f %.1f %.1f %.1f %.4f", r.id, r.mesh.c_str(), r.x, r.y, r.z, r.yaw, r.scale);
+            out += buf;
+            out += char(10);
+        }
+        return out;
+    }
+
+    inline int NextSpawnId(const std::vector<SpawnRec>& rs) {
+        int id = 1;
+        for (const SpawnRec& r : rs) if (r.id >= id) id = r.id + 1;
+        return id;
+    }
 }

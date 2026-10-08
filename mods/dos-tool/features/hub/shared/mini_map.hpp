@@ -11,5 +11,6 @@ namespace mini_map {
     void Restore();
     struct Target { std::string name; float x, y, z; };  // the map's click zones where they are now
     std::vector<Target> Targets();                        // render thread, copy
+    std::vector<std::string> SceneNames();                // the scene's actor names (build mode leaves them alone)
     void Stop();                                          // listener off (once, when the hub feature ends)
 }
