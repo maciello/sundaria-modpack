@@ -16,7 +16,7 @@ build:
 dist: build
     rm -rf dist && mkdir -p dist/Archon/Binaries/Win64
     cp mods/dos-tool/vendor/winmm.dll "$(find mods/dos-tool/build -name 'DoS-Tool.asi')" dist/Archon/Binaries/Win64/
-    cd dist && zip -qr ../build/modpack.zip Archon
+    rm -f build/modpack.zip && cd dist && python3 -m zipfile -c ../build/modpack.zip Archon
 
 release tag: test dist
     gh release create {{tag}} build/modpack.zip -R {{repo}} --title {{tag}} --generate-notes
