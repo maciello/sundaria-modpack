@@ -1,9 +1,10 @@
 # Contributing
 
 ## First time
-1. Linux with the game under Proton. Install: `clang lld llvm cmake just rsync` (Fedora: `sudo dnf install clang lld llvm cmake just rsync`).
-2. `~/.ssh/config`: a `Host dumps` entry for the dump host (ask the repo owner). Not needed on the dump host itself.
-3. Clone, then once:
+1. Game must run under Proton: Steam → Dungeons of Sundaria → Properties → Compatibility → force Proton, let Steam download the Windows build (`Archon/Binaries/Win64/` appears).
+2. Install: `clang lld llvm cmake just rsync` (Fedora: `sudo dnf install clang lld llvm cmake just rsync`).
+3. `~/.ssh/config`: a `Host dumps` entry for the dump host (ask the repo owner). Not needed on the dump host itself.
+4. Clone, then once:
    ```bash
    just setup         # pull = rebase, tests run before every push
    just build         # first run fetches the game SDK + MSVC kit (~760 MB)
