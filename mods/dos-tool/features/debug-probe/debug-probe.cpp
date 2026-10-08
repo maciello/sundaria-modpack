@@ -24,7 +24,7 @@ namespace {
         std::unordered_map<uintptr_t, float> last;
         bool hooked = false;
 
-        DebugProbe() : Feature("Debug probe", feature::Stage::Alpha) {}
+        DebugProbe() : Feature("Debug probe", feature::Stage::Alpha) { optIn = true; }
 
         void OnFrame(const feature::Frame& f) override {
             if (!hooked) { game::SetEventProbe(true); hooked = true; }
@@ -35,9 +35,9 @@ namespace {
                 auto it = last.find(s.id);
                 if (it == last.end() || it->second == s.health) continue;
                 char buf[160];
-                std::snprintf(buf, sizeof(buf), "[hp] t=%llu id=%llx %s %.1f -> %.1f (d=%.1f) max=%.0f",
+                std::snprintf(buf, sizeof(buf), "[hp] t=%llu id=%llx %s %.1f -> %.1f (d=%.1f) max=%.0f seen=%.2f",
                               GetTickCount64(), (unsigned long long)s.id, s.isPlayer ? "player" : "npc",
-                              it->second, s.health, it->second - s.health, s.maxHealth);
+                              it->second, s.health, it->second - s.health, s.maxHealth, s.seen);
                 logger::log(buf);
             }
             last.swap(seen);

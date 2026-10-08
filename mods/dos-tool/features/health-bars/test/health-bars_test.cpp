@@ -25,12 +25,27 @@ int main() {
     v = b.Update({e}, 7.4, 0.016);
     assert(v.size() == 1 && v[0].alpha < 1.0f && v[0].alpha > 0.0f); // fading out
     assert(b.Update({e}, 7.7, 0.016).empty());                      // gone
+    // max attribute above current HP on an unhit enemy: no bar
+    health_bars::Bars u;
+    combat::Sample big{4, 0, 0, 0, 100, false, 150};
+    assert(u.Update({big}, 0.0, 0.016).empty() && u.Update({big}, 5.0, 0.016).empty());
+    // hit enemy behind a wall (mesh not on screen for > occludedAfter): hidden, back when visible
+    health_bars::Bars o;
+    combat::Sample w{5, 0, 0, 0, 100, false}, me{6, 0, 0, 0, 100, true};
+    w.seen = me.seen = 10.0f;
+    o.Update({w, me}, 0.0, 0.016);
+    w.health = 50;
+    assert(o.Update({w, me}, 1.0, 0.016).size() == 1);
+    me.seen = 11.0f;
+    assert(o.Update({w, me}, 2.0, 0.016).empty());
+    w.seen = 11.0f;
+    assert(o.Update({w, me}, 2.1, 0.016).size() == 1);
     // death fades out instead of vanishing
     health_bars::Bars d;
     combat::Sample m{3, 0, 0, 0, 200, false, 0};
     d.Update({m}, 0.0, 0.016);
     m.health = 50;
-    assert(d.Update({m}, 1.0, 0.016)[0].frac == 0.25f);            // unknown max attribute: peak HP seen
+    assert(d.Update({m}, 1.0, 0.016)[0].frac == 0.25f);            // max = peak HP seen
     m.health = 0;
     v = d.Update({m}, 2.0, 0.016);
     assert(v.size() == 1 && v[0].frac == 0.0f);
