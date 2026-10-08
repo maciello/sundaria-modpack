@@ -1,9 +1,11 @@
 #include "mesh_probe.hpp"
+#include "game.hpp"
 #include "ref.hpp"
 #include "logger.hpp"
 
 #include <Windows.h>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <string>
@@ -79,18 +81,34 @@ namespace {
                       GetTickCount64() - t0);
         logger::log(buf);
     }
+
+    // render thread → game thread: IsA over every object races with the game freeing them (#79, #80)
+    std::vector<std::string> g_terms;  // written before g_asked is set
+    std::string g_world;
+    std::atomic<bool> g_asked{false}, g_listening{false};
+
+    void OnEvent(void*, void*, void*) {
+        if (!game::OnGameThread() || !g_asked.load()) return;
+        MeshReport(g_terms, g_world);
+        g_asked = false;
+    }
 }
 
 void mesh_probe::Tick() {
     static ULONGLONG next = 0;
     static ref::Ref seen;
     const ULONGLONG now = GetTickCount64();
-    if (now < next) return;
+    if (now < next || g_asked.load()) return;
     next = now + 2000;
+    if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);  // the report ran
     UWorld* w = UWorld::GetWorld();
     if (!PtrOk(w) || seen.Is(w)) return;
-    const std::vector<std::string> terms = ReadTerms();
+    std::vector<std::string> terms = ReadTerms();
     if (terms.empty()) return;
     seen = ref::Ref(w);
-    MeshReport(terms, w->GetName());
+    g_terms.swap(terms);
+    g_world = w->GetName();
+    g_asked = true;
+    g_listening = true;
+    game::SetEventListener(OnEvent, true);
 }
