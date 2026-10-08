@@ -41,12 +41,11 @@ sync:
     git pull --rebase
     git log --oneline -10
 
-# end of work: test, rebase on the other's commits, push
+# end of work: rebase on the other's commits, test (pre-push hook), push. Works from any branch or worktree.
 ship:
-    git pull --rebase
-    git push
+    git pull --rebase origin master
+    git push origin HEAD:master
 
-# repo admin, once: apply .github/rulesets/*.json to GitHub (skips names that already exist)
 # type/prio labels + one mod:<folder> label per feature folder (idempotent)
 labels:
     #!/usr/bin/env bash
@@ -60,6 +59,7 @@ labels:
     mk mod:core 5319E7 "mods/dos-tool/core"
     for d in $(find mods/dos-tool/features -name '*.cpp' -not -path '*/test/*' -exec dirname {} \; | sort -u); do mk "mod:$(basename $d)" 5319E7 "${d#mods/dos-tool/}"; done
 
+# repo admin, once: apply .github/rulesets/*.json to GitHub (skips names that already exist)
 protect:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -85,8 +85,15 @@ dist: build
     cp mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/build/DoS-Tool.dll dist/Archon/Binaries/Win64/
     rm -f build/modpack.zip && cd dist && {{python}} -m zipfile -c ../build/modpack.zip Archon
 
-release tag: test dist
-    gh release create {{tag}} build/modpack.zip -R {{repo}} --title {{tag}} --generate-notes
+# ship to friends: only from a clean tree that IS origin/master, tag = the built commit
+release tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git fetch -q origin master
+    [ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "dirty tree: commit or move changes first"; exit 1; }
+    [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)" ] || { echo "HEAD != origin/master: just ship (or checkout origin/master) first"; exit 1; }
+    just test dist
+    gh release create {{tag}} build/modpack.zip -R {{repo}} --title {{tag}} --generate-notes --target "$(git rev-parse HEAD)"
 
 # once, game closed: hot-reload loader + dev flag
 dev-install: build
