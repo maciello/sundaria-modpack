@@ -6,6 +6,9 @@
 #include <unordered_map>
 #include "BP_SpecItemBase_classes.hpp"
 #include "BP_SpecItemBase_parameters.hpp"
+#include "BP_SpecItemWeapon_classes.hpp"
+#include "BP_SpecItemArmor_classes.hpp"
+#include "BP_SpecItemCommon_classes.hpp"
 
 using namespace items::sdk;
 
@@ -62,19 +65,25 @@ namespace items::io {
             }
         return cache[specId] = can;
     }
-    int IconId(int specId) {
+    int IconId(int specId) {  // the spec data's mIconID (what the inventory slot shows); I_GetIconID only as fallback
         static std::unordered_map<int, int> cache;
         if (auto it = cache.find(specId); it != cache.end()) return it->second;
         bool rebuilt = false;
         UArchonSpec* sp = Spec(specId, rebuilt);
+        if (!sp) return -1;  // a missing spec may load later: not cached
         int id = -1;
-        if (sp && sp->IsA(UBP_SpecItemBase_C::StaticClass()))
+        if (sp->IsA(UBP_SpecItemWeapon_C::StaticClass()))
+            id = static_cast<UBP_SpecItemWeapon_C*>(sp)->WeaponItemSpecData.mIconID_5_6F0B2EB74D4221ABF0FB51AF7FDC6F87;
+        else if (sp->IsA(UBP_SpecItemArmor_C::StaticClass()))
+            id = static_cast<UBP_SpecItemArmor_C*>(sp)->ItemArmorSpecData.mIconID_5_6F0B2EB74D4221ABF0FB51AF7FDC6F87;
+        else if (sp->IsA(UBP_SpecItemCommon_C::StaticClass()))
+            id = static_cast<UBP_SpecItemCommon_C*>(sp)->ItemSpecCommonData.mIconID_5_25B4C73F4B55224F056B3B9A86CE6568;
+        if (id <= 0 && sp->IsA(UBP_SpecItemBase_C::StaticClass()))
             if (UFunction* fn = sp->Class->GetFunction("BP_SpecItemBase_C", "I_GetIconID")) {
                 Params::BP_SpecItemBase_C_I_GetIconID p{};
                 sp->ProcessEvent(fn, &p);
                 id = p.ID;
             }
-        if (sp) cache[specId] = id;  // a missing spec may load later
-        return id;
+        return cache[specId] = id;
     }
 }
