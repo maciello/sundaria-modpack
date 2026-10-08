@@ -94,13 +94,15 @@ static bool InitImGui(IDXGISwapChain* sc) {
         if (sscanf(line, "Font=%d", &v) == 1 && v >= 0 && v < IM_ARRAYSIZE(kFonts)) { g_font = v; return; }
         const char* eq = strrchr(line, '=');
         if (!eq) return;
+        int on, stage;  // "<name>=<on>,<stage>": a choice made under another stage is dropped, so promotions apply
+        if (sscanf(eq + 1, "%d,%d", &on, &stage) != 2) return;
         for (feature::Feature* f : feature::Feature::All())
-            if (strlen(f->name) == size_t(eq - line) && !strncmp(f->name, line, eq - line))
-                f->enabled = f->wasEnabled = eq[1] == '1';
+            if (strlen(f->name) == size_t(eq - line) && !strncmp(f->name, line, eq - line) && stage == int(f->stage))
+                f->enabled = f->wasEnabled = on == 1;
     };
     h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* hh, ImGuiTextBuffer* out) {
         out->appendf("[%s][Settings]\nFont=%d\n", hh->TypeName, g_font);
-        for (feature::Feature* f : feature::Feature::All()) out->appendf("%s=%d\n", f->name, f->enabled ? 1 : 0);
+        for (feature::Feature* f : feature::Feature::All()) out->appendf("%s=%d,%d\n", f->name, f->enabled ? 1 : 0, int(f->stage));
         out->append("\n");
     };
     ImGui::AddSettingsHandler(&h);
