@@ -23,6 +23,7 @@ Maintenance contract:
 | any game object: paths, offsets, verified or not, combat-log, damage types | `references/game-facts.md` |
 | build/compile errors, hot-reload internals, SDK re-dump, updater | `references/toolchain.md` |
 | something fails or crashed | `references/gotchas.md` |
+| new machine (SDK, MSVC kit), working together, trunk/flags | repo `CLAUDE.md` → `just sdk-pull` |
 
 ## Tools
 | path | does |
