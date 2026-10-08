@@ -25,6 +25,10 @@ namespace feature {
     // The player's on/off choice is local (dos-tool.ini next to the game exe), never in the repo.
     enum class Stage { Alpha, Beta, Stable, Deprecated };
 
+    // Set in OnFrame by a feature that draws clickable UI outside the Insert window this frame:
+    // the overlay then forwards mouse/keys to ImGui (and swallows them only while ImGui wants them). Render thread.
+    inline bool wantInput = false;
+
     struct Feature {
         const char* name;
         Stage stage;
