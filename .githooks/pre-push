@@ -1,2 +1,11 @@
 #!/bin/sh
-exec just test
+# Test exactly the commits being pushed (a clean checkout of each pushed tip), not the working tree.
+zero=0000000000000000000000000000000000000000
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue
+  d=$(mktemp -d)
+  git worktree add -q --detach "$d" "$local_sha" || exit 1
+  if (cd "$d" && just test); then rc=0; else rc=1; fi
+  git worktree remove --force "$d"
+  [ "$rc" -eq 0 ] || { echo "pre-push: just test failed on $local_sha"; exit 1; }
+done
