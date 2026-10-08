@@ -41,7 +41,9 @@ namespace {
         bool on = false, cam = false, haveYaw = false;
         double t0 = 0, asked = 0, splashAt = -1;  // splashAt: the game's own boss splash appeared (no title of ours)
         std::uintptr_t fight = 0;
-        float yaw = 0;
+        float yaw = 0, dir = 1, reach = 1;  // orbit direction (#71), share of the framing distance (#71)
+        bool flipped = false;
+        double prev = 0;  // last frame
         game_side::Boss boss{};
         cam::Pose live{};
         double liveAt = -1;  // last fresh game pose
@@ -71,6 +73,7 @@ namespace {
         void End(const char* why, double now) {
             if (!run.on) return;
             game::SetFreeCam(nullptr, 0);  // also clears a slot taken while outranked
+            game_side::StopSweep();
             if (const int n = game_side::Resume()) Log("[boss-intro] restored %.0f actors", n);
             char buf[160];
             std::snprintf(buf, sizeof(buf), "[boss-intro] camera %s after %.1f s (camera overrides so far %d)", why,
@@ -120,8 +123,20 @@ namespace {
             if (t >= cam::kTotal) { End("done", f.now); return; }
             cam::Pose live;
             if (!Live(live, f.now)) { End("lost the game camera", f.now); return; }
-            if (!run.haveYaw) { run.yaw = cam::YawTo(live.x, live.y, run.boss.x, run.boss.y); run.haveYaw = true; }
-            const cam::Pose shot = cam::Shot(run.boss.x, run.boss.y, run.boss.z, run.boss.halfHeight, run.yaw + cam::Orbit(t), live.fov);
+            if (!run.haveYaw) { run.yaw = cam::YawTo(live.x, live.y, run.boss.x, run.boss.y); run.haveYaw = true; run.prev = f.now; }
+            const float clear = game_side::Clear();  // last frame's sweep
+            if (clear < 1 && !run.flipped) {
+                cam::Flip(run.yaw, run.dir, t);
+                run.flipped = true;
+                Log("[boss-intro] camera blocked (%.2f clear): pulled in, orbit reversed", clear);
+            }
+            run.reach = cam::Follow(run.reach, clear, float(f.now - run.prev));
+            run.prev = f.now;
+            const float yaw = run.yaw + run.dir * cam::Orbit(t), hh = run.boss.halfHeight;
+            const cam::Pose full = cam::Shot(run.boss.x, run.boss.y, run.boss.z, hh, yaw, live.fov);
+            const float eye[3] = {run.boss.x, run.boss.y, run.boss.z + cam::kEye * hh}, to[3] = {full.x, full.y, full.z};
+            game_side::Sweep(run.fight, eye, to);
+            const cam::Pose shot = cam::Shot(run.boss.x, run.boss.y, run.boss.z, hh, yaw, live.fov, run.reach);
             const cam::Pose p = cam::Blend(live, shot, cam::Weight(t));
             const game::CamPose cp{p.x, p.y, p.z, p.pitch, p.yaw, p.fov - live.fov};
             const bool shown = game::SetFreeCam(&cp, 0);

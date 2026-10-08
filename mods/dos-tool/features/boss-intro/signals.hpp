@@ -23,5 +23,10 @@ namespace boss_intro::game_side {
     // co-op client simulates none, so it writes nothing). Idempotent per frame; returns how many were newly frozen.
     int Pause(std::uintptr_t fight);
     int Resume();  // restores all frozen actors still alive; returns how many
+    // #71: render thread asks for a sphere sweep (cam::kProbe, Camera channel) from `from` to `to`, run on the game thread
+    // in each camera update until StopSweep; the fight's bosses, partners and the local pawn are ignored.
+    void Sweep(std::uintptr_t fight, const float from[3], const float to[3]);
+    float Clear();  // share of from -> to that was clear in the last sweep (1 = nothing hit)
+    void StopSweep();
     std::vector<Event> Take();  // render thread: events since the last call
 }

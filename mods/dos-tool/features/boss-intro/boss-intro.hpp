@@ -130,8 +130,9 @@ namespace boss_intro {
 
         // Framing shot of a boss (capsule centre bx,by,bz, half height hh) seen along `yaw` (degrees, + orbit):
         // eyes on the right third, camera below eye level looking up kLookUp, FOV = live + kFovDelta.
-        inline Pose Shot(float bx, float by, float bz, float hh, float yaw, float liveFov) {
-            const float d = std::clamp(kDistPerHeight * 2.0f * hh, kMinDist, kMaxDist);
+        // reach < 1 pulls the camera in along the same line (a wall): framing and angles stay.
+        inline Pose Shot(float bx, float by, float bz, float hh, float yaw, float liveFov, float reach = 1.0f) {
+            const float d = std::clamp(kDistPerHeight * 2.0f * hh, kMinDist, kMaxDist) * reach;
             const float ez = bz + kEye * hh;
             const float p = kLookUp * kD2R, y = yaw * kD2R;
             const float fov = std::clamp(liveFov + kFovDelta, 20.0f, 170.0f);
@@ -147,6 +148,14 @@ namespace boss_intro {
             return {Lerp(live.x, shot.x, w), Lerp(live.y, shot.y, w), Lerp(live.z, shot.z, w),
                     LerpAngle(live.pitch, shot.pitch, w), Wrap(LerpAngle(live.yaw, shot.yaw, w)), Lerp(live.fov, shot.fov, w)};
         }
+        // Walls (#71), like a spring arm: the game thread sweeps a kProbe sphere from the boss's eyes to the full-reach
+        // shot every camera update; reach follows the clear share, in at once, back out at kReachOut per second.
+        constexpr float kProbe = 20.0f;    // cm
+        constexpr float kReachOut = 1.0f;  // share per s
+        inline float Follow(float reach, float clear, float dt) { return clear <= reach ? clear : std::min(clear, reach + kReachOut * dt); }
+        // A blocked shot turns the orbit the other way, without a jump: yaw + dir * Orbit(t) is the same before and after.
+        inline void Flip(float& yaw, float& dir, float t) { yaw += 2 * dir * Orbit(t); dir = -dir; }
+
         // Direction from the live camera to the boss: the shot looks the way the player already does.
         inline float YawTo(float fromX, float fromY, float bx, float by) { return std::atan2(by - fromY, bx - fromX) / kD2R; }
     }

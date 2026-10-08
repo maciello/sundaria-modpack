@@ -90,6 +90,19 @@ int main() {
             assert(combat::Project({s.x, s.y, s.z, s.pitch, s.yaw, 0, s.fov}, 500, -300, ez, 1920, 1080, sx, sy));
             assert(near(sx, 1280, 1) && near(sy, 540, 1));
         }
+        {   // #71: a wall pulls the camera in along the same line; the orbit reverses without a jump
+            const Pose full = Shot(500, -300, 50, 120, 30, 90), half = Shot(500, -300, 50, 120, 30, 90, 0.5f);
+            const float ez = 50 + kEye * 120;
+            assert(near(half.x - 500, (full.x - 500) / 2, 0.5f) && near(half.z - ez, (full.z - ez) / 2, 0.5f));
+            assert(near(half.pitch, full.pitch) && near(half.yaw, full.yaw));
+            assert(near(Follow(1, 0.4f, 0.016f), 0.4f));                         // in at once
+            assert(near(Follow(0.4f, 1, 0.1f), 0.4f + kReachOut * 0.1f));        // out eased
+            assert(near(Follow(0.95f, 1, 0.1f), 1));
+            float yaw = 10, dir = 1;
+            const float t = kApproach + 2, before = yaw + dir * Orbit(t);
+            Flip(yaw, dir, t);
+            assert(dir == -1 && near(yaw + dir * Orbit(t), before) && yaw + dir * Orbit(t + 1) < before);
+        }
         // small bosses are not shot from inside their capsule
         const Pose tiny = Shot(0, 0, 0, 10, 0, 90);
         assert(std::sqrt(tiny.x * tiny.x + tiny.y * tiny.y) > kMinDist * 0.9f);

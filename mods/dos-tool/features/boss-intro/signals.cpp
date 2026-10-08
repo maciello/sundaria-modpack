@@ -17,11 +17,12 @@ using namespace SDK;
 using umg::PtrOk;
 
 namespace {
-    enum Watch { kBeginPlay, kConstruct, kArena, kSpawn, kCombat, kFinished, kWatchCount };
+    enum Watch { kBeginPlay, kConstruct, kCamera, kArena, kSpawn, kCombat, kFinished, kWatchCount };
     struct Fn { const char* cls; const char* name; std::atomic<int32> idx{-1}; };
     Fn g_fn[kWatchCount] = {
         {"Actor", "ReceiveBeginPlay"},
         {"UserWidget", "Construct"},
+        {"PlayerCameraManager", "BlueprintUpdateCamera"},
         {"BP_BossFight_C", "BndEvt__ArenaTrigger_K2Node_ComponentBoundEvent_1_ComponentBeginOverlapSignature__DelegateSignature"},
         {"BP_BossFight_C", "BndEvt__MasterSpawnTrigger_K2Node_ComponentBoundEvent_0_ComponentBeginOverlapSignature__DelegateSignature"},
         {"BP_BossFight_C", "MulticastNotifyCombatStart"},
@@ -31,11 +32,44 @@ namespace {
     std::atomic<int32> g_splashCls{-1}, g_lensCls{-1};  // FName index of the class names, once seen
     SRWLOCK g_mu = SRWLOCK_INIT;
     std::vector<boss_intro::game_side::Event> g_events;
+    struct SweepReq { float from[3], to[3]; std::uintptr_t fight; } g_sweep{};  // g_mu
+    std::atomic<bool> g_sweepOn{false};
+    std::atomic<float> g_clear{1.0f};
     std::vector<ref::Ref> g_fights;  // ABP_BossFight_C seen by a signal, newest last
     std::vector<boss_intro::pause::Held<ref::Ref>> g_held;  // render thread (Pause/Resume)
 
     void HoldOne(AActor* a, int& n) {  // a: live (ref-checked)
         if (a && a->Role == ENetRole::ROLE_Authority && boss_intro::pause::Hold(g_held, ref::Ref(a), a->CustomTimeDilation)) n++;
+    }
+
+    ref::Ref FightRef(std::uintptr_t fight) {
+        ref::Ref r;
+        AcquireSRWLockShared(&g_mu);
+        for (const ref::Ref& f : g_fights)
+            if (reinterpret_cast<std::uintptr_t>(f.ptr) == fight) r = f;
+        ReleaseSRWLockShared(&g_mu);
+        return r;
+    }
+
+    // #71, game thread, inside the camera update: one sphere sweep per frame while an intro asks for it.
+    void DoSweep(const UObject* cameraManager) {
+        AcquireSRWLockShared(&g_mu);
+        const SweepReq s = g_sweep;
+        ReleaseSRWLockShared(&g_mu);
+        AActor* ignore[9];
+        int n = 0;
+        if (const auto* bf = FightRef(s.fight).Get<ABP_BossFight_C>())
+            for (const TArray<AActor*>* list : {&bf->BossActors, &bf->PartnerActors})
+                for (int i = 0; i < list->Num() && n < 8; i++)
+                    if (AActor* a = ref::Ref((*list)[i]).Get<AActor>()) ignore[n++] = a;
+        if (const APlayerController* pc = umg::LocalPC(); pc && PtrOk(pc->Pawn)) ignore[n++] = pc->Pawn;
+        const TArray<AActor*> ignored(ignore, n, n);  // non-owning view of the stack array
+        FHitResult hit{};
+        // TraceTypeQuery2 = the Camera channel in UE's default channel order (unverified for this game's config)
+        const bool blocked = UKismetSystemLibrary::SphereTraceSingle(cameraManager, FVector{s.from[0], s.from[1], s.from[2]},
+            FVector{s.to[0], s.to[1], s.to[2]}, boss_intro::cam::kProbe, ETraceTypeQuery::TraceTypeQuery2, false, ignored,
+            EDrawDebugTrace::None, &hit, true, FLinearColor{}, FLinearColor{}, 0.0f);
+        g_clear = blocked && !hit.bStartPenetrating ? std::clamp(hit.Time, 0.0f, 1.0f) : 1.0f;
     }
 
     void Resolve(const UClass* c, int from, int to) {
@@ -91,6 +125,7 @@ namespace {
             if (!game::OnGameThread()) return;
             Resolve(AActor::StaticClass(), kBeginPlay, kBeginPlay + 1);
             Resolve(UUserWidget::StaticClass(), kConstruct, kConstruct + 1);
+            Resolve(APlayerCameraManager::StaticClass(), kCamera, kCamera + 1);
             if (g_tryClass.exchange(false)) Resolve(ABP_BossFight_C::StaticClass(), kArena, kWatchCount);  // loaded only in a dungeon
         }
         const int32 n = static_cast<const UFunction*>(fnp)->Name.ComparisonIndex;
@@ -107,6 +142,9 @@ namespace {
                 } else if (obj->IsA(AEmitterCameraLensEffectBase::StaticClass()) && ClassNamed(obj, g_lensCls, "BP_LensEffect_bossAnnouncement_C")) {
                     Push(Signal::Lens, nullptr);
                 }
+                return;
+            case kCamera:
+                if (g_sweepOn.load(std::memory_order_relaxed) && game::OnGameThread()) DoSweep(obj);
                 return;
             case kConstruct:
                 if (ClassNamed(obj, g_splashCls, "WidgetBossSplashScreen_C")) Push(Signal::Splash, nullptr);
@@ -130,15 +168,6 @@ namespace boss_intro::game_side {
     std::uintptr_t LocalPawn() {
         const APlayerController* pc = umg::LocalPC();
         return pc && PtrOk(pc->Pawn) ? reinterpret_cast<std::uintptr_t>(pc->Pawn) : 0;
-    }
-
-    static ref::Ref FightRef(std::uintptr_t fight) {
-        ref::Ref r;
-        AcquireSRWLockShared(&g_mu);
-        for (const ref::Ref& f : g_fights)
-            if (reinterpret_cast<std::uintptr_t>(f.ptr) == fight) r = f;
-        ReleaseSRWLockShared(&g_mu);
-        return r;
     }
 
     bool Alive(std::uintptr_t fight) { return FightRef(fight).Get<ABP_BossFight_C>() != nullptr; }
@@ -174,6 +203,15 @@ namespace boss_intro::game_side {
         g_held.clear();
         return n;
     }
+
+    void Sweep(std::uintptr_t fight, const float from[3], const float to[3]) {
+        AcquireSRWLockExclusive(&g_mu);
+        g_sweep = {{from[0], from[1], from[2]}, {to[0], to[1], to[2]}, fight};
+        ReleaseSRWLockExclusive(&g_mu);
+        g_sweepOn = true;
+    }
+    float Clear() { return g_clear.load(); }
+    void StopSweep() { g_sweepOn = false; g_clear = 1.0f; }
 
     std::vector<Event> Take() {
         std::vector<Event> out;
