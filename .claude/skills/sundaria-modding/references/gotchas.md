@@ -31,3 +31,4 @@
 - Native (non-UPROPERTY) field offsets: scan the object's floats twice a few seconds apart and log those that moved by the elapsed time; match against the UE source layout and the Dumper-7 `Pad_*` gap. Guess-by-order was wrong once (0x1FC read 0).
 - Skill scripts run through the `~/.claude/skills` symlink: resolve their own path (`readlink -f "$0"`, Python `Path(__file__).resolve()`), else repo-relative paths land in `$HOME` (new-feature.sh once scaffolded into `~/mods/`).
 - Dumper-7 `TMap`/`TSet` range-for and `operator[]` do not compile (`SetElement::Value` is private): walk the sparse array (`ForEach` in `features/item-sort/item-sort.cpp`).
+- `UObject::FindObjectFast<T>(name)` with the default flag finds nothing (`HasTypeFlag(None)` is 0): pass the cast flag, e.g. `EClassCastFlags::Enum`. Symptom: item-sort stuck on "waiting for game data" in world.

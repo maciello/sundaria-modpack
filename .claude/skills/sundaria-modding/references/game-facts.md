@@ -52,6 +52,8 @@ items:   # features/item-sort; read from headers, all UNVERIFIED at runtime (che
   spec: UArchonSpecManager::mLoadedSpecMap @0x28 (TMap<int32, UArchonSpec*>), every non-CDO manager; weapon spec WeaponAnimationType @0x158, WeaponDamageType @0x159; equipSlot @0x90
   enum_names: BP enums are UUserDefinedEnum: Names (NewEnumeratorN) + DisplayNameMap @0x60 (FName → FText); EnumNames() in item-sort.cpp
   ranged_melee: EWeaponDamageType display name (3 values, expected Melee/Range/Magic), fallback EWeaponType name; keyword rule AttackIn() in item-sort.hpp
+  inventory_ui: bag header UWidgetitemBagHeaderMenu_C (Button_Sort @0x278, Owning_Widget @0x308); vanilla sort UFunctions seen by ProcessEvent (expected): BndEvt__Button_Sort_*, SortItem (HUD), RequestSortItems/ReorderItems (manager); X key path unknown
+  widget_rect: game thread only: UWidget::GetCachedGeometry → SlateBlueprintLibrary GetLocalSize + LocalToViewport(0,0 / size) = viewport pixels; visibility = Visibility + switcher page up the Slot→Parent chain, across WidgetTree→owner user widget
   sort: SortItemsInternalClient(EItemSort, IsStorage) → SlotsToMove (game's format) → permuted by profile → ReorderItems(SlotsToMove, IsStorage); format plain vs encoded decided per call, encoded decoded with FItemContainerFunctions_C::ConvertCompressedItemSlot
 
 combat_log (unused so far; crits + own-vs-party damage; whether its delegates pass ProcessEvent: UNVERIFIED):

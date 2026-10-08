@@ -21,12 +21,20 @@
 #include "BP_AccountItemStorage_classes.hpp"
 #include "BP_SpecItemWeapon_classes.hpp"
 #include "BP_SpecItemArmor_classes.hpp"
+#include "BP_PlayerControllerGame_classes.hpp"
+#include "WidgetitemBagHeaderMenu_classes.hpp"
+#include "WidgetItemInventory_classes.hpp"
+#include "WidgetItemBag_classes.hpp"
+#include "BP_HUDInventoryComponent_classes.hpp"
+#include "UMG_classes.hpp"
+#include "UMG_parameters.hpp"
 #include "FItemContainerFunctions_classes.hpp"
 #include "FItemContainerFunctions_parameters.hpp"
 
-// Item sort: every item in inventory, bank and equipment as one model (item-sort.hpp), scored by a profile of
-// stat weights; filtered list in the Insert menu, and "Sort" reorders the real inventory/bank through the
-// game's own ReorderItems (game thread). Model = memory reads only (render thread).
+// Item sort, inside the game's inventory UI: the game's own Sort (bag header button, X key) is followed by a
+// reorder by the active profile (item-sort.hpp: score, filter-first) through the game's ReorderItems; profile,
+// weights and "first" filter sit in a strip anchored to the game's bag header while the inventory is open.
+// Game thread (ProcessEvent listener): sort, widget geometry. Render thread: model, enum names, drawing.
 using namespace SDK;
 
 namespace {
@@ -53,7 +61,7 @@ namespace {
     // Enum value → display name (BP enums are dumped as NewEnumeratorN; UUserDefinedEnum keeps the names).
     std::vector<std::string> EnumNames(const char* name) {
         std::vector<std::string> out;
-        UEnum* e = UObject::FindObjectFast<UEnum>(name);
+        UEnum* e = UObject::FindObjectFast<UEnum>(name, EClassCastFlags::Enum);  // flag None never matches (HasTypeFlag)
         if (!PtrOk(e)) return out;
         std::unordered_map<std::string, std::string> display;
         if (e->IsA(UUserDefinedEnum::StaticClass()))
@@ -73,9 +81,9 @@ namespace {
     }
     std::string At(const std::vector<std::string>& v, int i) { return i >= 0 && i < int(v.size()) ? v[i] : ""; }
 
-    // Written once on the render thread before any game-thread request (published by the request lock).
+    // Written once on the render thread, then read-only (published by g_haveNames).
     struct Names { std::vector<std::string> stat, container, weaponType, damageType; } g_names;
-    bool g_haveNames = false;
+    std::atomic<bool> g_haveNames{false};
 
     ABP_PlayerControllerOnline_C* LocalPC() {
         UWorld* w = UWorld::GetWorld();
@@ -150,16 +158,27 @@ namespace {
     }
 
     // Memory reads only: render thread (menu) and game thread (sort request).
-    std::vector<Item> BuildModel(UBP_InvManagerComponent_C** invOut = nullptr) {
+    // why: which link of the read path is missing (logged by the render thread when it changes).
+    std::vector<Item> BuildModel(UBP_InvManagerComponent_C** invOut = nullptr, std::string* why = nullptr) {
         std::vector<Item> out;
+        auto say = [&](const std::string& s) { if (why) *why = s; };
+        UWorld* w = UWorld::GetWorld();
+        APlayerController* any = nullptr;
+        if (PtrOk(w) && PtrOk(w->OwningGameInstance) && w->OwningGameInstance->LocalPlayers.Num() > 0
+            && PtrOk(w->OwningGameInstance->LocalPlayers[0]))
+            any = w->OwningGameInstance->LocalPlayers[0]->PlayerController;
         ABP_PlayerControllerOnline_C* pc = LocalPC();
-        if (!pc) return out;
+        if (!pc) { say(PtrOk(any) ? "local PC is " + any->Class->GetName() + ", not BP_PlayerControllerOnline_C" : "no local player controller"); return out; }
         UBP_InvManagerComponent_C* inv = PtrOk(pc->InvManagerComponent) ? pc->InvManagerComponent : nullptr;
         if (invOut) *invOut = inv;
         const auto specs = SpecMap();
-        if (auto* c = Container(pc->InventoryItemContainerComponent)) ReadContainer(c, false, specs, out);
-        if (inv)
-            if (auto* b = BankOf(inv)) ReadContainer(b, true, specs, out);
+        auto* c = Container(pc->InventoryItemContainerComponent);
+        if (c) ReadContainer(c, false, specs, out);
+        auto* b = inv ? BankOf(inv) : nullptr;
+        if (b) ReadContainer(b, true, specs, out);
+        say(std::string("pc ") + pc->Class->GetName() + (inv ? ", inv manager" : ", NO inv manager") + (c ? ", inventory " : ", NO inventory ")
+            + std::to_string(c ? c->Items.Num() : 0) + (b ? ", bank " : ", NO bank ") + std::to_string(b ? b->Items.Num() : 0)
+            + ", specs " + std::to_string(specs.size()));
         return out;
     }
 
@@ -181,12 +200,12 @@ namespace {
     }
 
     // ---- game thread: Sort = the game's own slot list (its format), permuted by our order, into ReorderItems ----
-    struct Request { bool storage; Profile profile; };
-    SRWLOCK g_mu = SRWLOCK_INIT;  // not std::mutex (gotchas)
-    Request g_req;
+    struct Request { bool storage; Profile profile; Filter filter; };
+    SRWLOCK g_mu = SRWLOCK_INIT;  // not std::mutex (gotchas). Guards g_req, g_status, g_cands, g_anchors.
+    Request g_req;                 // active profile + filter, refreshed by the render thread
     std::string g_status;
-    std::atomic<bool> g_pending{false}, g_on{false};
-    thread_local bool t_busy = false;
+    std::atomic<bool> g_on{false};
+    thread_local bool t_busy = false;  // our own UFunction calls re-enter ProcessEvent
 
     void SetStatus(const std::string& s) {
         AcquireSRWLockExclusive(&g_mu); g_status = s; ReleaseSRWLockExclusive(&g_mu);
@@ -236,7 +255,7 @@ namespace {
             for (int k = 0; k < int(items.size()); k++)
                 if (items[k].slot == slot && items[k].containerType == type) { itemOf[i] = k; break; }
         }
-        const std::vector<int> order = Reorder(vals, itemOf, items, score);
+        const std::vector<int> order = Reorder(vals, itemOf, items, score, rq.filter);
         char head[160];
         std::snprintf(head, sizeof(head), "%s: game list %d entries (%s), %d items in container", rq.storage ? "bank" : "inventory",
                       int(vals.size()), plain >= 0 ? "plain slots" : "encoded slots", int(items.size()));
@@ -254,14 +273,131 @@ namespace {
         SetStatus(std::string(head) + " - reordered by profile '" + rq.profile.name + "'");
     }
 
-    void OnEvent(void*, void*, void*) {
-        if (t_busy || !g_on.load(std::memory_order_relaxed) || !g_pending.exchange(false)) return;
+    // ---- game thread: hooked vanilla sort, bag header geometry ----
+    struct Cand { UWidgetitemBagHeaderMenu_C* w; int32 idx; };
+    struct Anchor { Rect r; bool storage; };
+    std::vector<Cand> g_cands;      // live bag headers (render thread scans GObjects)
+    std::vector<Anchor> g_anchors;  // visible ones, viewport pixels (game thread)
+    std::unordered_map<UFunction*, std::string> g_triggers;  // read-only once g_on
+    UFunction *g_fnGeom = nullptr, *g_fnLocalSize = nullptr, *g_fnToViewport = nullptr;
+    unsigned g_pendingMask = 0;  // game thread: 1 inventory, 2 bank
+    ULONGLONG g_due = 0, g_nextGeom = 0;
+
+    // Same call shape as Dumper-7's generated bodies for native functions.
+    void CallNative(const UObject* obj, UFunction* fn, void* parms) {
+        auto flags = fn->FunctionFlags;
+        fn->FunctionFlags |= 0x400;  // FUNC_Native
+        obj->ProcessEvent(fn, parms);
+        fn->FunctionFlags = flags;
+    }
+
+    std::string ClassName(UObject* o) { return PtrOk(o) && PtrOk(o->Class) ? o->Class->GetName() : ""; }
+    bool HeaderIsStorage(UWidgetitemBagHeaderMenu_C* h) { return StorageWidget(ClassName(h->Owning_Widget)); }
+
+    // Visible = no Collapsed/Hidden widget and no inactive switcher page up the chain, across nested user widgets.
+    bool Shown(UWidget* w) {
+        for (int depth = 0; PtrOk(w) && depth < 64; depth++) {
+            if (w->Visibility == ESlateVisibility::Collapsed || w->Visibility == ESlateVisibility::Hidden) return false;
+            UPanelSlot* s = w->Slot;
+            if (PtrOk(s) && PtrOk(s->Parent)) {
+                UPanelWidget* p = s->Parent;
+                if (p->IsA(UWidgetSwitcher::StaticClass())) {
+                    const int i = static_cast<UWidgetSwitcher*>(p)->ActiveWidgetIndex;
+                    if (i < 0 || i >= p->Slots.Num() || p->Slots[i] != s) return false;
+                }
+                w = p;
+                continue;
+            }
+            UObject* tree = w->Outer;  // root of a user widget's tree: continue with the user widget that owns it
+            if (PtrOk(tree) && tree->IsA(UWidgetTree::StaticClass()) && PtrOk(tree->Outer) && tree->Outer->IsA(UWidget::StaticClass())) {
+                w = static_cast<UWidget*>(tree->Outer);
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    bool RectOf(UWidget* w, Rect& r) {
+        Params::Widget_GetCachedGeometry g{};
+        CallNative(w, g_fnGeom, &g);
+        Params::SlateBlueprintLibrary_GetLocalSize ls{};
+        ls.Geometry = g.ReturnValue;
+        CallNative(USlateBlueprintLibrary::GetDefaultObj(), g_fnLocalSize, &ls);
+        FVector2D px[2];
+        const FVector2D corner[2] = {{0, 0}, ls.ReturnValue};
+        for (int i = 0; i < 2; i++) {
+            Params::SlateBlueprintLibrary_LocalToViewport v{};
+            v.WorldContextObject = w;
+            v.Geometry = g.ReturnValue;
+            v.LocalCoordinate = corner[i];
+            CallNative(USlateBlueprintLibrary::GetDefaultObj(), g_fnToViewport, &v);
+            px[i] = v.PixelPosition;
+        }
+        r = {px[0].X, px[0].Y, px[1].X - px[0].X, px[1].Y - px[0].Y};
+        return r.w > 1 && r.h > 1;
+    }
+
+    void UpdateAnchors() {
+        std::vector<Cand> cands;
+        AcquireSRWLockShared(&g_mu); cands = g_cands; ReleaseSRWLockShared(&g_mu);
+        std::vector<Anchor> out;
+        ABP_PlayerControllerOnline_C* pc = LocalPC();
+        if (pc && pc->bShowMouseCursor)  // inventory open = game cursor shown
+            for (const Cand& c : cands) {
+                if (UObject::GObjects->GetByIndex(c.idx) != c.w || !Shown(c.w)) continue;  // freed or hidden
+                Rect r;
+                if (RectOf(c.w, r)) out.push_back({r, HeaderIsStorage(c.w)});
+            }
+        AcquireSRWLockExclusive(&g_mu); g_anchors = std::move(out); ReleaseSRWLockExclusive(&g_mu);
+    }
+
+    void OnEvent(void* objp, void* fnp, void* parms) {
+        if (t_busy || !g_on.load(std::memory_order_relaxed)) return;
+        const ULONGLONG now = GetTickCount64();
         t_busy = true;
-        AcquireSRWLockShared(&g_mu);
-        const Request rq = g_req;
-        ReleaseSRWLockShared(&g_mu);
-        RunSort(rq);
+        if (auto it = g_triggers.find(static_cast<UFunction*>(fnp)); it != g_triggers.end()) {
+            auto* obj = static_cast<UObject*>(objp);
+            const int off = StorageParamOffset(it->second);
+            bool storage = false;
+            if (off >= 0 && parms) storage = static_cast<const bool*>(parms)[off];
+            else if (PtrOk(obj) && obj->IsA(UWidgetitemBagHeaderMenu_C::StaticClass())) storage = HeaderIsStorage(static_cast<UWidgetitemBagHeaderMenu_C*>(obj));
+            g_pendingMask |= storage ? 2 : 1;
+            g_due = now + kSettleMs;
+            static std::unordered_map<UFunction*, int> logged;
+            if (!logged[static_cast<UFunction*>(fnp)]++)
+                logger::log("[item-sort] vanilla sort seen: " + it->second + " on " + ClassName(obj) + (storage ? " (bank)" : " (inventory)"));
+        }
+        if (g_pendingMask && now >= g_due) {
+            AcquireSRWLockShared(&g_mu);
+            Request rq = g_req;
+            ReleaseSRWLockShared(&g_mu);
+            for (int b = 0; b < 2; b++)
+                if (g_pendingMask & (1u << b)) { rq.storage = b == 1; RunSort(rq); }
+            g_pendingMask = 0;
+        }
+        if (now >= g_nextGeom) { g_nextGeom = now + 100; UpdateAnchors(); }
         t_busy = false;
+    }
+
+    // Render thread, once: functions the listener needs. Children = functions declared on that class.
+    bool Resolve() {
+        g_fnGeom = UWidget::StaticClass()->GetFunction("Widget", "GetCachedGeometry");
+        g_fnLocalSize = USlateBlueprintLibrary::StaticClass()->GetFunction("SlateBlueprintLibrary", "GetLocalSize");
+        g_fnToViewport = USlateBlueprintLibrary::StaticClass()->GetFunction("SlateBlueprintLibrary", "LocalToViewport");
+        UClass* classes[] = {UWidgetitemBagHeaderMenu_C::StaticClass(), UBP_HUDInventoryComponent_C::StaticClass(),
+                             UBP_InvManagerComponent_C::StaticClass(), ABP_PlayerControllerGame_C::StaticClass(),
+                             UWidgetItemInventory_C::StaticClass(), UWidgetItemBag_C::StaticClass()};
+        std::string names;
+        for (UClass* c : classes) {
+            if (!PtrOk(c)) return false;
+            for (UField* f = c->Children; PtrOk(f); f = f->Next) {
+                const std::string n = f->GetName();
+                if (f->IsA(UFunction::StaticClass()) && SortTrigger(n)) { g_triggers[static_cast<UFunction*>(f)] = n; names += " " + n; }
+            }
+        }
+        logger::log("[item-sort] sort triggers:" + names);
+        return g_fnGeom && g_fnLocalSize && g_fnToViewport && !g_triggers.empty();
     }
 
     struct ItemSort : feature::Feature {
@@ -269,17 +405,18 @@ namespace {
         int cur = 0;
         Filter filter;
         char search[64] = {};
-        std::vector<Item> items;
-        std::vector<float> score;
-        std::vector<int> order;
-        double nextBuild = 0;
-        size_t loggedCount = SIZE_MAX;
+        std::vector<Item> items;  // for the weights popup (stats present on the player's items)
+        bool resolved = false;
+        double nextScan = 0, nextModel = 0;
+        std::string lastWhy;
+        ImVec2 lastSize{0, 0};
 
-        ItemSort() : Feature("Item sort", feature::Stage::Alpha) {}
+        ItemSort() : Feature("Item sort", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
 
         void Off() override {
             g_on = false;
             game::SetEventListener(&OnEvent, false);
+            AcquireSRWLockExclusive(&g_mu); g_anchors.clear(); ReleaseSRWLockExclusive(&g_mu);
         }
 
         Profile* Find(const std::string& name) {
@@ -306,30 +443,48 @@ namespace {
             }
         }
 
-        void Rebuild() {
-            if (!g_haveNames) {
-                Names n{EnumNames("EStatType"), EnumNames("EItemContainerType"), EnumNames("EWeaponType"), EnumNames("EWeaponDamageType")};
-                if (n.stat.empty() || n.container.empty()) return;
-                std::string s = "[item-sort] enums: stats " + std::to_string(n.stat.size()) + ", containers";
-                for (size_t i = 0; i < n.container.size(); i++) s += " " + std::to_string(i) + "=" + n.container[i];
-                s += ", damage types";
-                for (size_t i = 0; i < n.damageType.size(); i++) s += " " + std::to_string(i) + "=" + n.damageType[i];
-                s += ", weapon types";
-                for (size_t i = 0; i < n.weaponType.size(); i++) s += " " + std::to_string(i) + "=" + n.weaponType[i];
-                logger::log(s);
-                AcquireSRWLockExclusive(&g_mu); g_names = std::move(n); g_haveNames = true; ReleaseSRWLockExclusive(&g_mu);
-            }
-            items = BuildModel();
-            if (items.size() != loggedCount) { LogModel(items); loggedCount = items.size(); }
+        void LoadNames() {
+            Names n{EnumNames("EStatType"), EnumNames("EItemContainerType"), EnumNames("EWeaponType"), EnumNames("EWeaponDamageType")};
+            std::string s = "[item-sort] enums: stats " + std::to_string(n.stat.size()) + ", containers";
+            for (size_t i = 0; i < n.container.size(); i++) s += " " + std::to_string(i) + "=" + n.container[i];
+            s += ", damage types";
+            for (size_t i = 0; i < n.damageType.size(); i++) s += " " + std::to_string(i) + "=" + n.damageType[i];
+            s += ", weapon types";
+            for (size_t i = 0; i < n.weaponType.size(); i++) s += " " + std::to_string(i) + "=" + n.weaponType[i];
+            logger::log(s);
+            if (n.stat.empty() || n.container.empty()) return;  // retried next scan
+            g_names = std::move(n);
+            g_haveNames.store(true, std::memory_order_release);
         }
 
-        void RequestSort(bool storage) {
+        // Every second: enum names (once), bag header widgets, model diagnostics.
+        void Scan() {
+            if (!g_haveNames.load(std::memory_order_acquire)) LoadNames();
+            std::vector<Cand> cands;
+            UClass* cls = UWidgetitemBagHeaderMenu_C::StaticClass();
+            for (int i = 0; PtrOk(cls) && i < UObject::GObjects->Num(); i++) {
+                UObject* o = UObject::GObjects->GetByIndex(i);
+                if (PtrOk(o) && o->IsA(cls) && !o->IsDefaultObject()) cands.push_back({static_cast<UWidgetitemBagHeaderMenu_C*>(o), o->Index});
+            }
             AcquireSRWLockExclusive(&g_mu);
-            g_req = {storage, profiles[cur]};
-            g_status = "sorting...";
+            g_cands = std::move(cands);
+            g_req.profile = profiles[cur];
+            g_req.filter = filter;
             ReleaseSRWLockExclusive(&g_mu);
-            if (!g_on) { g_on = true; game::SetEventListener(&OnEvent, true); }
-            g_pending = true;
+        }
+
+        void RefreshModel() {
+            std::string why;
+            items = BuildModel(nullptr, &why);
+            if (why != lastWhy) { logger::log("[item-sort] read: " + why); lastWhy = why; LogModel(items); }
+        }
+
+        void Publish() {
+            AcquireSRWLockExclusive(&g_mu);
+            g_req.profile = profiles[cur];
+            g_req.filter = filter;
+            ReleaseSRWLockExclusive(&g_mu);
+            ImGui::MarkIniSettingsDirty();
         }
 
         void Weights(Profile& p) {
@@ -338,7 +493,7 @@ namespace {
                 float v = AttackWeight(p, Attack(a));
                 if (ImGui::SliderFloat((std::string(kAttackName[a]) + " weapons").c_str(), &v, 0, 2, "%.2f")) { p.attack[a] = v; dirty = true; }
             }
-            std::vector<std::string> seen;  // stats present on the player's items, by name
+            std::vector<std::string> seen;
             for (const Item& it : items)
                 for (const Stat& s : it.stats) seen.push_back(StatName(g_names.stat, s.type));
             std::sort(seen.begin(), seen.end());
@@ -347,89 +502,99 @@ namespace {
                 float v = Weight(p, s);
                 if (ImGui::SliderFloat(s.c_str(), &v, 0, 2, "%.2f")) { p.weight[s] = v; dirty = true; }
             }
+            if (seen.empty()) ImGui::TextDisabled("no item stats read yet");
             if (ImGui::Button("Reset profile")) { p.weight.clear(); p.attack.clear(); dirty = true; }
-            if (dirty) ImGui::MarkIniSettingsDirty();
+            if (dirty) Publish();
         }
 
-        void Table() {
-            std::vector<int> rows;
-            for (int i : order) if (Passes(items[i], filter)) rows.push_back(i);
-            ImGui::TextDisabled("%d of %d items", int(rows.size()), int(items.size()));
-            const ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
-            if (!ImGui::BeginTable("items", 5, fl, ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 14))) return;
-            ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableSetupColumn("Score");
-            ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch, 4);
-            ImGui::TableSetupColumn("Lv");
-            ImGui::TableSetupColumn("Where");
-            ImGui::TableSetupColumn("Type");
-            ImGui::TableHeadersRow();
-            ImGuiListClipper clip;
-            clip.Begin(int(rows.size()));
-            while (clip.Step())
-                for (int r = clip.DisplayStart; r < clip.DisplayEnd; r++) {
-                    const Item& it = items[rows[r]];
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("%.1f", score[rows[r]]);
-                    ImGui::TableNextColumn();
-                    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(style::Pack(style::rarity::Of(it.grade))), "%s", it.name.c_str());
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::BeginTooltip();
-                        ImGui::Text("grade %d  slot %d  type %d  spec %d", it.grade, it.slot, it.containerType, it.specId);
-                        for (const Stat& s : it.stats) {
-                            const std::string n = StatName(g_names.stat, s.type);
-                            ImGui::Text("%s: %.1f x %.2f", n.c_str(), s.value, Weight(profiles[cur], n));
-                        }
-                        if (it.stats.empty()) ImGui::TextDisabled("no stats read");
-                        ImGui::EndTooltip();
-                    }
-                    ImGui::TableNextColumn(); ImGui::Text("%d", it.level);
-                    ImGui::TableNextColumn(); ImGui::TextUnformatted(kWhereName[int(it.where)]);
-                    ImGui::TableNextColumn();
-                    ImGui::TextUnformatted(it.kind == Kind::Weapon ? kAttackName[int(it.attack)] : kKindName[int(it.kind)]);
+        // Design spec: design-system.md "Inventory sort strip" (menu/HUD panel tokens, display font kSm).
+        void Strip(const feature::Frame& f, const Anchor& a) {
+            using namespace style;
+            const float ui = type::Ui(f.h);
+            const Rect r = PanelRect(a.r, lastSize.x, lastSize.y, kGapToHeader * ui, f.w, f.h);
+            auto col = [](Rgba c, float alpha = 1.0f) { return ImGui::ColorConvertU32ToFloat4(Pack(c, alpha)); };
+            const std::pair<ImGuiCol, ImVec4> colors[] = {
+                {ImGuiCol_WindowBg, col(color::kPanel)}, {ImGuiCol_PopupBg, col(color::kPanel)}, {ImGuiCol_Border, col(color::kPanelEdge)},
+                {ImGuiCol_Text, col(color::kText)}, {ImGuiCol_TextDisabled, col(color::kTextMuted)},
+                {ImGuiCol_CheckMark, col(color::kGold)}, {ImGuiCol_SliderGrab, col(color::kGold)}, {ImGuiCol_SliderGrabActive, col(color::kGold)},
+                {ImGuiCol_FrameBg, col(color::kGold, .25f)}, {ImGuiCol_FrameBgHovered, col(color::kGold, .40f)}, {ImGuiCol_FrameBgActive, col(color::kGold, .55f)},
+                {ImGuiCol_Button, col(color::kGold, .25f)}, {ImGuiCol_ButtonHovered, col(color::kGold, .40f)}, {ImGuiCol_ButtonActive, col(color::kGold, .55f)},
+                {ImGuiCol_Header, col(color::kGold, .25f)}, {ImGuiCol_HeaderHovered, col(color::kGold, .40f)}, {ImGuiCol_HeaderActive, col(color::kGold, .55f)}};
+            for (auto& [k, v] : colors) ImGui::PushStyleColor(k, v);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, radius::kLg * ui);
+            ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, radius::kLg * ui);
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, radius::kMd * ui);
+            ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, radius::kMd * ui);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(space::k6 * ui, space::k6 * ui));
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(space::k4 * ui, space::k2 * ui));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(space::k4 * ui, space::k3 * ui));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+            const float oldScale = f.font->Scale;
+            f.font->Scale = type::kSm * ui / type::kAtlasPx;
+            ImGui::PushFont(f.font);
+
+            ImGui::SetNextWindowPos(ImVec2(r.x, r.y));
+            const ImGuiWindowFlags wf = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+            if (ImGui::Begin("##item-sort-strip", nullptr, wf)) {
+                Profile& p = profiles[cur];
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("Sort by");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(kComboW * ui);
+                if (ImGui::BeginCombo("##profile", p.name.c_str())) {
+                    for (int i = 0; i < int(profiles.size()); i++)
+                        if (ImGui::Selectable(profiles[i].name.c_str(), i == cur)) { cur = i; Publish(); }
+                    ImGui::EndCombo();
                 }
-            ImGui::EndTable();
+                ImGui::SameLine();
+                if (ImGui::Button("Weights")) ImGui::OpenPopup("##weights");
+                if (ImGui::BeginPopup("##weights")) { Weights(profiles[cur]); ImGui::EndPopup(); }
+                ImGui::SameLine();
+                ImGui::TextDisabled("First");
+                ImGui::SameLine();
+                static const char* const kKinds[] = {"Any", "Other", "Weapons", "Armor"};
+                static const char* const kAttacks[] = {"Any", "-", "Melee", "Ranged", "Magic"};
+                ImGui::SetNextItemWidth(kFilterW * ui);
+                int k = filter.kind + 1;
+                if (ImGui::Combo("##kind", &k, kKinds, IM_ARRAYSIZE(kKinds))) { filter.kind = k - 1; Publish(); }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(kFilterW * ui);
+                int at = filter.attack + 1;
+                if (ImGui::Combo("##attack", &at, kAttacks, IM_ARRAYSIZE(kAttacks))) { filter.attack = at - 1; Publish(); }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(kSearchW * ui);
+                if (ImGui::InputTextWithHint("##search", "name", search, sizeof(search))) { filter.text = search; Publish(); }
+                AcquireSRWLockShared(&g_mu);
+                const std::string st = g_status;
+                ReleaseSRWLockShared(&g_mu);
+                if (st.find("not applied") != std::string::npos || st.find("not found") != std::string::npos || st.find("no inv") != std::string::npos)
+                    ImGui::TextDisabled("%s", st.c_str());
+                lastSize = ImGui::GetWindowSize();
+            }
+            ImGui::End();
+            ImGui::PopFont();
+            f.font->Scale = oldScale;
+            ImGui::PopStyleVar(8);
+            ImGui::PopStyleColor(IM_ARRAYSIZE(colors));
         }
 
-        void Menu() override {
-            const double now = ImGui::GetTime();
-            if (now >= nextBuild) { Rebuild(); nextBuild = now + 0.5; }
-            Profile& p = profiles[cur];
-            score.clear();
-            for (const Item& it : items) score.push_back(Score(it, p, g_names.stat));
-            order = Order(items, score);
-
-            if (ImGui::BeginCombo("Profile", p.name.c_str())) {
-                for (int i = 0; i < int(profiles.size()); i++)
-                    if (ImGui::Selectable(profiles[i].name.c_str(), i == cur)) { cur = i; ImGui::MarkIniSettingsDirty(); }
-                ImGui::EndCombo();
+        // Render thread: memory reads only; UFunction work happens in OnEvent (game thread).
+        void OnFrame(const feature::Frame& f) override {
+            if (f.now >= nextScan) {
+                nextScan = f.now + 1.0;
+                Scan();
+                if (!resolved && (resolved = Resolve())) { g_on = true; game::SetEventListener(&OnEvent, true); }
             }
-            if (ImGui::TreeNode("Weights")) { Weights(p); ImGui::TreePop(); }
-
-            for (int w = 0; w < 4; w++) {
-                if (w) ImGui::SameLine();
-                ImGui::Checkbox(kWhereName[w], &filter.where[w]);
-            }
-            static const char* const kKinds[] = {"All", "Other", "Weapon", "Armor"};
-            static const char* const kAttacks[] = {"All", "-", "Melee", "Ranged", "Magic"};
-            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7);
-            int k = filter.kind + 1;
-            if (ImGui::Combo("Kind", &k, kKinds, IM_ARRAYSIZE(kKinds))) filter.kind = k - 1;
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7);
-            int a = filter.attack + 1;
-            if (ImGui::Combo("Attack", &a, kAttacks, IM_ARRAYSIZE(kAttacks))) filter.attack = a - 1;
-            if (ImGui::InputText("Search", search, sizeof(search))) filter.text = search;
-
-            if (!g_haveNames) { ImGui::TextDisabled("waiting for game data (enter the game world)"); return; }
-            if (ImGui::Button("Sort inventory")) RequestSort(false);
-            ImGui::SameLine();
-            if (ImGui::Button("Sort bank")) RequestSort(true);
             AcquireSRWLockShared(&g_mu);
-            const std::string st = g_status;
+            const std::vector<Anchor> anchors = g_anchors;
             ReleaseSRWLockShared(&g_mu);
-            if (!st.empty()) ImGui::TextWrapped("%s", st.c_str());
-            Table();
+            if (anchors.empty() || !g_haveNames.load(std::memory_order_acquire)) return;
+            if (f.now >= nextModel) { nextModel = f.now + 1.0; RefreshModel(); }
+            const Anchor* a = &anchors[0];  // one strip: the inventory bag when the bank shows both
+            for (const Anchor& x : anchors) if (!x.storage) { a = &x; break; }
+            Strip(f, *a);
+            feature::wantInput = true;
         }
     } g_item_sort;
 }

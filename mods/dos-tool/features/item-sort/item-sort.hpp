@@ -100,13 +100,6 @@ namespace item_sort {
         if (a.specId != b.specId) return a.specId < b.specId;
         return a.slot < b.slot;
     }
-    inline std::vector<int> Order(const std::vector<Item>& items, const std::vector<float>& score) {
-        std::vector<int> idx(items.size());
-        for (int i = 0; i < int(idx.size()); i++) idx[i] = i;
-        std::stable_sort(idx.begin(), idx.end(), [&](int x, int y) { return Before(items[x], score[x], items[y], score[y]); });
-        return idx;
-    }
-
     struct Filter {
         bool where[4] = {true, true, true, true};
         int kind = -1;     // -1 all, else Kind
@@ -132,10 +125,10 @@ namespace item_sort {
         }
         return -1;
     }
-    // vals reordered best-first by profile score; itemOf[i] = index into items of vals[i].
+    // vals reordered: items passing the filter first, then best profile score; itemOf[i] = index into items of vals[i].
     // Empty (= do nothing) unless every entry maps to a distinct item.
     inline std::vector<int> Reorder(const std::vector<int>& vals, const std::vector<int>& itemOf,
-                                    const std::vector<Item>& items, const std::vector<float>& score) {
+                                    const std::vector<Item>& items, const std::vector<float>& score, const Filter& f = {}) {
         if (vals.empty() || itemOf.size() != vals.size()) return {};
         std::vector<bool> used(items.size());
         for (int k : itemOf) {
@@ -145,10 +138,43 @@ namespace item_sort {
         std::vector<int> pos(vals.size());
         for (int i = 0; i < int(pos.size()); i++) pos[i] = i;
         std::stable_sort(pos.begin(), pos.end(), [&](int x, int y) {
-            return Before(items[itemOf[x]], score[itemOf[x]], items[itemOf[y]], score[itemOf[y]]);
+            const Item &a = items[itemOf[x]], &b = items[itemOf[y]];
+            const bool pa = Passes(a, f), pb = Passes(b, f);
+            return pa != pb ? pa : Before(a, score[itemOf[x]], b, score[itemOf[y]]);
         });
         std::vector<int> out;
         for (int p : pos) out.push_back(vals[p]);
         return out;
+    }
+
+    // ---- the game's own Sort, hooked (game thread) ----
+    // UFunction names that start a vanilla sort when they pass ProcessEvent (button event, HUD/manager calls,
+    // input action). Our own SortItemsInternalClient call is excluded; "Sorted…" getters are not triggers.
+    inline bool SortTrigger(std::string_view fn) {
+        if (fn == "SortItemsInternalClient" || Has(fn, "sorted")) return false;
+        return Has(fn, "sort") || fn == "ReorderItems";
+    }
+    // Byte offset of the IsStorage bool in the trigger's params, -1 when it has none (e.g. the button event).
+    inline int StorageParamOffset(std::string_view fn) {
+        if (fn == "SortItem") return 0x0;
+        if (fn == "RequestSortItems") return 0x1;
+        if (fn == "ReorderItems") return 0x10;
+        return -1;
+    }
+    // Class name of the widget that owns a bag header → bank bag?  Unverified in game.
+    inline bool StorageWidget(std::string_view cls) { return Has(cls, "storage") || Has(cls, "bank") || Has(cls, "stash"); }
+    inline constexpr unsigned kSettleMs = 150;  // run after the vanilla sort's burst of calls
+
+    // ---- panel anchored to the game's bag header (pixels) ----
+    // Strip geometry, px at 1080p (× style::type::Ui). Spec: design-system.md "Inventory sort strip".
+    inline constexpr float kComboW = 120, kFilterW = 96, kSearchW = 120, kGapToHeader = 6;
+    struct Rect { float x, y, w, h; };
+    // Above the header, right-aligned to it; below when there is no room above. Clamped to the screen.
+    inline Rect PanelRect(Rect header, float w, float h, float gap, float screenW, float screenH) {
+        Rect r{header.x + header.w - w, header.y - gap - h, w, h};
+        if (r.y < 0) r.y = header.y + header.h + gap;
+        r.x = std::clamp(r.x, 0.0f, std::max(0.0f, screenW - w));
+        r.y = std::clamp(r.y, 0.0f, std::max(0.0f, screenH - h));
+        return r;
     }
 }
