@@ -32,7 +32,11 @@ namespace combat {
         double bump = born;  // last hit merged in
         uintptr_t type = 0;  // damage-type class of the hits stacked here; 0 = untagged (HP drop without a recorded hit)
         Element element = Element::Physical;
+        float hitScale = 0;  // biggest single merged hit's size: a crit keeps it, stack growth alone is capped (Shown)
     };
+
+    // Size to draw: a stack grows at most to `cap` (menu "Max stack size"), never below its biggest single hit.
+    inline float Shown(const Number& n, float cap) { return n.hits > 1 ? std::max(n.hitScale, std::min(n.scale, cap)) : n.scale; }
 
     // Fight = damage dealt to non-players with no gap longer than `gap` seconds.
     struct Fight {
@@ -67,6 +71,10 @@ namespace combat {
             const float t = typical > 0 ? typical : amount;
             return std::clamp(1.0f + 0.45f * std::log2(amount / t), 0.8f, 2.4f);
         }
+        float Grow(float total) const {  // stack size from its running total: half as steep as a single hit's
+            const float t = typical > 0 ? typical : total;
+            return std::clamp(1.0f + 0.25f * std::log2(total / t), 0.8f, 2.4f);
+        }
         void Learn(float amount) { typical = typical <= 0 ? amount : typical + 0.08f * (amount - typical); }
         float Scale(float amount) { Learn(amount); return Rel(amount); }
 
@@ -78,12 +86,12 @@ namespace combat {
                     n.hits++;
                     n.bump = now;
                     n.x = s.x; n.y = s.y; n.z = s.z;
-                    if (kind == Kind::Dealt) n.scale = Rel(n.amount);
+                    if (kind == Kind::Dealt) { n.hitScale = std::max(n.hitScale, Rel(amount)); n.scale = std::max(n.hitScale, Grow(n.amount)); }
                     return;
                 }
             const float drift = float((s.id >> 4) % 200) / 100.0f - 1.0f;
             const float scale = kind == Kind::Dealt ? Rel(amount) : kind == Kind::Taken ? 0.95f : 0.9f;
-            live.push_back({s.x, s.y, s.z, amount, kind, scale, drift, now, s.id, 1, now, type, el});
+            live.push_back({s.x, s.y, s.z, amount, kind, scale, drift, now, s.id, 1, now, type, el, scale});
         }
 
         void Show(const Sample& s, float amount, double now, uintptr_t type, Element el) {
@@ -111,7 +119,7 @@ namespace combat {
                 if (heal > 0 && n.id == s.id && n.kind != Kind::Heal && now - n.bump <= stack) {
                     const float back = std::min(heal, n.amount);
                     n.amount -= back; heal -= back;
-                    if (n.kind == Kind::Dealt) { fight.total -= back; n.scale = Rel(std::max(n.amount, 1.0f)); }
+                    if (n.kind == Kind::Dealt) { fight.total -= back; n.scale = n.hits > 1 ? Grow(std::max(n.amount, 1.0f)) : (n.hitScale = Rel(std::max(n.amount, 1.0f))); }
                 }
             std::erase_if(live, [](const Number& n) { return n.amount <= 0; });
             if (heal > 0) Add(s, heal, Kind::Heal, now);

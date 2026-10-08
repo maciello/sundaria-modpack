@@ -144,5 +144,18 @@ int main() {
         a.Update({}, 9.3);
         assert(a.live.back().type == aimed && near(a.live.back().amount, 188.1f));
     }
+    {   // stack size: gentle growth, capped; a big single hit keeps its size (#8)
+        combat::Tracker g;
+        g.settle = 0;
+        combat::Sample e{9, 0, 0, 0, 10000, false};
+        g.Update({e}, 0.0); g.Update({e}, 2.0);
+        for (int i = 0; i < 20; i++) { e.health -= 20; g.Update({e}, 2.0 + 0.1 * (i + 1)); }
+        const combat::Number& n = g.live[0];
+        assert(g.live.size() == 1 && n.hits == 20 && n.amount == 400);
+        assert(n.scale < g.Rel(400));                              // gentler than a single 400 hit
+        assert(combat::Shown(n, 1.6f) <= 1.6f && combat::Shown(n, 1.0f) == 1.0f);
+        e.health -= 200; g.Update({e}, 4.1);                       // crit (10x typical) merges in
+        assert(combat::Shown(g.live[0], 1.0f) == g.live[0].hitScale && g.live[0].hitScale > 1.6f);
+    }
     std::puts("ok");
 }
