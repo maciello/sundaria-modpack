@@ -17,6 +17,8 @@
 #include "WidgetLootToastEntry_classes.hpp"
 #include "WidgetLootToastEntry_parameters.hpp"
 #include "WidgetLootToastEntryObject_classes.hpp"
+#include "BP_ArchonClientFunctionLibrary_classes.hpp"
+#include "BP_ArchonClientFunctionLibrary_parameters.hpp"
 
 // Pickup toast (#64): each newly owned item pops up as the game's own loot-toast row (WidgetLootToastEntry_C: the
 // item's atlas icon, quality border and name, coloured by the game for its grade), stacked right of the character.
@@ -36,14 +38,16 @@ namespace {
         ref::Fn toViewport{UUserWidget::StaticClass, "UserWidget", "AddToViewport"};
         ref::Fn anchors{UUserWidget::StaticClass, "UserWidget", "SetAnchorsInViewport"};
         ref::Fn align{UUserWidget::StaticClass, "UserWidget", "SetAlignmentInViewport"};
-        ref::Fn position{UUserWidget::StaticClass, "UserWidget", "SetPositionInViewport"};
+        ref::Fn gradeColor{UBP_ArchonClientFunctionLibrary_C::StaticClass, "BP_ArchonClientFunctionLibrary_C", "GetItemColorForGrade"};
+        ref::Fn textColor{UTextBlock::StaticClass, "TextBlock", "SetColorAndOpacity"};
+        ref::Fn imageColor{UImage::StaticClass, "Image", "SetColorAndOpacity"};
         ref::Fn translate{UWidget::StaticClass, "Widget", "SetRenderTranslation"};
         ref::Fn opacity{UWidget::StaticClass, "Widget", "SetRenderOpacity"};
         ref::Fn remove{UWidget::StaticClass, "Widget", "RemoveFromParent"};
         ref::Fn listSet{UWidgetLootToastEntry_C::StaticClass, "WidgetLootToastEntry_C", "OnListItemObjectSet"};
         ref::Fn itemAdded{ABP_PlayerControllerGame_C::StaticClass, "BP_PlayerControllerGame_C", "OnItemAddedDispatcherEvent"};
         bool Ok() {
-            for (ref::Fn* f : {&create, &toViewport, &anchors, &align, &position, &translate, &opacity, &remove, &listSet, &itemAdded})
+            for (ref::Fn* f : {&create, &toViewport, &anchors, &align, &gradeColor, &textColor, &imageColor, &translate, &opacity, &remove, &listSet, &itemAdded})
                 if (!f->Get()) return false;
             return true;
         }
@@ -107,13 +111,26 @@ namespace {
         CallNative(w, g_fn.anchors.Get(), &a);
         Params::UserWidget_SetAlignmentInViewport al{{0.f, 1.f}};  // bottom-left corner on the anchor
         CallNative(w, g_fn.align.Get(), &al);
-        Params::UserWidget_SetPositionInViewport p{};
-        p.Position = {0.f, 0.f};
-        CallNative(w, g_fn.position.Get(), &p);
+        // No SetPositionInViewport: it resets the anchors to the top-left corner.
         Params::Widget_SetRenderOpacity o{0.f};
         CallNative(w, g_fn.opacity.Get(), &o);
-        Params::WidgetLootToastEntry_C_OnListItemObjectSet s{data};  // the game's own fill: icon, border, name colour
+        Params::WidgetLootToastEntry_C_OnListItemObjectSet s{data};  // the game's own fill: icon and name (both left white)
         if (UFunction* fn = g_fn.listSet.Get()) w->ProcessEvent(fn, &s);
+        // Rarity: the game's own grade colour (the one its chat "Received" lines and item names use) on name and quality border.
+        Params::BP_ArchonClientFunctionLibrary_C_GetItemColorForGrade g{};
+        g.ItemGrade = EItemGrade(it.grade);
+        g.__WorldContext = pc;
+        UBP_ArchonClientFunctionLibrary_C::GetDefaultObj()->ProcessEvent(g_fn.gradeColor.Get(), &g);
+        auto* row = static_cast<UWidgetLootToastEntry_C*>(w);
+        if (PtrOk(row->TextBlock_ItemName)) {
+            Params::TextBlock_SetColorAndOpacity tc{};
+            tc.InColorAndOpacity.SpecifiedColor = g.ItemColor;  // ColorUseRule 0 = specified
+            CallNative(row->TextBlock_ItemName, g_fn.textColor.Get(), &tc);
+        }
+        if (PtrOk(row->Image_ContentBorder)) {
+            Params::Image_SetColorAndOpacity ic{g.ItemColor};
+            CallNative(row->Image_ContentBorder, g_fn.imageColor.Get(), &ic);
+        }
 
         for (Toast& t : g_toasts) {  // older rows move up one
             t.rowFrom = -RowY(t.rowFrom, float(t.row), float(now - t.rowAt)) / kRowH;
