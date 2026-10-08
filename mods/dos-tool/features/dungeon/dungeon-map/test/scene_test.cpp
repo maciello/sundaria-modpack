@@ -1,4 +1,4 @@
-#include "../plan.hpp"
+#include "../scene.hpp"
 #include <cassert>
 #include <cstdio>
 

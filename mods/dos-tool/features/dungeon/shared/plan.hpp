@@ -4,10 +4,16 @@
 // SDK-free types and choices; facts: references/game-facts.md § Dungeon.
 #include <string>
 #include <vector>
-#include "scene.hpp"
+#include "path.hpp"
 
 namespace dungeon_map {
     constexpr float kDoorNear = 1500;  // a navmesh leg that a door cuts ends this close to it
+
+    struct Marks {
+        bool locked = false;  // path stops at a locked door
+        V3 door;
+        std::vector<V3> levers;  // heuristic: unpulled levers in that door's room; the route runs through them
+    };
 
     struct Trigger {
         V3 at;

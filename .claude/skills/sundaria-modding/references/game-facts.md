@@ -72,7 +72,7 @@ items:   # features/item-sort; VERIFIED in game 2026-10-08 unless marked
   sort_partial: the k listed items land in slots 0..k-1 in list order; unlisted items keep their slots, holes too (ReorderItemsInternal: I_RemoveItem each → CombineStacks → I_AddItemToSlotFinal in a counted loop; SDK locals + log #91, bytecode unread). Send the prefix up to the last item ranked i that is not in slot i (vanilla SortItemsInternalClient: NotEqual(slot, i), lStopAtSize); comparing with the current slots instead never closes holes (#75, #91). Cost ~0.33–0.6 ms per listed slot, moved or not (one OnItemAddedDispatcherEvent on the controller each; Server RPC flags 0x0c6000c0)
   vanilla_sort: the header's Sort click returns in ~2 ms; the game's reorder follows in later ticks as 2 bursts of one OnItemAddedDispatcherEvent per item. InvManager.RequestSortItems via ProcessEvent applies a deferred sort too
 
-dungeon (#40 survey 2026-10-08; SDK unless marked "in game"; probe: features/dungeon-map `dungeon-map.probe`):
+dungeon (#40 survey 2026-10-08; SDK unless marked "in game"; probe: features/dungeon/shared/probe.cpp, trigger `dungeon-map.probe`):
   dungeon: ABP_Dungeon_C {FloorActors (one ABP_DungeonFloor_C per floor), LevelNamesByFloor (each floor = a streamed level),
            CurrentActiveFloor, PlayerFloors[] {PlayerState, Floor}, MapDataBound[] {Origin, Extend, Rotation, DungeonSliceClass, DungeonChunk}}
   floor: ABP_DungeonFloor_C {ChunkActors, Entry, FloorNumber, bHasBeenActivated, BP_MinimapObject (the floor's static minimap piece)}
@@ -93,7 +93,7 @@ dungeon (#40 survey 2026-10-08; SDK unless marked "in game"; probe: features/dun
     navmesh_runtime: (in game, read-only memory read 2026-10-09) bGenerateNavigationOnlyAroundNavigationInvokers 0, one nav data, RuntimeGeneration
       DynamicModifiersOnly, TileSizeUU 1000: prebuilt for the whole floor, only modifiers (doors) change; the invoker component on BP_CharacterBase does nothing
     partial_end: a partial path ends at the reachable point nearest the goal in a straight line, not at what cut it (Crypt floor 1: 24 m from an
-      open door, in a navmesh island; why it is cut off there unverified). Long routes: features/dungeon-map/route.hpp (navmesh legs + room chain)
+      open door, in a navmesh island; why it is cut off there unverified). Long routes: features/dungeon/shared/route.hpp (navmesh legs + room chain)
   doors_levers: both subclass ABP_TriggerBase_C (: AArchonTriggerBase, native, empty)
     state: mOpenCloseAnimState @0x248 (in game: 0 closed, 2 open/pulled; 1/3 unseen, likely transitions), LockStatus @0x288 (in game: 0 unlocked, 1 locked), CanBeOpened, bStartOpen
     locks: LockRules_OR[] {LockType (ELockType 0..6), Value, TargetTag}, LockTags[], ItemLockGroup[]; door I_DoorAddLockTag / I_DoorRemoveLockTag

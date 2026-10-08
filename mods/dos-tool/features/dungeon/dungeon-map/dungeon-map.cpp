@@ -1,7 +1,7 @@
 #include "draw.hpp"
-#include "lever.hpp"
-#include "plan.hpp"
-#include "probe.hpp"
+#include "../shared/lever.hpp"
+#include "../shared/plan.hpp"
+#include "../shared/probe.hpp"
 #include "feature.hpp"
 #include "game.hpp"
 #include "logger.hpp"
@@ -9,7 +9,7 @@
 #include "drain.hpp"
 #include "umg.hpp"
 #include "style.hpp"
-#include "../../core/draw.hpp"
+#include "../../../core/draw.hpp"
 #include "imgui.h"
 
 #include <Windows.h>

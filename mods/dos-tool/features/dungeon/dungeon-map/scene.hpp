@@ -3,7 +3,7 @@
 // draw.cpp turns each Quad into one UImage. Spec: design-system.md § Dungeon map path.
 #include <cmath>
 #include <vector>
-#include "path.hpp"
+#include "../shared/plan.hpp"
 #include "style.hpp"
 
 namespace dungeon_map {
@@ -38,12 +38,6 @@ namespace dungeon_map {
         const float dx = b.x - a.x, dy = b.y - a.y;
         return {(a.x + b.x) / 2, (a.y + b.y) / 2, std::hypot(dx, dy), w, std::atan2(dy, dx) * 57.29578f, c, alpha, z};
     }
-
-    struct Marks {
-        bool locked = false;  // path stops at a locked door
-        V3 door;
-        std::vector<V3> levers;  // heuristic: unpulled levers in that door's room; the route runs through them
-    };
 
     inline Path ToMapPath(const Path& w, float upp) {
         Path px;

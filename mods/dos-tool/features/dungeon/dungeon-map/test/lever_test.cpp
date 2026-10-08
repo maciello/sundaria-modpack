@@ -1,5 +1,5 @@
-#include "../lever.hpp"
-#include "../route.hpp"
+#include "../../shared/lever.hpp"
+#include "../../shared/route.hpp"
 #include "../scene.hpp"
 #include <cassert>
 #include <cstdio>
