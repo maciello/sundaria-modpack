@@ -13,6 +13,8 @@
 | mouse cursor over the game | ImGui MouseDrawCursor left on | `MouseDrawCursor = menu open` |
 | camera override never fires in the hub (0 hits) | view target is a placed CameraActor: the engine reads its transform and skips BlueprintUpdateCamera | move the view-target actor on the game thread (core `SetFreeCam`) |
 | crash on 2 game threads at once (`Archon+134d0ef`, read of 0xffff…) after enabling hub collision | `CollisionTraceFlag = UseComplexAsSimple` on meshes with no simple shapes: the cooked game has no triangle collision, the bodies end up shapeless and PhysX threads fault | never flip trace flags; give shapeless meshes invisible box colliders instead (core `MakeRoom`) |
+| an asset path built from `GetName()`/`GetFullName()` never loads | Dumper-7's FName::ToString keeps only the part after the last `/` (packages lose their folders) | package path = outermost outer's `Name.GetRawString()` |
+| crash calling an `IAssetRegistry` wrapper (`Func->FunctionFlags` on null) | the registry object is the impl class; the generated interface wrapper looks the UFunction up on it and finds nothing | don't use the registry from the SDK; find loaded assets with a file-triggered probe, load known paths with LoadAsset_Blocking |
 | reads fault in menus/lobby | camera manager isn't BP_PlayerCamera_C there | `IsA` before casting; `PtrOk` every pointer |
 | no log anywhere | upstream logger hardcoded a dev's home path | log next to the module (`GetModuleHandleEx FROM_ADDRESS`) |
 | commit exposes personal email in the public repo | default git author | author = GitHub noreply of the hosting account |

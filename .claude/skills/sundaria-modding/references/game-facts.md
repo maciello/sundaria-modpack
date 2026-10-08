@@ -29,7 +29,8 @@ hub (village, world "Hub"; verified in game 2026-10-08):
   view_switching: BP_PlayerController_Hub_C::Set_View / ViewStack; buildings are trigger-volume buttons (BP_GameState_Hub_C::TriggerVolumeButtons)
   camera_override: camera-actor view targets skip BlueprintUpdateCamera → move the view-target actor itself (K2_SetActorLocationAndRotation, game thread), restore on exit
   map: fully modelled 3D town, walkable-looking from every side; only the class hall is unfinished (free-camera survey)
-  collision: houses are `*_HUB` meshes with NO collision shapes (simple=0) and no non-_HUB twin in the pak; props (stairs, tables) have shapes but collision off
+  collision: houses are `*_HUB` meshes with NO collision shapes (simple=0); props (stairs, tables) have shapes but collision off
+  colliding_twins: `/Game/Environments/HumanTown/Meshes/<name without _HUB>` (verified in game 2026-10-08: inn houseLrg_2floors_rooms 276 shapes, houseMedT_1floor_empty 74, houseSm_1floor_2rooms 42); core adds them as hidden proxies over the hub copy. gr_bridgeA has no twin
   hero: BP_Biped_*_Player_C stands at PlayerStart (6787 19430), already possessed by the hub controller, movement mode None
   npcs: 13 NPC_* characters, each with a BP_TriggerVolumeButton_Character_C click zone next to it
   keys_taken: F8 = game's HUD toggle
