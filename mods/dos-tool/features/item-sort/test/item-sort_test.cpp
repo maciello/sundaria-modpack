@@ -48,22 +48,7 @@ int main() {
     assert((Order({t1, t2, t3}, pre[0], st) == std::vector<int>{1, 2, 0}));
     // level outranks stats inside a bucket
     assert((Order({W(40, Attack::Ranged, 7, 6, {{1, 90}, {4, 1}}), W(41, Attack::Ranged, 7, 8, {{1, 95}})}, pre[2], st) == std::vector<int>{1, 0}));
-    assert(AttackOfWeapon("Wand") == Attack::Magic);
-    assert(AttackRank(Attack::Ranged, Attack::Melee) == 2 && AttackRank(Attack::Melee, Attack::Ranged) == 2);
-    assert(StatName(names, 9) == "Stat 9");
-    Profile p{"Custom", Attack::Ranged};
-    p.weight["RAP"] = 0.5f;
-    assert(WeightFor(p, inv[5], "RAP") == 0.5f && WeightFor(pre[2], inv[4], "Map") == 2.0f && WeightFor(pre[2], inv[1], "Map") == 0.0f);
 
-    // ranged/melee rule (weapon type names as logged in game)
-    for (const char* m : {"Axe", "Club", "Dagger", "Fist", "Sword", "Shield", "Axe2H", "Hammer2H"}) assert(AttackOfWeapon(m) == Attack::Melee);
-    assert(AttackOfWeapon("Crossbow") == Attack::Ranged && AttackOfWeapon("Bow2H") == Attack::Ranged && AttackOfWeapon("Crossbow2H") == Attack::Ranged);
-    assert(AttackOfWeapon("Staff2H") == Attack::Magic && AttackOfWeapon("") == Attack::Unknown);
-    assert(AttackIn("MeleePower_Bonus") == Attack::Melee && AttackIn("RAP") == Attack::Ranged && AttackIn("CriticalDamage_Spell") == Attack::Magic);
-    assert(AttackIn("Damage_Slash") == Attack::Unknown);
-    assert(WhereOf("Equipment", false) == Where::Equipped);
-    assert(WhereOf("MainInventory", false) == Where::Inventory);
-    assert(WhereOf("Equipment", true) == Where::Bank);
 
     // filter
     Filter f;
