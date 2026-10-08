@@ -11,6 +11,9 @@ Epic #41. Feature folder `mods/dos-tool/features/ability-mods/`. Players' script
 | game systems on the game thread (core listener): cast tracking, out notify, cooldown timers, command runner | `ability-mods.cpp` | in game only |
 | cooldown effects of one ability (shared with input-feel) | `core/game.hpp` `CooldownEffects` / `RemoveEffect` | in game only |
 
+Errors (file:line), loaded declarations and `ctx:log` go to `dos-mods/abilities/log.txt` (rewritten on change): the
+Insert menu holds only flags/tuning (new-ability toggles, counts), per `.claude/rules/design.md`.
+
 Rule: scripts never touch the game. They declare (rules, hooks, new abilities) and record commands; C++ systems execute.
 New action = `Command::Kind` + ctx method in `script.hpp` (+ test) + a `case` in `Run()`.
 

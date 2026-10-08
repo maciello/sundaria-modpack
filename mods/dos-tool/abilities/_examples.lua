@@ -1,6 +1,6 @@
 -- Ability mods: examples. Files starting with "_" are NOT loaded: copy this file to e.g. my.lua
 -- (next to it, in <game>/Archon/Binaries/Win64/dos-mods/abilities/) and edit. Saving reloads it in ~1 s.
--- Errors show in the Insert menu under "Ability mods" with file:line.
+-- Errors (file:line), what loaded and ctx:log output go to log.txt in this folder.
 --
 -- Names: the short ability name ("FireBall" for BP_GameAbility_FireBall_C), the full class name, or a
 -- pattern with * ("Bash*" also matches the scroll versions, "*" matches every ability).
@@ -12,7 +12,7 @@ ability.tweak("*", {anim_rate = 1.1})              -- every ability a bit faster
 
 -- 2. Events: "activate" (cast starts), "out" (its effect/projectile frame), "end" (animation over).
 ability.on("FireBall", "out", function(ctx)
-  ctx:log(ctx.ability, "is out")                    -- shows in the menu log
+  ctx:log(ctx.ability, "is out")                    -- goes to log.txt
 end)
 
 -- Actions inside a handler:
@@ -20,7 +20,7 @@ end)
 --   ctx:apply_effect("BP_GameplayEffect_X_C")   apply a GameplayEffect class to yourself
 --   ctx:play_rate(x)           change the running animation's speed
 --   ctx:cancel()               cancel the ability
---   ctx:log(...)               write to the menu log
+--   ctx:log(...)               write to log.txt
 
 -- 3. New abilities on a donor: takes over the donor's casts (its animation and effect), adds its own
 -- tweaks and handlers. Switch it on/off per ability in the menu.

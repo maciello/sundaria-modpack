@@ -67,7 +67,7 @@ namespace {
     SRWLOCK g_mu = SRWLOCK_INIT;
     struct NewRow { std::string name, donor, file; bool active; };
     struct Snapshot {
-        std::vector<std::string> errors, log, rules;
+        int errors = 0, decls = 0;
         std::vector<NewRow> news;
         std::string lastCast;
     } g_snap;
@@ -141,22 +141,32 @@ namespace {
         g_reloads++;
     }
 
+    // Errors, the script log and what loaded go to dos-mods/abilities/log.txt (the Insert menu holds flags and
+    // tuning only, .claude/rules/design.md); the menu gets counts and the new-ability toggles.
     void Publish() {
         Snapshot s;
-        for (const auto& e : g_host.Errors()) s.errors.push_back(e.msg.find(e.file) == 0 ? e.msg : e.file + ": " + e.msg);
-        const auto& log = g_host.Log();
-        for (size_t i = log.size() > 12 ? log.size() - 12 : 0; i < log.size(); i++) s.log.push_back(log[i]);
-        char buf[160];
-        for (const auto& r : g_host.Rules()) {
-            snprintf(buf, sizeof(buf), "%s: tweak %s", r.file.c_str(), r.pattern.c_str());
-            std::string line = buf;
-            if (r.tweak.hasRate) { snprintf(buf, sizeof(buf), "  anim x%.2f", r.tweak.animRate); line += buf; }
-            if (r.tweak.hasCooldown) { snprintf(buf, sizeof(buf), "  cooldown x%.2f", r.tweak.cooldown); line += buf; }
-            s.rules.push_back(line);
+        s.errors = static_cast<int>(g_host.Errors().size());
+        s.decls = static_cast<int>(g_host.Rules().size() + g_host.Hooks().size());
+        for (const auto& n : g_host.News()) s.news.push_back({n.name, n.donor, n.file, g_host.Active(n.name)});
+        if (FILE* f = fopen((g_dir + "log.txt").c_str(), "wb")) {
+            fprintf(f, "Ability mods (written by DoS-Tool on every change; not a script)\r\n\r\n== Errors\r\n");
+            for (const auto& e : g_host.Errors()) fprintf(f, "%s%s%s\r\n", e.msg.find(e.file) == 0 ? "" : e.file.c_str(),
+                                                         e.msg.find(e.file) == 0 ? "" : ": ", e.msg.c_str());
+            fprintf(f, "\r\n== Loaded\r\n");
+            for (const auto& r : g_host.Rules()) {
+                fprintf(f, "%s: tweak %s", r.file.c_str(), r.pattern.c_str());
+                if (r.tweak.hasRate) fprintf(f, "  anim_rate %.2f", r.tweak.animRate);
+                if (r.tweak.hasCooldown) fprintf(f, "  cooldown %.2f", r.tweak.cooldown);
+                fprintf(f, "\r\n");
+            }
+            for (const auto& hk : g_host.Hooks())
+                fprintf(f, "%s: on %s %s\r\n", hk.file.c_str(), hk.pattern.c_str(), ability_script::kEventNames[int(hk.ev)]);
+            for (const auto& n : g_host.News())
+                fprintf(f, "%s: new '%s' on %s%s\r\n", n.file.c_str(), n.name.c_str(), n.donor.c_str(), g_host.Active(n.name) ? "" : " (off)");
+            fprintf(f, "\r\n== Log\r\n");
+            for (const auto& l : g_host.Log()) fprintf(f, "%s\r\n", l.c_str());
+            fclose(f);
         }
-        for (const auto& hk : g_host.Hooks())
-            s.rules.push_back(hk.file + ": on " + hk.pattern + " " + ability_script::kEventNames[int(hk.ev)]);
-        for (const auto& n : g_host.News()) s.news.push_back({n.label, n.donor, n.file, g_host.Active(n.name)});
         AcquireSRWLockExclusive(&g_mu);
         s.lastCast = std::move(g_snap.lastCast);
         g_snap = std::move(s);
@@ -374,7 +384,6 @@ namespace {
             ReleaseSRWLockShared(&g_mu);
             if (!s.lastCast.empty()) ImGui::Text("last cast: %s  anim rate %.2f", s.lastCast.c_str(), g_liveRate.load());
 
-            if (!s.news.empty()) ImGui::SeparatorText("New abilities");
             for (const NewRow& n : s.news) {
                 bool active = n.active;
                 ImGui::PushID(n.name.c_str());
@@ -392,19 +401,8 @@ namespace {
                 ImGui::TextDisabled("(%s)", n.file.c_str());
                 ImGui::PopID();
             }
-            if (!s.rules.empty() && ImGui::TreeNode("Loaded", "Loaded (%d)", (int)s.rules.size())) {
-                for (const auto& r : s.rules) ImGui::TextUnformatted(r.c_str());
-                ImGui::TreePop();
-            }
-            if (!s.errors.empty()) {
-                ImGui::SeparatorText("Errors");
-                for (const auto& e : s.errors) ImGui::TextWrapped("%s", e.c_str());
-            }
-            if (!s.log.empty()) {
-                ImGui::SeparatorText("Log");
-                for (const auto& l : s.log) ImGui::TextDisabled("%s", l.c_str());
-            }
-            ImGui::TextDisabled("Examples: dos-mods/abilities/_examples.lua (files starting with _ are not loaded).");
+            if (s.errors) ImGui::TextWrapped("%d script error(s): see dos-mods/abilities/log.txt", s.errors);
+            ImGui::TextDisabled("%d declarations loaded. Examples: _examples.lua (files starting with _ are not loaded).", s.decls + (int)s.news.size());
         }
     } g_ability_mods;
 }
