@@ -173,28 +173,38 @@ std::vector<combat::Sample> SampleNow() {
 SRWLOCK g_samplesMu = SRWLOCK_INIT;
 std::vector<combat::Sample> g_samples;  // latest world tick's copy; plain data, safe on any thread
 std::atomic<bool> g_sampling{false};
+std::atomic<bool> g_moving{false};  // movement/ground settings on, or a restore pending
+std::atomic<bool> g_coreTick{false};
+
+void MoveTick();
 
 // Core's game-thread work: one listener slot for everything core reads or writes in the world.
 void CoreTick(void*, void* fn, void*) {
     if (!umg::IsWorldTick(fn) || !game::OnGameThread()) return;
-    std::vector<combat::Sample> s = SampleNow();
-    AcquireSRWLockExclusive(&g_samplesMu);
-    g_samples.swap(s);
-    ReleaseSRWLockExclusive(&g_samplesMu);
+    if (g_sampling.load()) {
+        std::vector<combat::Sample> s = SampleNow();
+        AcquireSRWLockExclusive(&g_samplesMu);
+        g_samples.swap(s);
+        ReleaseSRWLockExclusive(&g_samplesMu);
+    }
+    if (g_moving.load()) MoveTick();
+}
+
+// CoreTick is registered only while a core user needs it: with every feature off, no listener and no world reads.
+void UpdateCoreTick() {
+    const bool want = g_sampling.load() || g_moving.load();
+    if (want != g_coreTick.exchange(want)) game::SetEventListener(&CoreTick, want);
 }
 }
 
 // Render thread: a copy of what the game thread sampled on its last world tick (one frame behind).
 std::vector<combat::Sample> game::SampleHealth(bool want) {
-    if (want != g_sampling.load()) {  // nothing enabled needs it: no listener, no actor walk
-        g_sampling = want;
-        game::SetEventListener(&CoreTick, want);
-        if (!want) {
-            AcquireSRWLockExclusive(&g_samplesMu);
-            g_samples.clear();
-            ReleaseSRWLockExclusive(&g_samplesMu);
-        }
+    if (want != g_sampling.exchange(want) && !want) {  // nothing enabled needs it: no actor walk
+        AcquireSRWLockExclusive(&g_samplesMu);
+        g_samples.clear();
+        ReleaseSRWLockExclusive(&g_samplesMu);
     }
+    UpdateCoreTick();  // every frame (RunFeatures): also drops the listener once the last core user is done
     if (!want) return {};
     AcquireSRWLockShared(&g_samplesMu);
     std::vector<combat::Sample> out = g_samples;
@@ -236,7 +246,10 @@ namespace {
     }
 }
 
-void game::ApplyMovement(const Movement* m) {
+namespace {
+// Game thread only (CoreTick): walks the levels' actors and writes their movement components.
+void MoveNow(const game::Movement* m) {
+    using Movement = game::Movement;
     APlayerController* pc = LocalPC();
     APawn* local = PtrOk(pc) ? pc->Pawn : nullptr;
     // Restore only components found in the live world: stale map keys may be freed.
@@ -263,9 +276,8 @@ void game::ApplyMovement(const Movement* m) {
     if (!m) g_origMove.clear();
 }
 
-bool game::OriginalMovement(Movement& out) { out = g_localMove; return g_haveLocalMove; }
-
-void game::ApplyGround(GroundFn f, const void* ctx) {
+void GroundNow(game::GroundFn f, const void* ctx) {
+    using Ground = game::Ground;
     APlayerController* pc = LocalPC();
     APawn* local = PtrOk(pc) ? pc->Pawn : nullptr;
     auto write = [](UCharacterMovementComponent* cm, const Ground& v) {
@@ -291,7 +303,73 @@ void game::ApplyGround(GroundFn f, const void* ctx) {
     if (!f) g_origGround.clear();
 }
 
-bool game::OriginalGround(Ground& out) { out = g_localGround; return g_haveLocalGround; }
+// Render thread → game thread: the latest settings, applied on each world tick; nullptr = restore once.
+SRWLOCK g_moveMu = SRWLOCK_INIT;  // guards the requests and g_localMove/g_localGround
+bool g_moveOn = false; game::Movement g_moveWant{};
+game::GroundFn g_groundFn = nullptr; const void* g_groundCtx = nullptr;
+std::atomic<bool> g_moveRestore{false}, g_groundRestore{false};
+
+void MoveTick() {
+    AcquireSRWLockExclusive(&g_moveMu);
+    if (g_moveRestore.exchange(false)) MoveNow(nullptr);
+    if (g_moveOn) MoveNow(&g_moveWant);
+    if (g_groundRestore.exchange(false)) GroundNow(nullptr, nullptr);
+    if (g_groundFn) GroundNow(g_groundFn, g_groundCtx);
+    g_moving = g_moveOn || g_groundFn;  // restores done
+    ReleaseSRWLockExclusive(&g_moveMu);
+}
+
+// Off(): the game thread restores on its next world tick. On unload the hooks are already gone: after 100 ms the
+// restore runs on the calling thread instead (once).
+void Restore(std::atomic<bool>& pending, void (*now)()) {
+    AcquireSRWLockExclusive(&g_moveMu);  // MoveTick reads both under it
+    pending = true;
+    g_moving = true;
+    ReleaseSRWLockExclusive(&g_moveMu);
+    UpdateCoreTick();
+    for (int i = 0; i < 50 && pending.load(); i++) Sleep(2);
+    if (!pending.exchange(false)) return;
+    AcquireSRWLockExclusive(&g_moveMu);
+    now();
+    ReleaseSRWLockExclusive(&g_moveMu);
+    logger::log("[game] movement restored off the game thread (no world tick within 100 ms)");
+}
+}
+
+void game::ApplyMovement(const Movement* m) {
+    AcquireSRWLockExclusive(&g_moveMu);
+    g_moveOn = m != nullptr;
+    if (m) g_moveWant = *m;
+    if (m) g_moving = true;
+    ReleaseSRWLockExclusive(&g_moveMu);
+    if (m) UpdateCoreTick();
+    else Restore(g_moveRestore, [] { MoveNow(nullptr); });
+}
+
+bool game::OriginalMovement(Movement& out) {
+    AcquireSRWLockShared(&g_moveMu);
+    out = g_localMove;
+    const bool have = g_haveLocalMove;
+    ReleaseSRWLockShared(&g_moveMu);
+    return have;
+}
+
+void game::ApplyGround(GroundFn f, const void* ctx) {
+    AcquireSRWLockExclusive(&g_moveMu);
+    g_groundFn = f; g_groundCtx = ctx;
+    if (f) g_moving = true;
+    ReleaseSRWLockExclusive(&g_moveMu);
+    if (f) UpdateCoreTick();
+    else Restore(g_groundRestore, [] { GroundNow(nullptr, nullptr); });
+}
+
+bool game::OriginalGround(Ground& out) {
+    AcquireSRWLockShared(&g_moveMu);
+    out = g_localGround;
+    const bool have = g_haveLocalGround;
+    ReleaseSRWLockShared(&g_moveMu);
+    return have;
+}
 
 float game::LocalSpeed() {
     APlayerController* pc = LocalPC();

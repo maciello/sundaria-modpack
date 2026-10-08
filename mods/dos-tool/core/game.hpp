@@ -40,6 +40,7 @@ namespace game {
 
     // CharacterMovement falling params, written to EVERY player character (movement is
     // server-simulated: the host's values decide in co-op). nullptr = restore each original.
+    // Any thread: the game thread applies the latest values on each world tick (#80).
     struct Movement { float airControl, boostMultiplier, boostThreshold, lateralFriction, brakingFalling; };
     void ApplyMovement(const Movement* m);
     bool OriginalMovement(Movement& out);  // local player's vanilla values, once seen
