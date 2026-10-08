@@ -149,6 +149,10 @@ namespace {
         void Scan(const feature::Frame& f) {
             if (f.now < nextScan) return;
             nextScan = f.now + 1.0;
+            if (f.snap.worldName != world && f.snap.worldName == "Hub" && HasRoom()) {
+                RebuildRoom();  // floor first: placed NPCs stand in the tavern and would fall through it
+                roomWorld = f.snap.worldName;
+            }
             world = f.snap.worldName;
             npcs = game::ListNpcs();
             std::sort(npcs.begin(), npcs.end(), [](const game::Npc& a, const game::Npc& b) { return a.name < b.name; });
@@ -160,8 +164,8 @@ namespace {
                 if (!applyLayout) continue;
                 for (const tavern_hub::Spot& s : layout) {  // first sight or wandered off (AI walking home): put back
                     if (s.name != n.name) continue;
-                    const float dx = n.x - s.x, dy = n.y - s.y;
-                    if (dx * dx + dy * dy > 150.0f * 150.0f) Place(n, s.x, s.y, s.z, s.yaw);
+                    const float dx = n.x - s.x, dy = n.y - s.y, dz = n.z - s.z;  // z too: fell through a floor
+                    if (dx * dx + dy * dy + dz * dz > 150.0f * 150.0f) Place(n, s.x, s.y, s.z + 10.0f, s.yaw);
                 }
             }
             if (newHome) WriteText(GamePath("dos-tool-tavern-home.ini"), tavern_hub::WriteLayout(home));
