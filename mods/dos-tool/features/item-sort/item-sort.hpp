@@ -8,39 +8,6 @@
 
 namespace item_sort {
     using namespace items;
-    // Indexes of items in player order: bucket, then level desc, grade desc, then score desc; spec id, slot asc.
-    // score[i] = Σ weight × value / (max of that stat in the item's bucket): flat stats (RAP 83) and percentages (0.03) count alike.
-    // ponytail: a stat only one item in the bucket has counts in full for it; rank-based scoring if that misorders.
-    inline std::vector<int> Order(const std::vector<Item>& items, const Profile& p, const std::vector<std::string>& statNames,
-                                  std::vector<float>* scoreOut = nullptr) {
-        std::vector<Bucket> bucket;
-        std::map<std::pair<Bucket, int>, float> maxOf;
-        for (const Item& it : items) {
-            bucket.push_back(BucketOf(it, p.focus));
-            for (const Stat& st : it.stats) {
-                float& m = maxOf[{bucket.back(), st.type}];
-                m = std::max(m, std::abs(st.value));
-            }
-        }
-        std::vector<float> score(items.size());
-        for (size_t i = 0; i < items.size(); i++)
-            for (const Stat& st : items[i].stats)
-                if (const float m = maxOf[{bucket[i], st.type}]; m > 0)
-                    score[i] += WeightFor(p, items[i], StatName(statNames, st.type)) * st.value / m;
-        std::vector<int> idx(items.size());
-        for (int i = 0; i < int(idx.size()); i++) idx[i] = i;
-        std::stable_sort(idx.begin(), idx.end(), [&](int x, int y) {
-            const Item &a = items[x], &b = items[y];
-            if (bucket[x] != bucket[y]) return bucket[x] < bucket[y];
-            if (a.level != b.level) return a.level > b.level;
-            if (a.grade != b.grade) return a.grade > b.grade;
-            if (score[x] != score[y]) return score[x] > score[y];
-            if (a.specId != b.specId) return a.specId < b.specId;
-            return a.slot < b.slot;
-        });
-        if (scoreOut) *scoreOut = std::move(score);
-        return idx;
-    }
     struct Filter {
         bool where[4] = {true, true, true, true};
         int kind = -1;     // -1 all, else Kind

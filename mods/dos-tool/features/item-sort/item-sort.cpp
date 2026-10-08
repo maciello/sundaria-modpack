@@ -45,13 +45,11 @@ namespace {
     struct RawArray { void* data; int32 num, max; };  // TArray layout
     std::string I(long long v) { return std::to_string(v); }
 
-    SRWLOCK g_mu = SRWLOCK_INIT;  // not std::mutex (gotchas). Guards g_status, g_profiles.
+    SRWLOCK g_mu = SRWLOCK_INIT;  // not std::mutex (gotchas). Guards g_status.
 
     // ---- game thread ----
     thread_local bool t_busy = false;  // our own UFunction calls re-enter ProcessEvent
     std::string g_status;
-    std::atomic<int> g_active{0};
-    std::vector<Profile> g_profiles = Presets();  // weights from dos-tool.ini; guarded by g_mu
     std::atomic<unsigned> g_request{0};           // 1 inventory, 2 bank (API, dev files)
     std::atomic<bool> g_probe{false}, g_on{false}, g_verbose{false};  // verbose: per-item sort dump, set by item-sort.probe
     std::unordered_map<UFunction*, std::string> g_triggers;  // read-only once g_on
@@ -137,9 +135,7 @@ namespace {
         UBP_ItemContainerComponent_C* c = bank ? w.bank : w.bag;
         UFunction* fn = Fn(w.inv, "BP_InvManagerComponent_C", "ReorderItems");
         if (!c || !fn) return SetStatus(std::string(what) + ": container not found (" + w.how + ")");
-        AcquireSRWLockShared(&g_mu);
-        const Profile prof = g_profiles[std::clamp(g_active.load(), 0, int(g_profiles.size()) - 1)];
-        ReleaseSRWLockShared(&g_mu);
+        const Profile prof = items::profiles::Active();
 
         std::vector<Item> items = Bag(io::Read(c, bank, true));
         const double readMs = Ms(t);
@@ -245,26 +241,24 @@ namespace {
         // profile=<i> | w.<profile>.<stat>=<weight> | a.<profile>.<attack>=<weight>
         void Load(const char* key, const char* value) override {
             const std::string k = key;
-            AcquireSRWLockExclusive(&g_mu);
-            if (k == "profile") g_active = std::clamp(std::atoi(value), 0, int(g_profiles.size()) - 1);
+            if (k == "profile") items::profiles::SetActive(std::atoi(value));
+            std::vector<Profile> all = items::profiles::All();
             const size_t dot = k.find('.', 2);
             if (k.size() >= 3 && k[1] == '.' && dot != std::string::npos)
-                for (Profile& p : g_profiles) {
+                for (Profile& p : all) {
                     if (p.name != k.substr(2, dot - 2)) continue;
                     const float v = std::clamp(float(std::atof(value)), 0.0f, 2.0f);
                     if (k[0] == 'w') p.weight[k.substr(dot + 1)] = v;
                     if (k[0] == 'a') p.attack[std::atoi(k.c_str() + dot + 1)] = v;
                 }
-            ReleaseSRWLockExclusive(&g_mu);
+            items::profiles::SetAll(std::move(all));
         }
         void Save(std::vector<std::pair<std::string, std::string>>& out) override {
-            AcquireSRWLockShared(&g_mu);
-            out.push_back({"profile", I(g_active.load())});
-            for (const Profile& p : g_profiles) {
+            out.push_back({"profile", I(items::profiles::ActiveIndex())});
+            for (const Profile& p : items::profiles::All()) {
                 for (auto& [s, w] : p.weight) out.push_back({"w." + p.name + "." + s, std::to_string(w)});
                 for (auto& [a, w] : p.attack) out.push_back({"a." + p.name + "." + I(a), std::to_string(w)});
             }
-            ReleaseSRWLockShared(&g_mu);
         }
 
         bool TakeFile(const char* name) {
@@ -277,7 +271,7 @@ namespace {
 
         // Render thread: memory reads only; UFunction work happens in OnEvent (game thread).
         void OnFrame(const feature::Frame& f) override {
-            if (savedActive != g_active.load()) { if (savedActive >= 0) ImGui::MarkIniSettingsDirty(); savedActive = g_active.load(); }
+            if (const int a = items::profiles::ActiveIndex(); savedActive != a) { if (savedActive >= 0) ImGui::MarkIniSettingsDirty(); savedActive = a; }
             if (f.now < nextScan) return;
             nextScan = f.now + 1.0;
             if (exeDir.empty()) {
@@ -303,13 +297,11 @@ namespace {
 namespace item_sort::api {
     std::vector<std::string> ProfileNames() {
         std::vector<std::string> out;
-        AcquireSRWLockShared(&g_mu);
-        for (const Profile& p : g_profiles) out.push_back(p.name);
-        ReleaseSRWLockShared(&g_mu);
+        for (const Profile& p : items::profiles::All()) out.push_back(p.name);
         return out;
     }
-    int ActiveProfile() { return g_active.load(); }
-    void SetActiveProfile(int i) { g_active = std::clamp(i, 0, int(Presets().size()) - 1); }
+    int ActiveProfile() { return items::profiles::ActiveIndex(); }
+    void SetActiveProfile(int i) { items::profiles::SetActive(i); }
     void RequestSort(bool bank) { g_request |= bank ? 2u : 1u; }
     std::string LastStatus() {
         AcquireSRWLockShared(&g_mu);
