@@ -71,6 +71,7 @@ protect:
     done
 
 test:
+    sh scripts/version.sh check
     {{python}} updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
     mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); {{cxx}} -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp){{exe}} && build/$(basename $t .cpp){{exe}} || exit 1; done
 
@@ -86,15 +87,22 @@ dist: build
     mkdir -p dist/Archon/Binaries/Win64/dos-mods/abilities && cp mods/dos-tool/abilities/_*.lua dist/Archon/Binaries/Win64/dos-mods/abilities/
     rm -f build/modpack.zip && cd dist && {{python}} -m zipfile -c ../build/modpack.zip Archon
 
-# ship to friends: only from a clean tree that IS origin/master, tag = the built commit
-release tag:
+# next SemVer tag + release notes from git (rule: .claude/rules/versioning.md); nothing is created
+next-version:
+    @sh scripts/version.sh next
+    @sh scripts/version.sh notes
+
+# ship to friends: version computed by scripts/version.sh; only from a clean tree that IS origin/master, tag = the built commit
+release:
     #!/usr/bin/env bash
     set -euo pipefail
-    git fetch -q origin master
+    git fetch -q origin master --tags
     [ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "dirty tree: commit or move changes first"; exit 1; }
     [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)" ] || { echo "HEAD != origin/master: just ship (or checkout origin/master) first"; exit 1; }
+    tag=$(sh scripts/version.sh next); mkdir -p build; sh scripts/version.sh notes > build/notes.md
+    echo "releasing $tag"; cat build/notes.md
     just test dist
-    gh release create {{tag}} build/modpack.zip -R {{repo}} --title {{tag}} --generate-notes --target "$(git rev-parse HEAD)"
+    gh release create "$tag" build/modpack.zip -R {{repo}} --title "$tag" --notes-file build/notes.md --target "$(git rev-parse HEAD)"
 
 # once, game closed: hot-reload loader + dev flag
 dev-install: build

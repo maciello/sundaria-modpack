@@ -32,7 +32,7 @@ Parallel work: one `git worktree` per task (`../wt-<task>`); set work aside with
 (the stash is shared by every worktree and session).
 
 ## Ship to friends
-`just release vX.Y.Z` (test → dist zip rooted at the game dir → GitHub release); friends' updater installs it on
+`just release` (version computed from commits, rule `.claude/rules/versioning.md`; `just next-version` = dry run; test → dist zip rooted at the game dir → GitHub release); friends' updater installs it on
 next launch. Ask the user first: it reaches other people's machines.
 
 ## Game patched
