@@ -100,16 +100,6 @@ dev-install: build
     install -m 644 mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"
     touch "{{win64}}/dos-tool.dev"
 
-# game running (dev install): dump every loaded ability (+ the montage playing now) and print the YAML path
-abilities:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    req="{{win64}}/dos-tool-abilities.request"; out="{{win64}}/dos-tool-abilities.yaml"
-    touch "$req"
-    for _ in $(seq 50); do [ -e "$req" ] || break; sleep 0.2; done
-    [ ! -e "$req" ] || { rm -f "$req"; echo "no answer: game not running, or Ability dump off/not loaded (just dev)"; exit 1; }
-    sleep 0.5; echo "$out"
-
 # game running: rebuild; the loader swaps DoS-Tool.dll in within ~1 s
 dev: build
     install -m 644 mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"
