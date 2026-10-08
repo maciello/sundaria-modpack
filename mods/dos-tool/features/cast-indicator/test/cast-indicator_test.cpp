@@ -16,6 +16,16 @@ int main() {
     for (int t : rapid) n += IsHit(t);
     assert(n == 8);
 
+    // AimedShot-like: 4 sections, one shot each, no chaining → a cast of section 2 lands 1 hit
+    const std::vector<Section> aimed = {{11, 0, 0.0f}, {12, 0, 1.0f}, {13, 0, 2.0f}, {14, 0, 3.0f}};
+    const std::vector<Notify> shots = {{0.4f, true}, {1.4f, true}, {2.4f, true}, {3.4f, true}, {3.9f, false}};
+    assert(HitsFrom(aimed, shots, 4.0f, 1) == 1);
+    assert(HitsFrom(aimed, shots, 4.0f, -1) == 4);  // section unknown: whole montage
+    // chain 0 → 1 → 2 → back to 1: sections 0..2 once
+    const std::vector<Section> chain = {{11, 12, 0.0f}, {12, 13, 1.0f}, {13, 12, 2.0f}, {14, 0, 3.0f}};
+    assert(HitsFrom(chain, shots, 4.0f, 0) == 3);
+    assert(Near(LinkTime(0, 1, 2, 0.5f), 0.5f) && Near(LinkTime(1, 1, 2, 0.5f), 1.5f) && Near(LinkTime(2, 1, 2, 0.5f), 2.0f));
+
     // game thread: 8 hits, 5 land, montage ends, late arrow lands inside the window, then done once
     Tracker tr;
     tr.Begin(1, 8);

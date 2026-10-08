@@ -10,7 +10,9 @@
 #include <Windows.h>
 #include <atomic>
 #include <cstdint>
+#include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 #include "Engine_classes.hpp"
@@ -20,7 +22,8 @@
 
 // Cast indicator (#3): while the local hero plays an ability montage with 2+ hit notifies, a row of pips under
 // the character, one per hit the montage should land, filling per landed hit.
-//   N      = ApplyEffect/ShootProjectile notifies (UBP_GameplayAnimNotify_C) in ASC.LocalAnimMontageInfo.AnimMontage
+//   N      = ApplyEffect/ShootProjectile notifies (UBP_GameplayAnimNotify_C) in ASC.LocalAnimMontageInfo.AnimMontage,
+//            only in the section the cast plays and the sections it chains into (#81)
 //   landed = new hit records (LastTakeHitInfo, core's game-thread sampling) on non-players instigated by the hero (#81:
 //            a listener on OnProjectileHit counted 0 in game; likely called inside the BP VM, which skips ProcessEvent)
 // Game thread (ProcessEvent listener) publishes the montage; the render thread counts records in its plain sample copy.
@@ -56,17 +59,32 @@ namespace {
         return static_cast<AArchonCharacter*>(pc->Pawn);
     }
 
-    // O(notifies in the montage), once per montage start.
-    int CountHits(const UAnimMontage* m) {
+    std::uint64_t Id(const FName& n) { std::uint64_t v = 0; std::memcpy(&v, &n, std::min(sizeof v, sizeof n)); return v; }
+
+    // Hits this cast should land: hit notifies of the section the montage starts in and the sections it chains into
+    // (AimedShot cycles one section per cast). O(notifies + sections²) once per montage start. Game thread: calls
+    // UAnimInstance::Montage_GetCurrentSection.
+    int CountHits(AArchonCharacter* hero, UAnimMontage* m) {
         UClass* cls = g_notifyCls.Get();
         if (!cls) return 0;
-        int n = 0;
-        const auto& ns = m->Notifies;
-        for (int i = 0; i < ns.Num(); i++) {
-            UAnimNotify* a = ns[i].Notify;
-            if (PtrOk(a) && a->IsA(cls) && IsHit(int(static_cast<UBP_GameplayAnimNotify_C*>(a)->mGameplayAnimNotifyType))) n++;
+        std::vector<Notify> ns;
+        for (int i = 0; i < m->Notifies.Num(); i++) {
+            const FAnimNotifyEvent& e = m->Notifies[i];
+            UAnimNotify* a = e.Notify;
+            const bool hit = PtrOk(a) && a->IsA(cls) && IsHit(int(static_cast<UBP_GameplayAnimNotify_C*>(a)->mGameplayAnimNotifyType));
+            ns.push_back({LinkTime(int(e.LinkMethod), e.SegmentBeginTime, e.SegmentLength, e.LinkValue) + e.TriggerTimeOffset, hit});
         }
-        return n;
+        std::vector<Section> secs;
+        for (int i = 0; i < m->CompositeSections.Num(); i++) {
+            const FCompositeSection& c = m->CompositeSections[i];
+            secs.push_back({Id(c.SectionName), Id(c.NextSectionName), LinkTime(int(c.LinkMethod), c.SegmentBeginTime, c.SegmentLength, c.LinkValue)});
+        }
+        int start = -1;
+        if (PtrOk(hero->Mesh) && PtrOk(hero->Mesh->AnimScriptInstance)) {
+            const std::uint64_t cur = Id(hero->Mesh->AnimScriptInstance->Montage_GetCurrentSection(m));
+            for (int i = 0; cur && i < int(secs.size()); i++) if (secs[i].name == cur) start = i;
+        }
+        return HitsFrom(secs, ns, m->SequenceLength, start);
     }
 
     // The hero's montage info changed: the old cast's montage ended, maybe a new one starts.
@@ -84,7 +102,7 @@ namespace {
         g_lastMontage = ref::Ref(m);
         g_lastBit = li.PlayBit;
 
-        const int hits = m ? CountHits(m) : 0;
+        const int hits = m ? CountHits(hero, m) : 0;
         if (hits >= kMinHits) {
             g_mon = {g_mon.cast + 1, hits, false, reinterpret_cast<std::uintptr_t>(hero), ab->Class->GetName(), m->GetName()};
             g_casts++;
