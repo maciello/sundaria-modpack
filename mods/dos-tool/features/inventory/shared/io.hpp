@@ -27,5 +27,6 @@ namespace items::io {
     Bank ReadBank(bool stats);
     std::string ContainersReport();
     bool CanSalvage(int specId);           // the spec's own I_CanSalvage, cached per spec id
+    int IconId(int specId);                // the spec's own I_GetIconID (index into the game's icon atlases), cached; -1 = none
     std::uint64_t Signature(void* container);  // hash of the container's raw item records: changes when items change  // every live item container (class, owner, item count): debug
 }

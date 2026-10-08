@@ -62,4 +62,19 @@ namespace items::io {
             }
         return cache[specId] = can;
     }
+    int IconId(int specId) {
+        static std::unordered_map<int, int> cache;
+        if (auto it = cache.find(specId); it != cache.end()) return it->second;
+        bool rebuilt = false;
+        UArchonSpec* sp = Spec(specId, rebuilt);
+        int id = -1;
+        if (sp && sp->IsA(UBP_SpecItemBase_C::StaticClass()))
+            if (UFunction* fn = sp->Class->GetFunction("BP_SpecItemBase_C", "I_GetIconID")) {
+                Params::BP_SpecItemBase_C_I_GetIconID p{};
+                sp->ProcessEvent(fn, &p);
+                id = p.ID;
+            }
+        if (sp) cache[specId] = id;  // a missing spec may load later
+        return id;
+    }
 }
