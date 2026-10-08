@@ -77,6 +77,10 @@ dungeon (#40 survey 2026-10-08; SDK unless marked "in game"; probe: features/dun
            CurrentActiveFloor, PlayerFloors[] {PlayerState, Floor}, MapDataBound[] {Origin, Extend, Rotation, DungeonSliceClass, DungeonChunk}}
   floor: ABP_DungeonFloor_C {ChunkActors, Entry, FloorNumber, bHasBeenActivated, BP_MinimapObject (the floor's static minimap piece)}
     route_ends: I_GetStairsCrumbs(StairsUp, StairsDown), I_GetEntryChunkActor; IsPointInsideLevel(point)
+    activation: (in game, Crypt) FloorActivation box around the floor's entry room; its BeginOverlap (BndEvt__FloorActivation_…_306)
+      fires at the top of the floor above's stairs: the stairs slice (`*Stairs_Down_Five_Levels*`, floor above) lies inside the next
+      floor's activation box, so "pawn inside a room" names the floor above all the way down. I_SetFloorActivated: called from BP script
+      (BP_Dungeon), not seen by a ProcessEvent listener (unverified); CurrentActiveFloor = the last activated floor
   room: Abp_breadslice_C (slice) {DiscoveryBounds box, NeedsToBeDiscovered, Discovered @0x36C, DungeonSliceMapData}; BecomeDiscovered on overlap
     slice_map_data: FSDungeonSliceMapData {DungeonMapTexture (soft), OffsetAdjustment, ScaleAdjustment, BoundOrigin, BoundExtend}
   links: Abp_breadcrumb_C (crumb) = attach point {CrumbType, SpawnedActor, AttachedToCrumbType}; slice.SetCrumbsAttached(floor, a, b) joins two slices

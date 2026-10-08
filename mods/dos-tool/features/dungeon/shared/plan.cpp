@@ -151,7 +151,7 @@ namespace dungeon_map {
         g_findPath.Get(), g_project.Get(), g_isPartial.Get();
     }
 
-    bool Begin(V3 pawn, Planning& out) {
+    bool Begin(V3 pawn, int entered, Planning& out) {
         out = {};
         Plan& p = out.plan;
         UWorld* w = UWorld::GetWorld();
@@ -161,19 +161,22 @@ namespace dungeon_map {
         if (!PtrOk(da) || !da->IsA(ABP_Dungeon_C::StaticName())) return p.why = "no dungeon actor", false;
         auto* d = static_cast<ABP_Dungeon_C*>(da);
 
-        // The pawn's floor: the one with a room around it, else the dungeon's active floor (corridor, stairs).
+        // The floor the player walked onto, else the one with a room around the pawn, else the dungeon's active floor.
+        auto numbered = [d](int n) -> ABP_DungeonFloor_C* {
+            for (int i = 0; i < d->FloorActors.Num(); i++)
+                if (AActor* fa = d->FloorActors[i]; PtrOk(fa) && fa->IsA(ABP_DungeonFloor_C::StaticName()) && static_cast<ABP_DungeonFloor_C*>(fa)->FloorNumber == n)
+                    return static_cast<ABP_DungeonFloor_C*>(fa);
+            return nullptr;
+        };
         Floor floor;
+        if (ABP_DungeonFloor_C* f = entered >= 0 ? numbered(entered) : nullptr) floor = Read(f);
         for (int i = 0; i < d->FloorActors.Num() && !floor.actor; i++) {
             AActor* fa = d->FloorActors[i];
             if (!PtrOk(fa) || !fa->IsA(ABP_DungeonFloor_C::StaticName())) continue;
             Floor f = Read(static_cast<ABP_DungeonFloor_C*>(fa));
             if (RoomOf(f.rooms, pawn) >= 0) floor = std::move(f);
         }
-        for (int i = 0; i < d->FloorActors.Num() && !floor.actor; i++) {
-            AActor* fa = d->FloorActors[i];
-            if (PtrOk(fa) && fa->IsA(ABP_DungeonFloor_C::StaticName()) && static_cast<ABP_DungeonFloor_C*>(fa)->FloorNumber == d->CurrentActiveFloor)
-                floor = Read(static_cast<ABP_DungeonFloor_C*>(fa));
-        }
+        if (ABP_DungeonFloor_C* f = floor.actor ? nullptr : numbered(d->CurrentActiveFloor)) floor = Read(f);
         if (!floor.actor) return p.why = F("no floor for the pawn (active floor %d)", d->CurrentActiveFloor), false;
         p.floor = floor.actor->FloorNumber;
         AActor* goal = Goal(floor, out.exitVolume);

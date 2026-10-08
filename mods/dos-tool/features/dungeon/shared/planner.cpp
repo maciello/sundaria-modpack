@@ -41,6 +41,7 @@ namespace {
     // Game thread state.
     ref::Ref g_gameState;
     bool g_inDungeon = false, g_havePawn = false;
+    int g_entered = -1;  // FloorNumber of the floor the local player last walked onto (its activation overlap)
     double g_replanAt = INFINITY;
     dungeon_map::Plan g_plan;
     int g_version = 0;
@@ -77,6 +78,7 @@ namespace {
         g_gameState = ref::Ref(gs);
         g_inDungeon = PtrOk(gs) && PtrOk(gs->Class) && gs->Class->GetName().find("Dungeon") != std::string::npos;
         g_plan = {};
+        g_entered = -1;
         g_version++;
         g_planning = false;
         g_replanAt = g_inDungeon ? Now() : INFINITY;
@@ -106,7 +108,7 @@ namespace {
         if (Now() >= g_replanAt) {
             g_replanAt = INFINITY;
             QueryPerformanceCounter(&t0);
-            g_planning = dungeon_map::Begin(g_pawn, g_next);
+            g_planning = dungeon_map::Begin(g_pawn, g_entered, g_next);
             QueryPerformanceCounter(&t1);
             const double ms = Ms(t0, t1);
             if (beginCost.Record(ms)) logger::log(beginCost.Line(ms));
@@ -145,7 +147,10 @@ namespace {
             else if (g_ev.floorEnter.Is(fn)) {
                 APlayerController* pc = umg::LocalPC();
                 auto* p = static_cast<Params::BP_DungeonFloor_C_BndEvt__FloorActivation_K2Node_ComponentBoundEvent_306_ComponentBeginOverlapSignature__DelegateSignature*>(parms);
-                if (pc && p && p->OtherActor == pc->Pawn) ReplanIn(0);  // the local player walked onto a floor
+                if (pc && p && PtrOk(obj) && p->OtherActor == pc->Pawn) {  // the local player walked onto a floor
+                    g_entered = static_cast<ABP_DungeonFloor_C*>(obj)->FloorNumber;
+                    ReplanIn(0);
+                }
             }
             if (const std::string line = dungeon_map::probe::Event(obj, fn); !line.empty()) logger::log(line);
         }

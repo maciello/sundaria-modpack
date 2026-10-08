@@ -90,9 +90,11 @@ namespace dungeon_map {
     // Game thread, before the first plan (outside a dungeon): the one-time lookups a plan makes (class FNames, navmesh
     // UFunctions), so no plan tick pays them.
     void Warm();
-    // Game thread, dungeon only. Reads the dungeon, no navmesh query: pawn decides the floor; the route starts at its
-    // entry. O(rooms + triggers of the dungeon). false = no plan possible (out.plan.why says why).
-    bool Begin(V3 pawn, Planning& out);
+    // Game thread, dungeon only. Reads the dungeon, no navmesh query; the route starts at the floor's entry. floor = the
+    // floor the local player last walked onto (its activation overlap), -1 = none yet: the pawn's room decides. A stairs
+    // room belongs to the floor above but lies inside the next floor's activation box, so a room never overrides the
+    // overlap. O(rooms + triggers of the dungeon). false = no plan possible (out.plan.why says why).
+    bool Begin(V3 pawn, int floor, Planning& out);
     // Game thread: one navmesh query (route leg, then lever detour legs). true = done, out.plan complete.
     bool Step(Planning& p);
     // Game thread: the connector, navmesh path from → to, joined straight to `to` where the navmesh stops. One query.
