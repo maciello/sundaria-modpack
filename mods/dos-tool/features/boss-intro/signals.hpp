@@ -24,8 +24,7 @@ namespace boss_intro::game_side {
     // co-op client simulates none, so it writes nothing). Asked every frame, done on the game thread in the camera
     // update; returns how many were newly frozen since the last call.
     int Pause(std::uintptr_t fight);
-    // Restores all frozen actors still alive on the game thread, waiting up to 100 ms (unload: the hooks are gone, so
-    // then here); returns how many.
+    // Restores all frozen actors still alive on the game thread (game::Drain: bounded wait, else here); returns how many.
     int Resume();
     // #71: render thread asks for a sphere sweep (cam::kProbe, Camera channel) from `from` to `to`, run on the game thread
     // in each camera update until StopSweep; the fight's bosses, partners and the local pawn are ignored.

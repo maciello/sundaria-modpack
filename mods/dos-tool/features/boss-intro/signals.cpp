@@ -2,6 +2,7 @@
 #include "game.hpp"
 #include "ref.hpp"
 #include "umg.hpp"
+#include "drain.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -39,7 +40,7 @@ namespace {
     std::vector<boss_intro::pause::Held<ref::Ref>> g_held;  // game thread (GameTick), or Resume's unload fallback
     // render thread → game thread (#80): the fight to frame and to freeze, a resume request, and the answers
     std::atomic<std::uintptr_t> g_bossWant{0}, g_pauseFight{0};
-    std::atomic<int> g_resumeReq{0};  // 0 none, 1 asked, 2 the game thread is resuming
+    game::Drain g_resume;  // End/Off -> the game thread restores what was frozen
     std::atomic<int> g_paused{0}, g_resumed{0};
     struct BossRead { std::uintptr_t fight; bool ok; boss_intro::game_side::Boss boss; } g_boss{};  // g_mu
     void GameTick();
@@ -200,11 +201,8 @@ namespace boss_intro::game_side {
 
     int Resume() {
         g_pauseFight = 0;
-        g_resumeReq = 1;
-        for (int i = 0; i < 50 && g_resumeReq.load(); i++) Sleep(2);
-        int asked = 1;
-        if (g_resumeReq.compare_exchange_strong(asked, 0)) return ResumeNow();  // no camera update came (unload): the hooks are gone
-        for (int i = 0; i < 50 && g_resumeReq.load(); i++) Sleep(2);
+        g_resumed = 0;
+        g_resume.Request(true, "boss-intro", [] { g_resumed = ResumeNow(); });
         return g_resumed.exchange(0);
     }
 
@@ -270,9 +268,6 @@ namespace {
             ReleaseSRWLockExclusive(&g_mu);
         }
         if (const std::uintptr_t fight = g_pauseFight.load()) g_paused += PauseNow(fight);
-        if (int asked = 1; g_resumeReq.compare_exchange_strong(asked, 2)) {
-            g_resumed = ResumeNow();
-            g_resumeReq = 0;
-        }
+        g_resume.Serve([] { g_resumed = ResumeNow(); });
     }
 }
