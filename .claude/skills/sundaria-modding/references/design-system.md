@@ -91,7 +91,7 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Anchor (HUD): row centred at (w/2, 0.62h), above the character's feet in the default camera.
 - Pip: diamond, half-diagonal 6·Ui, edge gap `space::k2`·Ui. Empty: `kInk` @.55 + 1 px outline `kTextSoft` @.6. Filled: ability element colour (Physical `kText`) + glow disc radius 1.8× at `kGlowAlpha`.
 - Cast timer (optional): 2·Ui line, `space::k2` below the row, row width, `kTextSoft` @.8 fill left → right.
-- Weight (#81): a hit that deals more than the cast's median hit gets a bigger pip: size × dmg/median, 1–1.4× (`kWeightMax`), learned from earlier casts of the same ability montage; the row stays centred on the unweighted step.
+- Size: every pip the same. A bigger pip needs a deterministic per-hit difference (e.g. an empowered last shot) read from game data; landed damage is not one (crits, same-frame sums, multi-target), so learned weights were removed (#85).
 - N > 10: one segmented bar (w = 120·Ui, h = 6·Ui, `Pill`) with N−1 ink ticks, segments fill like pips.
 - Motion: row fades in `kFadeIn`; each hit: pip scales 0.4 → 1 with `kPipFill` + white flash `kFlash`; all filled: row punch 1.15 → 1 over 0.25 s OutCubic, hold 0.5 s, fade `kFadeOut`. Cast ended with empty pips: those turn `kTextMuted`, row fades. No red, no shake.
 

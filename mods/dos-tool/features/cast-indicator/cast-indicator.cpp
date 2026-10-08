@@ -127,8 +127,6 @@ namespace {
         Pips pips;
         Tracker tr;
         Records rec;
-        Weights weights;
-        std::string key;  // ability + montage + hits: what the weights are learned under
         std::string ability, montage, last;  // the tracked cast's names; last log line (menu)
         int landed = 0;
         double nextTrigger = 0;
@@ -150,13 +148,11 @@ namespace {
                 if (tr.Finish()) Log();  // recast before the last one settled
                 tr.Begin(m.cast, m.hits);
                 ability = m.ability; montage = m.name;
-                key = ability + "|" + montage + "|" + std::to_string(m.hits);
             }
             if (m.ended) tr.End(f.now);
             std::vector<const combat::Sample*> fresh;
             const bool trace = cast_trace::Active();
-            std::vector<float> dmg;
-            const int n = rec.New(f.chars, m.hero, trace ? &fresh : nullptr, &dmg);
+            const int n = rec.New(f.chars, m.hero, trace ? &fresh : nullptr);
             for (const combat::Sample* s : fresh) {
                 char b[160];
                 std::snprintf(b, sizeof b, "record target=%llx player=%d by=%s dmg=%.1f type=%llx", (unsigned long long)s->id,
@@ -165,7 +161,6 @@ namespace {
                 cast_trace::Note(b);
             }
             for (int i = 0; i < n; i++) {
-                if (!tr.c.done) weights.Learn(key, tr.c.hits, tr.c.landed, dmg[i]);
                 tr.Hit();
                 landed++;
             }
@@ -212,7 +207,7 @@ namespace {
             }
             for (int i = 0; i < pips.hits; i++) {
                 const ImVec2 p{c.x + PipX(i, pips.hits, 0, ui) * s, c.y};
-                const float r = kPipHalf * ui * s * weights.Of(key, i);  // a hit that deals more gets a bigger pip
+                const float r = kPipHalf * ui * s;  // all pips equal: no deterministic per-hit damage source (#85)
                 if (pips.Filled(i)) {
                     const float k = r * pips.PipScale(i, f.now);
                     dl->AddCircleFilled(p, kGlowR * k, Pack(fill, stroke::kGlowAlpha * alpha));
@@ -235,7 +230,6 @@ namespace {
             g_mon = g_pub = {};
             pips = {};
             tr = {};
-            weights = {};
             rec = {};
         }
 

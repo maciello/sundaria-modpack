@@ -61,9 +61,8 @@ namespace cast_indicator {
     // instigator is the hero. Keeps every character's last stamp so only records made after a sample count.
     struct Records {
         std::unordered_map<std::uintptr_t, unsigned> stamp;
-        // Returns the hero's new records (their damage to `dmg` if given); every new record (anyone's) goes to `fresh` (trace).
-        int New(const std::vector<combat::Sample>& chars, std::uintptr_t hero, std::vector<const combat::Sample*>* fresh = nullptr,
-                std::vector<float>* dmg = nullptr) {
+        // Returns the hero's new records; every new record (anyone's) goes to `fresh` (trace).
+        int New(const std::vector<combat::Sample>& chars, std::uintptr_t hero, std::vector<const combat::Sample*>* fresh = nullptr) {
             std::unordered_map<std::uintptr_t, unsigned> next;
             int n = 0;
             for (const combat::Sample& s : chars) {
@@ -71,7 +70,7 @@ namespace cast_indicator {
                 auto it = stamp.find(s.id);
                 if (it == stamp.end() || it->second == s.hitStamp) continue;
                 if (fresh) fresh->push_back(&s);
-                if (!s.isPlayer && hero && s.hitBy == hero) { n++; if (dmg) dmg->push_back(s.hitDamage); }
+                if (!s.isPlayer && hero && s.hitBy == hero) n++;
             }
             stamp.swap(next);  // characters that left are forgotten
             return n;
@@ -131,30 +130,6 @@ namespace cast_indicator {
         const float step = (2 * kPipHalf + style::space::k2) * ui;
         return cx + (i - (n - 1) * 0.5f) * step;
     }
-
-    // Pip size by what the hit dealt: the game has no per-notify damage field (UBP_GameplayAnimNotify_C carries type,
-    // tags, ApplyEffectID, trace geometry, hit-stop flags only), so it is learned: per ability+montage+hit count, the
-    // damage of the i-th landed hit (EMA over casts) against the median hit. 1 = typical, capped at kWeightMax.
-    constexpr float kWeightMax = 1.4f, kWeightLearn = 0.3f;
-    struct Weights {
-        std::unordered_map<std::string, std::vector<float>> dmg;  // ponytail: never pruned (one entry per ability montage)
-
-        void Learn(const std::string& key, int hits, int i, float d) {
-            if (d <= 0 || i < 0 || i >= hits) return;
-            std::vector<float>& v = dmg[key];
-            v.resize(hits, 0.0f);
-            v[i] = v[i] > 0 ? v[i] + kWeightLearn * (d - v[i]) : d;
-        }
-        float Of(const std::string& key, int i) const {
-            auto it = dmg.find(key);
-            if (it == dmg.end() || i < 0 || i >= int(it->second.size()) || it->second[i] <= 0) return 1;
-            std::vector<float> seen;
-            for (float x : it->second) if (x > 0) seen.push_back(x);
-            std::nth_element(seen.begin(), seen.begin() + seen.size() / 2, seen.end());
-            const float median = seen[seen.size() / 2];
-            return std::clamp(it->second[i] / median, 1.0f, kWeightMax);
-        }
-    };
 
     // One cast's bookkeeping (render thread): montage ended → late hits for kLateHits, then done.
     struct Tracker {
