@@ -143,6 +143,17 @@ static bool CreateRTV(IDXGISwapChain* sc) {
 static void ReleaseRTV() { if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; } }
 
 // Stable on; with dos-tool.dev every non-Deprecated, non-optIn feature on. The ini stores only deviations from this.
+// Lines naming a feature this build lacks ("X=on,stage" or "X.key=v"): written back unchanged, so swapping
+// builds never drops another build's toggles (#69).
+static std::vector<std::string> g_foreign;
+static bool KnownName(const char* line, const char* eq) {
+    const char* dot = static_cast<const char*>(memchr(line, '.', eq - line));
+    const size_t n = (dot ? dot : eq) - line;
+    for (feature::Feature* f : feature::Feature::All())
+        if (strlen(f->name) == n && !strncmp(f->name, line, n)) return true;
+    return !strncmp(line, "Font", 4) && n == 4;
+}
+
 static bool Default(const feature::Feature* f) {
     return g_dev ? f->stage != feature::Stage::Deprecated && !f->optIn : f->stage == feature::Stage::Stable;
 }
@@ -183,6 +194,7 @@ static bool InitImGui(IDXGISwapChain* sc) {
         }
         const char* eq = strrchr(line, '=');
         if (!eq) return;
+        if (!KnownName(line, eq)) { g_foreign.emplace_back(line); return; }  // another build's feature: kept on save (#69)
         int on, stage;  // "<name>=<on>,<stage>": a choice made under another stage is dropped, so promotions apply
         if (sscanf(eq + 1, "%d,%d", &on, &stage) != 2) return;
         for (feature::Feature* f : feature::Feature::All())
@@ -199,6 +211,7 @@ static bool InitImGui(IDXGISwapChain* sc) {
             f->Save(kv);
             for (auto& [k, v] : kv) out->appendf("%s.%s=%s\n", f->name, k.c_str(), v.c_str());
         }
+        for (const std::string& l : g_foreign) out->appendf("%s\n", l.c_str());
         out->append("\n");
     };
     ImGui::AddSettingsHandler(&h);
