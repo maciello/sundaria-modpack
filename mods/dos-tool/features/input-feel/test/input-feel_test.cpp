@@ -47,5 +47,25 @@ int main() {
     assert(PhaseOf({&ab, &mon, false}, out) == Phase::Windup);
     assert(PhaseOf({}, out) == Phase::Idle);
 
+    // The #28 loop: A animating, the queue holds stale presses of B, C, D that keep failing on the lock.
+    // Only real presses may act: one press, one cancel, however often the queue retries.
+    {
+        Gate g;
+        int A, B, C;
+        assert(!g.MayAct());            // queue retry with no press: never act
+        g.Press();                      // real press of B while A winds up
+        assert(g.MayAct());
+        g.Acted(&A);                    // B's failure cancels A
+        int actions = 1;
+        for (int tick = 0; tick < 1000; tick++)  // queued C / ghost A retry every tick against B's lock
+            if (g.MayAct()) { g.Acted(&B); actions++; }
+        assert(actions == 1);
+        assert(g.IsGhost(&A) && !g.IsGhost(&B) && !g.IsGhost(&C));  // A restarting from the queue is a ghost
+        g.ghosts = 4;
+        assert(!g.IsGhost(&A));         // bounded
+        g.Press();                      // a new real press may act again, and A is no longer a ghost
+        assert(g.MayAct() && !g.IsGhost(&A));
+    }
+
     std::puts("ok");
 }

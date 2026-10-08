@@ -33,6 +33,24 @@ namespace input_feel {
         return now == out ? Phase::Out : Phase::Windup;
     }
 
+    // At most one cancel/cut per real key press. The game's queue retries a blocked press every tick and keeps
+    // copies of it (lastFailureAbilityInputID + SharedInputs), and a refunded ability passes its cooldown check
+    // again, so without this, queued presses cancel each other in a cycle (#28: ~900 cancels in one burst).
+    struct Gate {
+        unsigned presses = 0, spent = 0, cancelledAt = 0, ghosts = 0;
+        const void* cancelled = nullptr;  // last ability we cancelled in windup
+        void Press() { presses++; }
+        bool MayAct() const { return presses != spent; }  // a real press arrived since our last action
+        void Acted(const void* cancelledAbility) {
+            spent = presses;
+            cancelled = cancelledAbility; cancelledAt = presses; ghosts = 0;
+        }
+        // The ability we cancelled started again without a new real press: a stale queue copy of its press.
+        bool IsGhost(const void* started) const {
+            return started && started == cancelled && presses == cancelledAt && ghosts < 4;  // bounded
+        }
+    };
+
     // sameAbility: the press is for the ability that is currently animating (mashing, combos):
     // never cancel it, the game's own queue/combo handles that.
     inline Action Decide(Phase phase, bool locked, bool sameAbility, const Options& o) {
