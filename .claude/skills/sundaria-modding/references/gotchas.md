@@ -11,6 +11,8 @@
 | update.ps1 fails on Linux pwsh | `$env:TEMP` unset; Get-Item on missing file | `[IO.Path]::GetTempPath()`; `Split-Path` |
 | heal numbers when enemies spawn | HP fills 0 → max after spawn | ignore changes within 1.5 s of first sight and when previous HP ≤ 0 |
 | mouse cursor over the game | ImGui MouseDrawCursor left on | `MouseDrawCursor = menu open` |
+| camera override never fires in the hub (0 hits) | view target is a placed CameraActor: the engine reads its transform and skips BlueprintUpdateCamera | move the view-target actor on the game thread (core `SetFreeCam`) |
+| crash on 2 game threads at once (`Archon+134d0ef`, read of 0xffff…) after enabling hub collision | `CollisionTraceFlag = UseComplexAsSimple` on meshes with no simple shapes: the cooked game has no triangle collision, the bodies end up shapeless and PhysX threads fault | never flip trace flags; give shapeless meshes invisible box colliders instead (core `MakeRoom`) |
 | reads fault in menus/lobby | camera manager isn't BP_PlayerCamera_C there | `IsA` before casting; `PtrOk` every pointer |
 | no log anywhere | upstream logger hardcoded a dev's home path | log next to the module (`GetModuleHandleEx FROM_ADDRESS`) |
 | commit exposes personal email in the public repo | default git author | author = GitHub noreply of the hosting account |

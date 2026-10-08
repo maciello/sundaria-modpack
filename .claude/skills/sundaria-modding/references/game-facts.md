@@ -24,6 +24,16 @@ read_paths:   # all plain memory reads, safe from the render thread
     distance_source: ABP_PlayerCamera_C::kInitialOrbitDistance   # writing TargetArmLength flickers
     collision: USpringArmComponent::bDoCollisionTest
 
+hub (village, world "Hub"; verified in game 2026-10-08):
+  camera_manager: BP_PlayerCameraHub_C; view target = a placed camera actor (BP_LobbyCamera_Hub_C on the main view, plain CameraActor on others)
+  view_switching: BP_PlayerController_Hub_C::Set_View / ViewStack; buildings are trigger-volume buttons (BP_GameState_Hub_C::TriggerVolumeButtons)
+  camera_override: camera-actor view targets skip BlueprintUpdateCamera → move the view-target actor itself (K2_SetActorLocationAndRotation, game thread), restore on exit
+  map: fully modelled 3D town, walkable-looking from every side; only the class hall is unfinished (free-camera survey)
+  collision: houses are `*_HUB` meshes with NO collision shapes (simple=0) and no non-_HUB twin in the pak; props (stairs, tables) have shapes but collision off
+  hero: BP_Biped_*_Player_C stands at PlayerStart (6787 19430), already possessed by the hub controller, movement mode None
+  npcs: 13 NPC_* characters, each with a BP_TriggerVolumeButton_Character_C click zone next to it
+  keys_taken: F8 = game's HUD toggle
+
 movement: ACharacter::CharacterMovement @0x288 (UArchonCharacterMovementComponent)
   fields: {AirControl: 0x1C4, AirControlBoostMultiplier: 0x1C8, AirControlBoostVelocityThreshold: 0x1CC,
            FallingLateralFriction: 0x1D0, BrakingDecelerationFalling: 0x1B8, GravityScale: 0x150, JumpZVelocity: 0x158}

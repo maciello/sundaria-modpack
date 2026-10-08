@@ -1,0 +1,358 @@
+#include "feature.hpp"
+#include "tavern-hub.hpp"
+#include "logger.hpp"
+#include "imgui.h"
+
+#include <Windows.h>
+#include <algorithm>
+#include <cstdio>
+#include <string>
+
+// Tavern hub (step 1+2 of the walkable hub): F7 takes control (dungeon-style: game input captured, mouse look) of the hero standing in the village and walks it
+// with a third-person camera; the menu places NPCs (and their click zones) where the hero stands. The layout is
+// saved next to the game exe and re-applied whenever the village loads.
+namespace {
+    bool Down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
+
+    bool GameFocused() {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+        return pid == GetCurrentProcessId();
+    }
+
+    std::string GamePath(const char* file) {
+        char buf[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, buf, MAX_PATH);
+        std::string p = buf;
+        return p.substr(0, p.find_last_of("\\/") + 1) + file;
+    }
+
+    // Win32 file I/O like logger.hpp: no <fstream> (keeps the DLL off msvcp140's stream code under Proton).
+    std::string ReadText(const std::string& path) {
+        std::string out;
+        HANDLE h = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return out;
+        char buf[4096];
+        DWORD n = 0;
+        while (ReadFile(h, buf, sizeof(buf), &n, nullptr) && n > 0) out.append(buf, n);
+        CloseHandle(h);
+        return out;
+    }
+
+    void WriteText(const std::string& path, const std::string& text) {
+        HANDLE h = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return;
+        DWORD n = 0;
+        WriteFile(h, text.data(), DWORD(text.size()), &n, nullptr);
+        CloseHandle(h);
+    }
+
+    struct TavernHub : feature::Feature {
+        // walk
+        bool walking = false, keyWas = false, looking = false, placeWas = false;
+        std::string diag;  // last logged hero state
+        float camYaw = 0, camPitch = -20, dist = 420, height = 70, sens = 0.12f;
+        double last = 0;
+        // placement
+        std::vector<game::Npc> npcs;
+        std::vector<tavern_hub::Spot> layout;
+        std::vector<tavern_hub::Spot> home;  // where each NPC stands in vanilla, saved the first time it is seen unmoved
+        bool fixCollision = true;
+        float roomInset[4] = {60, 60, 60, 60}, roomHeight = 600.0f;  // per wall, saved as ROOM_WALLS=x,y,z,yaw
+        bool roomWas = false, roomBuilt = false, nudgeWas = false, showWalls = false;  // built once per walk session from the saved spot
+        double nextFix = 0;
+        bool loaded = false, applyLayout = true;
+        int pick = 0;
+        double nextScan = 0;
+        int homesSaved = 0;
+        std::string world, roomWorld;
+
+        TavernHub() : Feature("Tavern hub", feature::Stage::Alpha) {}
+
+        void Load() {
+            layout = tavern_hub::ParseLayout(ReadText(GamePath("dos-tool-tavern.ini")));
+            for (const tavern_hub::Spot& s : layout)
+                if (s.name == "ROOM_WALLS") { roomInset[0] = s.x; roomInset[1] = s.y; roomInset[2] = s.z; roomInset[3] = s.yaw; }
+            home = tavern_hub::ParseLayout(ReadText(GamePath("dos-tool-tavern-home.ini")));
+            loaded = true;
+        }
+
+        void Save() { WriteText(GamePath("dos-tool-tavern.ini"), tavern_hub::WriteLayout(layout)); }
+
+        const tavern_hub::Spot* Home(const std::string& name) const {
+            for (const tavern_hub::Spot& s : home) if (s.name == name) return &s;
+            return nullptr;
+        }
+
+        // The building the hero stands in becomes a closed room (invisible floor + 4 walls); the spot is saved
+        // as "ROOM" in the layout and rebuilt on later walks.
+        // Walking: floor at the hero's feet. Otherwise (free camera hovering at head height inside): floor 160 below
+        // the camera, and the hero is put there. ROOM's yaw field: 1 = z is feet height, 0 = character centre.
+        void CloseRoom() {
+            tavern_hub::Spot spot{"ROOM", 0, 0, 0, 0};
+            if (walking) {
+                const game::Hero h = game::HubHero();
+                if (!h.found) return;
+                spot = {"ROOM", h.x, h.y, h.z, 0};
+                game::MakeRoom(h.x, h.y, h.z, false, Insets(), roomHeight, false);
+            } else {
+                combat::View v{};
+                if (!game::GetView(v)) return;
+                spot = {"ROOM", v.x, v.y, v.z - 160.0f, 1};
+                game::MakeRoom(spot.x, spot.y, spot.z, true, Insets(), roomHeight, true);
+            }
+            tavern_hub::SetSpot(layout, spot);
+            Save();
+            roomBuilt = true;
+            roomWorld = world;
+        }
+
+        // Page Up / Page Down: the saved room floor 10 units up or down, rebuilt at once.
+        void NudgeFloor(float dz) {
+            for (tavern_hub::Spot& s : layout)
+                if (s.name == "ROOM") { s.z += dz; Save(); RebuildRoom(); return; }
+        }
+
+        game::RoomInsets Insets() const { return {roomInset[0], roomInset[1], roomInset[2], roomInset[3]}; }
+
+        // teleport: put the hero onto the room floor at the saved spot (the closed door keeps it out otherwise)
+        void RebuildRoom(bool teleport = false) {
+            for (const tavern_hub::Spot& s : layout)
+                if (s.name == "ROOM") { game::MakeRoom(s.x, s.y, s.z, s.yaw > 0.5f, Insets(), roomHeight, teleport); roomBuilt = true; }
+        }
+
+        bool HasRoom() const {
+            for (const tavern_hub::Spot& s : layout) if (s.name == "ROOM") return true;
+            return false;
+        }
+
+        void StartWalk() {
+            logger::log("[tavern] walk requested, world " + world);
+            const game::Hero h = game::HubHero();
+            if (!h.found) { logger::log("[tavern] no hero in this map"); return; }
+            camYaw = h.yaw;
+            walking = true;
+            RebuildRoom(true);  // you start in the tavern
+            roomWorld = world;
+            logger::log("[tavern] walk on");
+        }
+
+        void StopWalk() {
+            if (walking) logger::log("[tavern] walk off");
+            walking = looking = false;
+            game::SetHubWalk(nullptr);
+            game::SetFreeCam(nullptr, 0);
+        }
+
+        void Place(const game::Npc& n, float x, float y, float z, float yaw) { game::PlaceNpc(n.id, x, y, z, yaw); }
+
+        void Scan(const feature::Frame& f) {
+            if (f.now < nextScan) return;
+            nextScan = f.now + 1.0;
+            world = f.snap.worldName;
+            npcs = game::ListNpcs();
+            std::sort(npcs.begin(), npcs.end(), [](const game::Npc& a, const game::Npc& b) { return a.name < b.name; });
+            bool newHome = false;
+            for (const game::Npc& n : npcs) {
+                bool moved = false;  // in the layout: its current spot may be ours, not its home
+                for (const tavern_hub::Spot& s : layout) moved |= s.name == n.name;
+                if (!Home(n.name) && !moved) { home.push_back({n.name, n.x, n.y, n.z, n.yaw}); newHome = true; }
+                if (!applyLayout) continue;
+                for (const tavern_hub::Spot& s : layout) {  // first sight or wandered off (AI walking home): put back
+                    if (s.name != n.name) continue;
+                    const float dx = n.x - s.x, dy = n.y - s.y;
+                    if (dx * dx + dy * dy > 150.0f * 150.0f) Place(n, s.x, s.y, s.z, s.yaw);
+                }
+            }
+            if (newHome) WriteText(GamePath("dos-tool-tavern-home.ini"), tavern_hub::WriteLayout(home));
+        }
+
+        void SendHome(const game::Npc& n) {
+            if (const tavern_hub::Spot* h = Home(n.name)) Place(n, h->x, h->y, h->z, h->yaw);
+        }
+
+        // Dungeon-style controls while walking: the game sees no presses (no building selection) and no cursor.
+        bool CapturesInput() const override { return walking; }
+
+        double nextDiag = 0;
+        void LogDiag(const game::Hero& h, const feature::Frame& f) {
+            char buf[160];
+            std::snprintf(buf, sizeof(buf), "[tavern] hero possessed=%d moveMode=%d possessTries=%d modeFixes=%d at %.0f %.0f %.0f",
+                          h.possessed ? 1 : 0, h.moveMode, h.possessTries, h.modeFixes, h.x, h.y, h.z);
+            if (diag != buf && f.now >= nextDiag) { diag = buf; nextDiag = f.now + 2.0; logger::log(buf); }
+        }
+
+        void OnFrame(const feature::Frame& f) override {
+            if (!loaded) Load();
+            Scan(f);
+            const float dt = last > 0 ? float(std::min(f.now - last, 0.1)) : 0.0f;
+            last = f.now;
+            const bool focused = GameFocused();
+            const bool typing = ImGui::GetIO().WantCaptureKeyboard;
+            const bool k = focused && !typing && Down(VK_F7);
+            if (k && !keyWas) walking ? StopWalk() : StartWalk();
+            keyWas = k;
+            const bool up = focused && !typing && Down(VK_PRIOR), dn = focused && !typing && Down(VK_NEXT);
+            if ((up && !nudgeWas) || (dn && !nudgeWas)) NudgeFloor(up ? 10.0f : -10.0f);
+            nudgeWas = up || dn;
+            const bool rk = focused && !typing && Down(VK_F10);
+            if (rk && !roomWas) CloseRoom();
+            roomWas = rk;
+            const bool pk = focused && !typing && Down(VK_F9);
+            if (pk && !placeWas) PlacePicked();
+            placeWas = pk;
+            if (!walking) return;
+
+            const game::Hero h = game::HubHero();
+            if (!h.found) { StopWalk(); return; }
+            LogDiag(h, f);
+            if (fixCollision && f.now >= nextFix) {  // the hub's meshes mostly have no collision: switch it on around the hero
+                nextFix = f.now + 2.0;
+                game::FixCollision(h.x, h.y, h.z, 4000.0f, true);
+            }
+            float fwd = 0, right = 0;
+            bool jump = false;
+            const bool flying = game::CamOwner() == 1;  // the free camera has the keys and the view
+            if (focused && !typing && !flying) {
+                fwd = float(Down('W')) - float(Down('S'));
+                right = float(Down('D')) - float(Down('A'));
+                jump = Down(VK_SPACE);
+                camYaw += 90.0f * dt * (float(Down(VK_RIGHT)) - float(Down(VK_LEFT)));
+                camPitch += 60.0f * dt * (float(Down(VK_UP)) - float(Down(VK_DOWN)));
+            }
+            // Mouse look like in the dungeon: cursor pinned to the window centre, every move turns the camera.
+            // The Insert menu frees the cursor.
+            const bool look = focused && !ImGui::GetIO().MouseDrawCursor && !flying;
+            RECT r{};
+            const HWND wnd = GetForegroundWindow();
+            GetClientRect(wnd, &r);
+            POINT centre{(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+            ClientToScreen(wnd, &centre);
+            POINT c{};
+            GetCursorPos(&c);
+            if (look && f.rawMouse) {  // raw motion: works even when the game freezes the hidden cursor
+                camYaw += sens * f.mouseDX;
+                camPitch -= sens * f.mouseDY;
+            } else if (look && looking) {
+                camYaw += sens * float(c.x - centre.x);
+                camPitch -= sens * float(c.y - centre.y);
+            }
+            if (look) SetCursorPos(centre.x, centre.y);
+            looking = look;
+            camPitch = std::clamp(camPitch, -75.0f, 30.0f);
+
+            game::WalkInput in{};
+            tavern_hub::MoveDir(fwd, right, camYaw, in.moveX, in.moveY);
+            in.jump = jump;
+            game::SetHubWalk(&in);
+            const tavern_hub::Pose p = tavern_hub::Follow(h.x, h.y, h.z, camYaw, camPitch, dist, height);
+            const game::CamPose cp{p.x, p.y, p.z, p.pitch, p.yaw};
+            game::SetFreeCam(&cp, 0);
+        }
+
+        // Picked NPC to where the hero stands, facing the camera (= towards the player).
+        void PlacePicked() {
+            if (npcs.empty() || pick >= int(npcs.size())) return;
+            const game::Hero h = game::HubHero();
+            if (!h.found) return;
+            const game::Npc& n = npcs[pick];
+            const float yaw = std::fmod(camYaw + 180.0f, 360.0f);
+            Place(n, h.x, h.y, h.z, yaw);
+            tavern_hub::SetSpot(layout, {n.name, h.x, h.y, h.z, yaw});
+            Save();
+            char buf[160];
+            std::snprintf(buf, sizeof(buf), "[tavern] placed %s at %.0f %.0f %.0f", n.name.c_str(), h.x, h.y, h.z);
+            logger::log(buf);
+        }
+
+        void ResetNpc(const std::string& name) {
+            layout.erase(std::remove_if(layout.begin(), layout.end(), [&](const tavern_hub::Spot& s) { return s.name == name; }),
+                         layout.end());
+            for (const game::Npc& n : npcs) if (n.name == name) SendHome(n);
+            Save();
+        }
+
+        // Every NPC's current spot becomes its home ("Reset" target), e.g. right after loading a save.
+        void SaveHomes() {
+            for (const game::Npc& n : npcs) tavern_hub::SetSpot(home, {n.name, n.x, n.y, n.z, n.yaw});
+            WriteText(GamePath("dos-tool-tavern-home.ini"), tavern_hub::WriteLayout(home));
+            homesSaved = int(npcs.size());
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "[tavern] %d NPC home spots saved", homesSaved);
+            logger::log(buf);
+        }
+
+        void ResetAll() {  // NPCs only: the closed room stays
+            layout.erase(std::remove_if(layout.begin(), layout.end(), [](const tavern_hub::Spot& s) { return s.name.rfind("ROOM", 0) != 0; }),
+                         layout.end());
+            for (const game::Npc& n : npcs) SendHome(n);
+            Save();
+            logger::log("[tavern] layout reset");
+        }
+
+        void Off() override { StopWalk(); }
+
+        void Menu() override {
+            if (ImGui::Button(walking ? "Stop walking (F7)" : "Walk (F7)")) walking ? StopWalk() : StartWalk();
+            const game::Hero h = game::HubHero();
+            ImGui::SameLine();
+            ImGui::TextDisabled(h.found ? (h.possessed ? "hero: controlled" : "hero: found") : "hero: none in this map");
+            ImGui::TextDisabled("WASD walk, Space jump, mouse or arrows turn the camera");
+            if (walking) ImGui::TextDisabled("%s", diag.c_str());
+            ImGui::SetNextItemWidth(150);
+            ImGui::SliderFloat("Camera distance", &dist, 150.0f, 1200.0f, "%.0f");
+            if (ImGui::Button("Close this building (F10)")) CloseRoom();
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", game::RoomStatus().c_str());
+            ImGui::TextDisabled("Page Up / Page Down: floor 10 up / down");
+            if (ImGui::Checkbox("Show walls", &showWalls)) game::ShowRoom(showWalls);
+            ImGui::SameLine();
+            // each wall moves in from the building's outer bounds; rebuilt when a slider is let go (tick Show walls)
+            static const char* const kWall[4] = {"Wall 1", "Wall 2", "Wall 3", "Wall 4"};
+            bool changed = false;
+            for (int i = 0; i < 4; i++) {
+                ImGui::SetNextItemWidth(160);
+                ImGui::SliderFloat(kWall[i], &roomInset[i], 0.0f, 1500.0f, "%.0f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (i % 2 == 0) ImGui::SameLine();
+            }
+            ImGui::SetNextItemWidth(160);
+            ImGui::SliderFloat("Wall height", &roomHeight, 200.0f, 1500.0f, "%.0f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (changed && HasRoom()) {
+                tavern_hub::SetSpot(layout, {"ROOM_WALLS", roomInset[0], roomInset[1], roomInset[2], roomInset[3]});
+                Save();
+                RebuildRoom();
+            }
+            ImGui::Checkbox("Switch on collision around the hero", &fixCollision);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("now") && h.found) game::FixCollision(h.x, h.y, h.z, 4000.0f, true);
+
+            ImGui::SeparatorText("NPCs");
+            if (npcs.empty()) { ImGui::TextDisabled("no NPCs in this map"); return; }
+            pick = std::clamp(pick, 0, int(npcs.size()) - 1);
+            ImGui::SetNextItemWidth(220);
+            if (ImGui::BeginCombo("##npc", npcs[pick].name.c_str())) {
+                for (int i = 0; i < int(npcs.size()); i++)
+                    if (ImGui::Selectable(npcs[i].name.c_str(), i == pick)) pick = i;
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Place at hero (F9)")) PlacePicked();
+            if (ImGui::Checkbox("Apply saved layout", &applyLayout) && !applyLayout)
+                for (const game::Npc& n : npcs) SendHome(n);  // back home, file kept
+            ImGui::SameLine();
+            if (ImGui::Button("Reset all")) ResetAll();
+            if (ImGui::Button("Save current spots as standard")) SaveHomes();
+            if (homesSaved > 0) { ImGui::SameLine(); ImGui::TextDisabled("%d saved", homesSaved); }
+            for (const game::Npc& n : npcs) {
+                bool placed = false;
+                for (const tavern_hub::Spot& s : layout) placed |= s.name == n.name;
+                ImGui::PushID(n.name.c_str());
+                ImGui::TextDisabled("%s%s%s", placed ? "* " : "  ", n.name.c_str(), n.hasButton ? "" : " (no click zone)");
+                if (placed) { ImGui::SameLine(); if (ImGui::SmallButton("reset")) ResetNpc(n.name); }
+                ImGui::PopID();
+            }
+        }
+    } g_tavernHub;
+}
