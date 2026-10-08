@@ -119,11 +119,14 @@ static void DrawMenu(const game::Snapshot& snap) {
 static void DrawDamageNumbers() {
     const double now = ImGui::GetTime();
     g_dmg.Update(game::SampleHealth(), now);
+    dmgnum::View view;
+    if (g_dmg.live.empty() || !game::GetView(view)) return;
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     ImFont* font = ImGui::GetFont();
     for (const dmgnum::Number& n : g_dmg.live) {
         float sx, sy;
-        if (!game::Project(n.x, n.y, n.z, sx, sy)) continue;
+        if (!dmgnum::Project(view, n.x, n.y, n.z, screen.x, screen.y, sx, sy)) continue;
         const float t = float((now - n.born) / g_dmg.lifetime);   // 0..1
         const int alpha = int(255 * (1.0f - t));
         const ImU32 col = n.amount > 0 ? IM_COL32(255, 220, 60, alpha) : IM_COL32(80, 255, 120, alpha);

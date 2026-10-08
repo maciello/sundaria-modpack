@@ -35,7 +35,7 @@ namespace game {
     // the UI can seed its sliders and "reset" can restore them.
     // Damage numbers: live enemies' health + world position, and world -> screen.
     std::vector<dmgnum::Sample> SampleHealth();
-    bool Project(float x, float y, float z, float& sx, float& sy);
+    bool GetView(dmgnum::View& out);
 
     float OriginalFOV();
     float OriginalDistance();

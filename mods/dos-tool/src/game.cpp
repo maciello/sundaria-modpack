@@ -8,6 +8,7 @@
 #include "Engine_classes.hpp"
 #include "Archon_classes.hpp"          // UArchonSpringArmComponent
 #include "BP_PlayerCamera_classes.hpp" // ABP_PlayerCamera_C (kInitialOrbitDistance)
+#include "GameplayAbilities_classes.hpp" // UAbilitySystemComponent::SpawnedAttributes
 
 using namespace SDK;
 
@@ -93,18 +94,45 @@ void game::SetCameraCollision(bool enabled) {
     }
 }
 
-// ponytail: empty until the SDK dump names the health property (AttributeSet / component)
+// Memory reads only (no ProcessEvent): this runs on the render thread.
+// ponytail: walks every actor of every loaded level each frame; cache the character list if it shows in frame time
 std::vector<dmgnum::Sample> game::SampleHealth() {
-    return {};
+    std::vector<dmgnum::Sample> out;
+    UWorld* w = UWorld::GetWorld();
+    if (!PtrOk(w)) return out;
+    UClass* charCls = AArchonCharacter::StaticClass();
+    UClass* statusCls = UArchonAttributeSet_Status::StaticClass();
+    for (int li = 0; li < w->Levels.Num(); li++) {
+        ULevel* lvl = w->Levels[li];
+        if (!PtrOk(lvl)) continue;
+        for (int ai = 0; ai < lvl->Actors.Num(); ai++) {
+            AActor* a = lvl->Actors[ai];
+            if (!PtrOk(a) || !a->IsA(charCls)) continue;
+            auto* c = static_cast<AArchonCharacter*>(a);
+            UArchonAbilitySystemComponent* asc = c->mAbilitySystemComponent;
+            USceneComponent* root = c->RootComponent;
+            if (!PtrOk(asc) || !PtrOk(root)) continue;
+            auto& sets = asc->SpawnedAttributes;
+            for (int si = 0; si < sets.Num(); si++) {
+                UAttributeSet* set = sets[si];
+                if (!PtrOk(set) || !set->IsA(statusCls)) continue;
+                const FVector& p = root->RelativeLocation;  // capsule root is unattached: relative == world
+                out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z + 110.0f,
+                               static_cast<UArchonAttributeSet_Status*>(set)->CurrentHealth});
+                break;
+            }
+        }
+    }
+    return out;
 }
 
-bool game::Project(float x, float y, float z, float& sx, float& sy) {
+bool game::GetView(dmgnum::View& v) {
     APlayerController* pc = LocalPC();
-    if (!PtrOk(pc)) return false;
-    FVector2D out{};
-    if (!pc->ProjectWorldLocationToScreen(FVector{x, y, z}, &out, false)) return false;
-    sx = out.X; sy = out.Y;
-    return true;
+    if (!PtrOk(pc) || !PtrOk(pc->PlayerCameraManager)) return false;
+    const FMinimalViewInfo& pov = pc->PlayerCameraManager->CameraCachePrivate.POV;
+    v = {pov.Location.X, pov.Location.Y, pov.Location.Z,
+         pov.Rotation.Pitch, pov.Rotation.Yaw, pov.Rotation.Roll, pov.FOV};
+    return v.fov > 1.0f;
 }
 
 float game::OriginalFOV()      { return g_origFov; }
