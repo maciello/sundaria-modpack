@@ -10,6 +10,7 @@ from pathlib import Path
 ALLOW = {  # file (relative to mods/dos-tool) -> variables or struct names that never outlive one call
     "features/inventory/item-sort/item-sort.cpp": {"Where2"},  # Locate() result, used within the caller
     "features/dungeon/shared/plan.cpp": {"Floor"},  # one floor read inside Compute()
+    "core/reflect.hpp": {"Value"},  # reflect::Walk result, used within the caller's command
 }
 ENGINE = re.compile(r"(?<![\w:])(?:SDK::)?([AU][A-Z]\w*[a-z]\w*)\s*\*")
 

@@ -44,6 +44,8 @@ static bool                    g_dev = false;      // dos-tool.dev next to the e
 static char                    g_ini[MAX_PATH] = {};
 
 static combat::Tracker g_combat;
+static std::atomic<overlay::PresentTap> g_tap{nullptr};
+void overlay::SetPresentTap(PresentTap tap) { g_tap = tap; }
 
 static bool InputCaptured() {
     for (const feature::Feature* f : feature::Feature::All())
@@ -315,6 +317,7 @@ static HRESULT WINAPI hkPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flag
     ImGui::Render();
     g_context->OMSetRenderTargets(1, &g_rtv, nullptr);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    if (overlay::PresentTap tap = g_tap.load(std::memory_order_relaxed)) tap(sc);
     return oPresent(sc, syncInterval, flags);
 }
 
