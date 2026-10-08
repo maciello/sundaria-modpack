@@ -89,6 +89,24 @@ SizeBox_0: {min: 100x100}
 - Pickup event: `BP_PlayerControllerGame_C::OnItemAddedDispatcherEvent(FSItemLocator)`, once per slot, also for every slot of a
   reorder/sort.
 
+### Minimap (`WidgetMiniMap_C`, HUD; in game 2026-10-08, Crypt of Horrors)
+- The game's only map: 250×250 `SizeBox_Minimap` top right of `WidgetHud_C` (`WidgetHud_C::WidgetMiniMap` @0x348). No full-screen map exists.
+- Tree: Overlay > `RetainerBox_Minimap` > `CanvasPanel_Map` [`Image_Background` (black), `CanvasPanel_StaticMinimapShadow`,
+  `CanvasPanel_StaticMinimap`, `CanvasPanel_DynamicMinimp`] + `Image_View` (`View_Cone`), `Image_Pawn_Owner` (`Player_1`),
+  `Image_Frame` (`MinimapFrame`), `Image_Cardinals`. The three canvases are centred (anchors 0.5); their children are pieces
+  positioned in map pixels (align 0.5, z per piece).
+- Pieces are one texture per FLOOR, not per room: `Minimap_1_Crypt_of_Horrors_Floor_01..03` (+ `_Shadow` twin in the shadow canvas)
+  and `…_BP_MinimapObjectActor_0`. Fog = the piece's opacity: unvisited floor 0, revealing floor fading in (`HiddenPieceRevealSpeed`).
+  The game's fog is floor-grain; room-grain fog needs our own layer.
+- Data: `StaticMinimapObjects` / `StaticMinimapShadowPieces` / `DynamicMinimapObjects` (object → UImage), `UnitToPixel` @0x398 (int, world
+  units per map pixel), `bAlignMapToPlayer`, `CurrentFloorPiece`, `PartyPawns`, `RevealedMinimapObjects`.
+- Pieces come from `UBP_StaticMinimapObjectComponent_C` {MinimapOrigin, MinimapImage, MinimapImageShadow, BoundsOverride, ZOrder,
+  bIsRevealedByDefault}; reveal: `I_RevealStaticMinimapObject` (widget), `I_RequestStaticMinimapObjectReveal` (game state).
+  Moving markers: `UBP_DynamicMinimapObjectComponent_C::SetMinimapImage`, added via `I_AddMinimapObject`.
+- world→map: piece pixel = (world − MinimapOrigin) / UnitToPixel, then the canvas scrolls so the player sits at the centre. Formula
+  from field names; unverified.
+- Drawing ours: a child of `CanvasPanel_DynamicMinimp` scrolls with the map for free; clipped by the 250 px retainer.
+
 ## Adding a game widget to a screen (game thread only)
 1. Run inside a ProcessEvent listener (`game::SetEventListener`), never on the render thread. Guard re-entry (`thread_local` busy flag): our calls re-enter ProcessEvent.
 2. Find the target: scan GObjects for the screen's class; skip CDOs and archetypes (`Flags & 0x30`); check `PtrOk` on every field you follow.

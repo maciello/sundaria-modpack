@@ -72,6 +72,31 @@ items:   # features/item-sort; VERIFIED in game 2026-10-08 unless marked
   sort_partial: a partial list puts the listed items first and keeps the rest in their order (slots compacted 0..n-1); cost ~0.33–0.6 ms per listed slot, moved or not (one OnItemAddedDispatcherEvent on the controller each; Server RPC flags 0x0c6000c0) → send only the prefix up to the last changed position
   vanilla_sort: the header's Sort click returns in ~2 ms; the game's reorder follows in later ticks as 2 bursts of one OnItemAddedDispatcherEvent per item. InvManager.RequestSortItems via ProcessEvent applies a deferred sort too
 
+dungeon (#40 survey 2026-10-08; SDK unless marked "in game"):
+  dungeon: ABP_Dungeon_C {FloorActors (one ABP_DungeonFloor_C per floor), LevelNamesByFloor (each floor = a streamed level),
+           CurrentActiveFloor, PlayerFloors[] {PlayerState, Floor}, MapDataBound[] {Origin, Extend, Rotation, DungeonSliceClass, DungeonChunk}}
+  floor: ABP_DungeonFloor_C {ChunkActors, Entry, FloorNumber, bHasBeenActivated, BP_MinimapObject (the floor's static minimap piece)}
+    route_ends: I_GetStairsCrumbs(StairsUp, StairsDown), I_GetEntryChunkActor; IsPointInsideLevel(point)
+  room: Abp_breadslice_C (slice) {DiscoveryBounds box, NeedsToBeDiscovered, Discovered @0x36C, DungeonSliceMapData}; BecomeDiscovered on overlap
+    slice_map_data: FSDungeonSliceMapData {DungeonMapTexture (soft), OffsetAdjustment, ScaleAdjustment, BoundOrigin, BoundExtend}
+  links: Abp_breadcrumb_C (crumb) = attach point {CrumbType, SpawnedActor, AttachedToCrumbType}; slice.SetCrumbsAttached(floor, a, b) joins two slices
+    door_crumb: ABP_BreadCrumbDoor_C {CanSpawnDoorway, CanSpawnBlockedDoorway}; stairs: ABP_BreadCrumbStairsDown_C / Up
+    room_graph: slices joined by attached crumbs; no graph object found, would be rebuilt from crumbs (unverified)
+  hand_built_levels: Crypt of Horrors (1_Crypt_of_Horrors) has named slices (Slice_Dungeon_COH_2B: LockedKeyDoor, LockedSwitchDoor, BP_CryptLever, DoorCrumb1..3, …⊇)
+  exit: ABP_DungeonExitVolume_C {Volume box, bAllowSoloExtract, TimerDuration}; final floor: ABP_DungeonExitVolume_FinalBossFightPortal_C
+  objective: quest tracker only (WidgetSingleQuestTracker_C → ABP_QuestTrackerActor_C, HandleQuestUpdated(QuestId, IsCompleted)); no objective location found
+  navigation: per-floor NavMeshVolume; BP_NavigationQueryFilter_Exclude_Door* filters exist (path queries can exclude doors); ABP_WayPoint_C chains are AI patrols
+  doors_levers: both subclass ABP_TriggerBase_C (: AArchonTriggerBase, native, empty)
+    state: mOpenCloseAnimState @0x248 (EOpenCloseAnimEnum 0..3, names NewEnumeratorN: meaning unverified), LockStatus @0x288 (ELockStatus 0..3), CanBeOpened, bStartOpen
+    locks: LockRules_OR[] {LockType (ELockType 0..6), Value, TargetTag}, LockTags[], ItemLockGroup[]; door I_DoorAddLockTag / I_DoorRemoveLockTag
+    event: ABP_Door_C::Dispatcher_TriggerChanged_Event_0(Trigger, TriggerState, LastTriggeringPawn); OnRep_mOpenCloseAnimState; I_IsDoorOpened(bool*)
+    door_classes: ABP_Door_C → ADoor_SkeletalMeshSimple_C → Door_dun_hcr_* (cageDoorA_2BKeyDoor, 2BSwitchInsideDoor, doorSecretTorchLever, HargonSwitchDoor, …⊇)
+    lever_classes: ABP_DeveloperLever_C → ABP_CryptLever_C
+    owner: slice child-actor components UBP_ChildActorDungeonTriggerBase_C {TriggerActor, ConfigLock (FSLockConfig)}; reach doors/levers from the slice, no world walk
+    lever_to_door: linked by lock tags/TargetTag (unverified which side carries the tag)
+    boss_gate: ABP_BossFight_ProgressionBlockingDoor_C: plain actor, collision box, no state fields
+  co_op: ABP_Dungeon_C::PlayerFloors per player; minimap widget tracks PartyPawns; slice discovery is an overlap (any pawn?) — unverified
+
 combat_log (unused so far; crits + own-vs-party damage; whether its delegates pass ProcessEvent: UNVERIFIED):
   delegates: AArchonCharacter::OnCombatLogGeneratedDelegate_Offense / _Defense
   payload: FCombatDetailDamage {FinalDamage, BlockedDamage, CritLevel, ResistedDamage, MitigatedDamage_Armor, bIsHeal}
