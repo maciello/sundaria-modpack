@@ -6,15 +6,62 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 #include <utility>
 #include <vector>
 
 namespace {
+    // Element badge from draw-list primitives: dark disc, glyph in the element colour. c = centre, R = radius.
+    void DrawIcon(ImDrawList* dl, combat::Element e, ImVec2 c, float R, ImU32 col, ImU32 back) {
+        using E = combat::Element;
+        dl->AddCircleFilled(c, R, back);
+        const float r = R * 0.68f, t = std::max(1.0f, R * 0.22f);
+        auto P = [&](float x, float y) { return ImVec2(c.x + x * r, c.y + y * r); };
+        switch (e) {
+            case E::Fire:  // flame: round base, pointed tip
+                dl->AddCircleFilled(P(0, 0.35f), r * 0.62f, col);
+                dl->AddTriangleFilled(P(-0.6f, 0.2f), P(0.6f, 0.2f), P(0.1f, -1.0f), col);
+                break;
+            case E::Ice:  // snowflake: three crossing bars
+                for (int i = 0; i < 3; i++) {
+                    const float a = 3.14159265f / 3 * i, x = std::cos(a), y = std::sin(a);
+                    dl->AddLine(P(-x, -y), P(x, y), col, t);
+                }
+                break;
+            case E::Lightning: {  // bolt
+                const ImVec2 pts[] = {P(0.35f, -1), P(-0.4f, 0.1f), P(0.25f, 0.1f), P(-0.35f, 1)};
+                dl->AddPolyline(pts, 4, col, 0, t * 1.2f);
+                break;
+            }
+            case E::Holy:  // four-point star
+                dl->AddQuadFilled(P(0, -1), P(0.28f, 0), P(0, 1), P(-0.28f, 0), col);
+                dl->AddQuadFilled(P(-1, 0), P(0, -0.28f), P(1, 0), P(0, 0.28f), col);
+                break;
+            case E::Poison:  // bubbles
+                dl->AddCircleFilled(P(-0.3f, 0.35f), r * 0.5f, col);
+                dl->AddCircleFilled(P(0.45f, 0.1f), r * 0.35f, col);
+                dl->AddCircleFilled(P(0.05f, -0.55f), r * 0.28f, col);
+                break;
+            case E::Shadow:  // crescent
+                dl->AddCircleFilled(c, r, col);
+                dl->AddCircleFilled(P(0.45f, -0.3f), r * 0.85f, back);
+                break;
+            case E::Arcane:  // diamond
+                dl->AddQuadFilled(P(0, -1), P(0.7f, 0), P(0, 1), P(-0.7f, 0), col);
+                break;
+            case E::Environment:  // warning triangle
+                dl->AddTriangle(P(0, -0.95f), P(0.95f, 0.75f), P(-0.95f, 0.75f), col, t);
+                break;
+            default: break;
+        }
+    }
+
     struct DamageNumbers : feature::Feature {
         float height = 40.0f;  // cm above capsule center
         float size = 1.0f;
         float maxStack = 1.6f;  // stacked numbers grow at most to this × a typical hit
+        bool icons = true;     // element badge on non-physical numbers
         struct Preview { float sx, sy; combat::Number n; std::vector<std::pair<double, float>> ticks; };
         std::vector<Preview> preview;
         float previewTypical = 20;
@@ -51,6 +98,11 @@ namespace {
             if (an.flash > 0)  // soft glow while hot
                 draw::OutlinedText(dl, font, sz, pos, IM_COL32(0, 0, 0, 0), IM_COL32(int(r), int(g), int(b), int(90 * an.flash * an.alpha)), ow * 3.0f, buf);
             draw::OutlinedText(dl, font, sz, pos, IM_COL32(int(r), int(g), int(b), a), outline, ow, buf);
+            if (icons && n.element != combat::Element::Physical && n.kind != combat::Kind::Heal) {
+                const dmgnum::Rgb c = dmgnum::ColorOf(n.element);
+                const float R = std::max(6.0f, sz * 0.2f);
+                DrawIcon(dl, n.element, ImVec2(pos.x + ts.x + 2 + R, pos.y + R * 0.6f), R, IM_COL32(int(c.r), int(c.g), int(c.b), a), outline);
+            }
             if (n.hits > 1) {  // hit counter: small, bottom-right, on the number's baseline
                 char cnt[16];
                 std::snprintf(cnt, sizeof(cnt), "x%d", n.hits);
@@ -91,6 +143,7 @@ namespace {
             ImGui::SliderFloat("Number height", &height, -60.0f, 160.0f, "%.0f cm");
             ImGui::SliderFloat("Number size", &size, 0.5f, 2.0f, "%.2fx");
             ImGui::SliderFloat("Max stack size", &maxStack, 1.0f, 2.4f, "%.1fx");
+            ImGui::Checkbox("Element icons", &icons);
             if (!ImGui::Button("Preview numbers")) return;
             const ImVec2 c(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.45f);
             const double now = ImGui::GetTime();
