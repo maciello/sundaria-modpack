@@ -64,7 +64,7 @@ namespace {
     std::vector<Toast> g_toasts;
     Owned g_owned;
     bool g_baseline = false, g_bankSeen = false, g_dirty = false;
-    std::atomic<bool> g_on{false};
+    std::atomic<bool> g_on{false}, g_drain{false};  // g_drain: Off() asks the game thread to remove every toast
     thread_local bool t_busy = false;
 
     double Now() {
@@ -162,6 +162,12 @@ namespace {
         });
     }
 
+    void RemoveAll() {  // game thread (or Off() after its wait ran out)
+        for (Toast& t : g_toasts)
+            if (auto* w = t.w.Get<UUserWidget>()) CallNative(w, g_fn.remove.Get(), nullptr);
+        g_toasts.clear();
+    }
+
     // ponytail: a pickup that only grows an existing stack adds no record, so it shows no toast; stack counts are not read
     void Update(double now) {  // once per batch of item events: O(owned items)
         static cost::Path path{"pickup-toast owned diff"};
@@ -192,6 +198,7 @@ namespace {
         if (g_fn.itemAdded.Is(fnp)) { g_dirty = true; return; }  // per slot, also on every reorder: O(1)
         if (!umg::IsWorldTick(fnp) || !game::OnGameThread()) return;  // widgets change on the world tick only (#50)
         t_busy = true;
+        if (g_drain.exchange(false)) RemoveAll();
         if (g_fn.Ok() && g_entryCls.Get() && g_objCls.Get()) {  // O(1) each; Blueprint classes load with a world (#54)
             const double now = Now();
             if ((g_dirty || !g_baseline) && io::Ready()) {
@@ -215,8 +222,15 @@ namespace {
             g_on = true;
             game::SetEventListener(&OnEvent, true);
         }
-        // ponytail: a toast on screen at this moment stays (frozen) until the game clears the viewport; removal needs the game thread
+        // Off() runs with the ProcessEvent hook alive (overlay::Shutdown, #84): the next world tick removes the widgets.
+        // No tick within 500 ms (game thread blocked): removed here instead, once.
         void Off() override {
+            g_drain = !g_toasts.empty();  // nothing on screen: nothing to wait for
+            for (int i = 0; i < 250 && g_drain.load(); i++) Sleep(2);
+            if (g_drain.exchange(false)) {
+                RemoveAll();
+                logger::log("[pickup-toast] toasts removed off the game thread (no world tick within 500 ms)");
+            }
             g_on = false;
             game::SetEventListener(&OnEvent, false);
             g_toasts.clear();
