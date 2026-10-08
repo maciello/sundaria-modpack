@@ -14,8 +14,8 @@ namespace {
 
     struct HealthBars : feature::Feature {
         health_bars::Bars bars;
-        float height = 110.0f;  // cm above capsule center
-        float width = 1.0f;
+        float height = 100.0f;  // cm above capsule center
+        float width = 0.6f;
         bool showLevel = true;
         double last = 0;
 
