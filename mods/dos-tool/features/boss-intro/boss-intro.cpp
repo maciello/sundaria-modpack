@@ -18,7 +18,8 @@
 // boss splash. Spec: design-system.md § Boss intro camera; title constants in boss-intro.hpp.
 // The camera is the core override (game::SetFreeCam, the free camera's path): nothing of the game's is written, so
 // ending the override is the exact restore. Local to this client: co-op partners see nothing.
-// The fight waits (#70): the host (or solo) freezes the boss, its partners and their AI for the intro, restored on every
+// The fight waits (#70): the host (or solo) freezes the boss, its partners, hostile characters near you or the boss
+// (#100, from core's character samples: no actor scan) and their AI for the intro, restored on every
 // end (done, skip, Off, map change via "no local pawn"). A co-op client simulates no AI, so it freezes nothing and sees
 // the boss act during its own intro; the host's intro freezes the boss for everyone, at most kTotal + kWaitForBoss.
 // Skip (#20): the chosen key or Escape (the game's menu) ends camera and title at once; so do losing the pawn, being
@@ -181,7 +182,15 @@ namespace {
                 if (f.now - run.asked > kWaitForBoss) End("skipped (camera override unavailable)", f.now);
                 return;
             }
-            if (!run.cam) Log("[boss-intro] camera start, boss half height %.0f", run.boss.halfHeight);
+            if (!run.cam) {
+                Log("[boss-intro] camera start, boss half height %.0f", run.boss.halfHeight);
+                const auto adds = pause::Near(f.chars, game_side::LocalPawn(), run.boss.x, run.boss.y, run.boss.z);
+                game_side::PauseAdds(adds);  // #100: hostile ones only, decided on the game thread
+                char buf[160];
+                std::snprintf(buf, sizeof(buf), "[boss-intro] adds: %d of %d sampled characters within %.0f m (players excluded)",
+                              int(adds.size()), int(f.chars.size()), pause::kAddRadius / 100);
+                logger::log(buf);
+            }
             run.cam = true;
             if (const int n = game_side::Pause(run.fight)) Log("[boss-intro] paused %.0f actors", n);  // partners may spawn later
 

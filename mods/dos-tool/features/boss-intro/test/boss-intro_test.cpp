@@ -66,6 +66,23 @@ int main() {
         assert(pause::Release(held[0], boss) && boss == 1.0f);
         assert(!pause::Release(held[1], add) && add == 0.3f);
     }
+    {   // #100: adds near the player or the boss are candidates; players, the dead and the far are not
+        const float r = pause::kAddRadius;
+        auto ch = [](std::uintptr_t id, float x, float hp, bool player) { combat::Sample s{}; s.id = id, s.x = x, s.health = hp, s.isPlayer = player; return s; };
+        const std::vector<combat::Sample> chars = {
+            ch(1, 0, 100, true),            // me, at 0
+            ch(2, r - 1, 50, false),        // near me
+            ch(3, 10000 + r - 1, 50, false),// near the boss (at 10000)
+            ch(4, 5000, 50, false),         // between, out of both radii
+            ch(5, 10, 0, false),            // dead
+            ch(6, 20, 100, true),           // a co-op partner
+            ch(7, 10000, 900, false),       // the boss itself (the game thread holds it once)
+        };
+        auto ids = [](const std::vector<combat::Sample>& v) { std::vector<std::uintptr_t> o; for (const auto& s : v) o.push_back(s.id); return o; };
+        assert((ids(pause::Near(chars, 1, 10000, 0, 0)) == std::vector<std::uintptr_t>{2, 3, 7}));
+        assert((ids(pause::Near(chars, 0, 10000, 0, 0)) == std::vector<std::uintptr_t>{3, 7}));  // no local pawn: around the boss only
+        assert(pause::Near({}, 1, 0, 0, 0).empty());
+    }
     {   // camera: no pop at either end, full shot in the hold, orbit only in the hold
         using namespace cam;
         auto near = [](float a, float b, float e = 1e-3f) { return std::fabs(a - b) < e; };

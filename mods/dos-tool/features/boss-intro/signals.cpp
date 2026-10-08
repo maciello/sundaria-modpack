@@ -10,6 +10,7 @@
 #include "Engine_classes.hpp"
 #include "UMG_classes.hpp"
 #include "Archon_classes.hpp"
+#include "Archon_parameters.hpp"
 #include "BP_BossFight_classes.hpp"
 
 // Boss signals = ProcessEvent calls the game makes anyway (#17). Functions are matched by FName index (an int that
@@ -44,7 +45,8 @@ namespace {
     std::atomic<std::uintptr_t> g_bossWant{0}, g_pauseFight{0};
     game::Drain g_resume;  // End/Off -> the game thread restores what was frozen
     std::atomic<int> g_paused{0}, g_resumed{0};
-    struct BossRead { std::uintptr_t fight; bool ok; boss_intro::game_side::Boss boss; } g_boss{};  // g_mu
+    std::vector<combat::Sample> g_adds;  // g_mu: PauseAdds -> the next GameTick
+        struct BossRead { std::uintptr_t fight; bool ok; boss_intro::game_side::Boss boss; } g_boss{};  // g_mu
     void GameTick();
 
     void HoldOne(AActor* a, int& n) {  // a: live (ref-checked)
@@ -236,6 +238,44 @@ namespace boss_intro::game_side {
         return n;
     }
 
+    bool EnemyOf(const AArchonCharacter* c, AController* pc) {  // the game's own ally/enemy test (native)
+        static ref::Fn fn{AArchonCharacter::StaticClass, "ArchonCharacter", "IsEnemyFor"};
+        UFunction* f = fn.Get();
+        if (!f) return false;
+        Params::ArchonCharacter_IsEnemyFor p{};
+        p.TestController = pc;
+        umg::CallNative(c, f, &p);
+        return p.ReturnValue;
+    }
+
+    // #100, game thread: the sampled ids are checked against GObjects before any read (a sample is a frame or two old).
+    int PauseAddsNow() {
+        std::vector<combat::Sample> adds;
+        AcquireSRWLockExclusive(&g_mu);
+        adds.swap(g_adds);
+        ReleaseSRWLockExclusive(&g_mu);
+        APlayerController* pc = umg::LocalPC();
+        if (adds.empty() || !PtrOk(pc)) return 0;
+        int n = 0;
+        for (const combat::Sample& s : adds) {
+            const void* p = reinterpret_cast<const void*>(s.id);
+            if (s.index < 0 || ref::detail::At(s.index) != p) continue;  // collected since it was sampled
+            auto* c = ref::Ref(p).Get<AArchonCharacter>();
+            if (!c || !c->IsA(AArchonCharacter::StaticClass()) || c->Role != ENetRole::ROLE_Authority || PtrOk(c->PlayerState)
+                || !EnemyOf(c, pc))
+                continue;
+            HoldOne(c, n);
+            HoldOne(ref::Ref(c->Controller).Get<AActor>(), n);
+        }
+        return n;
+    }
+
+    void PauseAdds(const std::vector<combat::Sample>& adds) {
+        AcquireSRWLockExclusive(&g_mu);
+        g_adds = adds;
+        ReleaseSRWLockExclusive(&g_mu);
+    }
+
     int ResumeNow() {
         int n = 0;
         for (const auto& h : g_held)
@@ -276,7 +316,7 @@ namespace {
             g_boss = r;
             ReleaseSRWLockExclusive(&g_mu);
         }
-        if (const std::uintptr_t fight = g_pauseFight.load()) g_paused += PauseNow(fight);
+        if (const std::uintptr_t fight = g_pauseFight.load()) g_paused += PauseNow(fight) + PauseAddsNow();
         g_resume.Serve([] { g_resumed = ResumeNow(); });
     }
 }

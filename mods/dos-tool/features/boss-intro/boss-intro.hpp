@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "style.hpp"
+#include "combat.hpp"
 
 // SDK-free logic for the boss intro (#13). Spec: references/design-system.md § Boss intro camera, § Boss name card.
 namespace boss_intro {
@@ -92,6 +93,25 @@ namespace boss_intro {
             if (dilation != 0) return false;
             dilation = h.was;
             return true;
+        }
+
+        // #100: the adds wait too. Candidates come from core's character samples (Frame::chars, already taken while
+        // boss-intro is on): living non-players within kAddRadius of the player or the boss, once at intro start. The game
+        // thread then keeps only those it simulates and that are enemies of the local controller (never allies).
+        constexpr float kAddRadius = 3000.0f;  // cm = 30 m
+        inline std::vector<combat::Sample> Near(const std::vector<combat::Sample>& chars, std::uintptr_t player, float bx, float by, float bz) {
+            const combat::Sample* me = nullptr;
+            for (const combat::Sample& s : chars)
+                if (s.id == player) me = &s;
+            auto within = [](const combat::Sample& s, float x, float y, float z) {
+                const float dx = s.x - x, dy = s.y - y, dz = s.z - z;
+                return dx * dx + dy * dy + dz * dz <= kAddRadius * kAddRadius;
+            };
+            std::vector<combat::Sample> out;
+            for (const combat::Sample& s : chars)
+                if (!s.isPlayer && s.health > 0 && s.id != player && (within(s, bx, by, bz) || (me && within(s, me->x, me->y, me->z))))
+                    out.push_back(s);
+            return out;
         }
     }
 

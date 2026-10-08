@@ -25,6 +25,10 @@ namespace boss_intro::game_side {
     // co-op client simulates none, so it writes nothing). Asked every frame, done on the game thread in the camera
     // update; returns how many were newly frozen since the last call.
     int Pause(std::uintptr_t fight);
+    // #100: also freeze these sampled characters (pause::Near, once at intro start) and their AI controllers, on the game
+    // thread with the next Pause: only those still alive (GObjects[index] == id), simulated here, not player-controlled
+    // and enemies of the local controller (AArchonCharacter::IsEnemyFor).
+    void PauseAdds(const std::vector<combat::Sample>& adds);
     // Restores all frozen actors still alive on the game thread (game::Drain: bounded wait, else here); returns how many.
     int Resume();
     // #71: render thread asks for sphere sweeps (cam::kProbe, Camera channel) from `from` to each of `n` targets
