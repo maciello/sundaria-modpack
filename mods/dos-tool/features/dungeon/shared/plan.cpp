@@ -21,7 +21,8 @@
 #include "NavigationSystem_parameters.hpp"
 
 // Reaches everything through owners: world → game state → DungeonActor → floors → chunk actors (rooms) → their
-// trigger child actors, plus the floor's spawned actors (doors). No GObjects walk. Facts: game-facts.md § Dungeon.
+// trigger child actors, plus the floor's spawned actors (doors). No GObjects walk: Blueprint classes are matched by FName
+// (StaticName); their StaticClass() searches GObjects on first use. Facts: game-facts.md § Dungeon.
 using namespace SDK;
 using umg::PtrOk;
 
@@ -42,8 +43,8 @@ namespace {
 
     // Doors and levers; anything else (chests, volumes …⊇) is not a trigger of the path.
     bool AddTrigger(std::vector<dungeon_map::Trigger>& out, AActor* a, int room) {
-        if (!PtrOk(a) || !a->IsA(ABP_TriggerBase_C::StaticClass())) return false;
-        const bool door = a->IsA(ABP_Door_C::StaticClass()), lever = a->IsA(ABP_DeveloperLever_C::StaticClass());
+        if (!PtrOk(a) || !a->IsA(ABP_TriggerBase_C::StaticName())) return false;
+        const bool door = a->IsA(ABP_Door_C::StaticName()), lever = a->IsA(ABP_DeveloperLever_C::StaticName());
         if (!door && !lever) return false;
         auto* t = static_cast<ABP_TriggerBase_C*>(a);
         out.push_back({Loc(a), room, door, lever, int(t->mOpenCloseAnimState) == 0, int(t->LockStatus) != 0});
@@ -58,22 +59,20 @@ namespace {
     Floor Read(ABP_DungeonFloor_C* f) {
         Floor o{f};
         for (int j = 0; j < f->ChunkActors.Num(); j++)
-            if (AActor* c = f->ChunkActors[j]; PtrOk(c) && c->IsA(Abp_breadslice_C::StaticClass())) {
+            if (AActor* c = f->ChunkActors[j]; PtrOk(c) && c->IsA(Abp_breadslice_C::StaticName())) {
                 o.slices.push_back(static_cast<Abp_breadslice_C*>(c));
                 o.rooms.push_back(BoxOf(o.slices.back()));
             }
         return o;
     }
 
-    // Stairs-down room, else the floor's exit volume (last floor). Null = neither. The exit-volume class is asked for only
-    // when there are no stairs: a Blueprint class not loaded yet costs a GObjects search on every StaticClass() call.
+    // Stairs-down room, else the floor's exit volume (last floor). Null = neither.
     AActor* Goal(const Floor& f, bool& exitVolume) {
         exitVolume = false;
         for (Abp_breadslice_C* s : f.slices)
             if (PtrOk(s->Class) && s->Class->GetName().find("Stairs_Down") != std::string::npos) return s;
-        UClass* ev = ABP_DungeonExitVolume_C::StaticClass();
-        for (int j = 0; ev && j < f.actor->ChunkSpawnedActors.Num(); j++)
-            if (AActor* a = f.actor->ChunkSpawnedActors[j]; PtrOk(a) && a->IsA(ev)) return exitVolume = true, a;
+        for (int j = 0; j < f.actor->ChunkSpawnedActors.Num(); j++)
+            if (AActor* a = f.actor->ChunkSpawnedActors[j]; PtrOk(a) && a->IsA(ABP_DungeonExitVolume_C::StaticName())) return exitVolume = true, a;
         return nullptr;
     }
 
@@ -144,27 +143,35 @@ namespace {
 }
 
 namespace dungeon_map {
+    void Warm() {
+        for (const FName* n : {&ABP_GameState_C::StaticName(), &ABP_Dungeon_C::StaticName(), &ABP_DungeonFloor_C::StaticName(),
+                               &Abp_breadslice_C::StaticName(), &ABP_TriggerBase_C::StaticName(), &ABP_Door_C::StaticName(),
+                               &ABP_DeveloperLever_C::StaticName(), &ABP_DungeonExitVolume_C::StaticName()})
+            (void)n;
+        g_findPath.Get(), g_project.Get(), g_isPartial.Get();
+    }
+
     bool Begin(V3 pawn, Planning& out) {
         out = {};
         Plan& p = out.plan;
         UWorld* w = UWorld::GetWorld();
         AGameStateBase* gs = PtrOk(w) ? w->GameState : nullptr;
-        if (!PtrOk(gs) || !gs->IsA(ABP_GameState_C::StaticClass())) return p.why = "no dungeon game state", false;
+        if (!PtrOk(gs) || !gs->IsA(ABP_GameState_C::StaticName())) return p.why = "no dungeon game state", false;
         AActor* da = static_cast<ABP_GameState_C*>(gs)->DungeonActor;
-        if (!PtrOk(da) || !da->IsA(ABP_Dungeon_C::StaticClass())) return p.why = "no dungeon actor", false;
+        if (!PtrOk(da) || !da->IsA(ABP_Dungeon_C::StaticName())) return p.why = "no dungeon actor", false;
         auto* d = static_cast<ABP_Dungeon_C*>(da);
 
         // The pawn's floor: the one with a room around it, else the dungeon's active floor (corridor, stairs).
         Floor floor;
         for (int i = 0; i < d->FloorActors.Num() && !floor.actor; i++) {
             AActor* fa = d->FloorActors[i];
-            if (!PtrOk(fa) || !fa->IsA(ABP_DungeonFloor_C::StaticClass())) continue;
+            if (!PtrOk(fa) || !fa->IsA(ABP_DungeonFloor_C::StaticName())) continue;
             Floor f = Read(static_cast<ABP_DungeonFloor_C*>(fa));
             if (RoomOf(f.rooms, pawn) >= 0) floor = std::move(f);
         }
         for (int i = 0; i < d->FloorActors.Num() && !floor.actor; i++) {
             AActor* fa = d->FloorActors[i];
-            if (PtrOk(fa) && fa->IsA(ABP_DungeonFloor_C::StaticClass()) && static_cast<ABP_DungeonFloor_C*>(fa)->FloorNumber == d->CurrentActiveFloor)
+            if (PtrOk(fa) && fa->IsA(ABP_DungeonFloor_C::StaticName()) && static_cast<ABP_DungeonFloor_C*>(fa)->FloorNumber == d->CurrentActiveFloor)
                 floor = Read(static_cast<ABP_DungeonFloor_C*>(fa));
         }
         if (!floor.actor) return p.why = F("no floor for the pawn (active floor %d)", d->CurrentActiveFloor), false;

@@ -81,6 +81,13 @@ namespace {
     }
 
     void WorldTick() {
+        static bool warm = false;
+        if (!warm) {
+            static cost::Path warmCost{"dungeon plan warm-up (names, navmesh functions)"};
+            cost::Scope c(warmCost);
+            dungeon_map::Warm();
+            warm = true;
+        }
         CheckGameState();
         if (g_fresh.exchange(false) && g_inDungeon) ReplanIn(0);
         APlayerController* pc = umg::LocalPC();

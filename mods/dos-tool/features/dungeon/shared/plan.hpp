@@ -87,6 +87,9 @@ namespace dungeon_map {
         int door = -1;         // index into ts of the door the route stops at
         bool detouring = false;
     };
+    // Game thread, before the first plan (outside a dungeon): the one-time lookups a plan makes (class FNames, navmesh
+    // UFunctions), so no plan tick pays them.
+    void Warm();
     // Game thread, dungeon only. Reads the dungeon, no navmesh query: pawn decides the floor; the route starts at its
     // entry. O(rooms + triggers of the dungeon). false = no plan possible (out.plan.why says why).
     bool Begin(V3 pawn, Planning& out);
