@@ -21,6 +21,7 @@
 #include "Archon_parameters.hpp"
 #include "Engine_parameters.hpp"
 #include "room.hpp"
+#include "umg.hpp"
 #include <cmath>
 #include <algorithm>        // Params::PlayerCameraManager_BlueprintUpdateCamera (free camera)
 
@@ -109,7 +110,7 @@ void game::SetCameraCollision(bool enabled) {
 }
 
 namespace {
-    // Damage-type class → element, by class name; resolved once per class (render thread only).
+    // Damage-type class → element, by class name; resolved once per class (game thread only).
     combat::Element ElementOf(UClass* type) {
         static std::unordered_map<ref::Ref, combat::Element, ref::Hash> cache;  // ponytail: entries of collected classes stay (a few)
         if (!type) return combat::Element::Physical;
@@ -120,9 +121,11 @@ namespace {
     }
 }
 
-// Memory reads only (no ProcessEvent): this runs on the render thread.
-// ponytail: walks every actor of every loaded level each frame; cache the character list if it shows in frame time
-std::vector<combat::Sample> game::SampleHealth() {
+namespace {
+// Game thread only: the game destroys and frees actors and attribute sets there, so reading them from the render
+// thread races with that and crashed (#79). Memory reads only.
+// ponytail: walks every actor of every loaded level each world tick; cache the character list if it shows in frame time
+std::vector<combat::Sample> SampleNow() {
     std::vector<combat::Sample> out;
     UWorld* w = UWorld::GetWorld();
     if (!PtrOk(w)) return out;
@@ -164,6 +167,28 @@ std::vector<combat::Sample> game::SampleHealth() {
                            hit.EnsureReplicationByte, source, ElementOf(type), hit.ActualDamage});
         }
     }
+    return out;
+}
+
+SRWLOCK g_samplesMu = SRWLOCK_INIT;
+std::vector<combat::Sample> g_samples;  // latest world tick's copy; plain data, safe on any thread
+std::atomic<bool> g_sampling{false};
+
+void SampleOnTick(void*, void* fn, void*) {
+    if (!umg::IsWorldTick(fn) || !game::OnGameThread()) return;
+    std::vector<combat::Sample> s = SampleNow();
+    AcquireSRWLockExclusive(&g_samplesMu);
+    g_samples.swap(s);
+    ReleaseSRWLockExclusive(&g_samplesMu);
+}
+}
+
+// Render thread: a copy of what the game thread sampled on its last world tick (one frame behind).
+std::vector<combat::Sample> game::SampleHealth() {
+    if (!g_sampling.exchange(true)) game::SetEventListener(&SampleOnTick, true);
+    AcquireSRWLockShared(&g_samplesMu);
+    std::vector<combat::Sample> out = g_samples;
+    ReleaseSRWLockShared(&g_samplesMu);
     return out;
 }
 
