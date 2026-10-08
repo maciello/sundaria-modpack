@@ -328,11 +328,20 @@ namespace {
         g_freeHits++;
     }
 
+    // The game thread owns the game's window (UE: class "UnrealWindow"). Found by enumerating this process's
+    // windows, so a hot reload while the game is in the background works at once (#78).
     bool EnsureGameTid() {
         if (g_gameTid.load()) return true;
-        DWORD pid = 0;
-        const DWORD tid = GetWindowThreadProcessId(GetForegroundWindow(), &pid);
-        if (pid != GetCurrentProcessId()) return false;  // not focused yet: try next frame
+        DWORD tid = 0;
+        EnumWindows([](HWND w, LPARAM out) -> BOOL {
+            DWORD pid = 0;
+            const DWORD t = GetWindowThreadProcessId(w, &pid);
+            char cls[32];
+            if (pid != GetCurrentProcessId() || !GetClassNameA(w, cls, sizeof cls) || strcmp(cls, "UnrealWindow")) return TRUE;
+            *reinterpret_cast<DWORD*>(out) = t;
+            return FALSE;
+        }, reinterpret_cast<LPARAM>(&tid));
+        if (!tid) return false;  // window not created yet: try next frame
         g_gameTid = tid;
         return true;
     }
