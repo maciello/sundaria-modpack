@@ -455,18 +455,29 @@ namespace {
         auto it = g_realMesh.find(hub);
         if (it != g_realMesh.end()) return it->second;
         g_realMesh[hub] = nullptr;
-        std::string path = hub->GetFullName();  // "StaticMesh /Game/…/x_HUB.x_HUB"
-        path = path.substr(path.find(' ') + 1);
-        if (path.find("_HUB") == std::string::npos) return nullptr;
-        for (size_t p; (p = path.find("_HUB")) != std::string::npos;) path.erase(p, 4);
-        const std::wstring wpath(path.begin(), path.end());
-        UObject* o = UKismetSystemLibrary::LoadAsset_Blocking(
-            UKismetSystemLibrary::Conv_SoftObjPathToSoftObjRef(UKismetSystemLibrary::MakeSoftObjectPath(FString(wpath.c_str()))));
-        UStaticMesh* real = PtrOk(o) && o->IsA(UStaticMesh::StaticClass()) ? static_cast<UStaticMesh*>(o) : nullptr;
-        char buf[400];
-        std::snprintf(buf, sizeof(buf), "[collision] real version %s: %s simple=%d trace=%d", path.c_str(), real ? "found" : "missing",
-                      real ? SimpleShapes(real->BodySetup) : -1, real && PtrOk(real->BodySetup) ? int(real->BodySetup->CollisionTraceFlag) : -1);
-        logger::log(buf);
+        // the package's raw FName is the full path (/Game/…/x_HUB); GetName()/GetFullName() drop the folders
+        std::string pkg = "";
+        for (UObject* p = hub->Outer; PtrOk(p); p = p->Outer) pkg = p->Name.GetRawString();
+        std::string name = hub->GetName();
+        if (name.find("_HUB") == std::string::npos) return nullptr;
+        for (size_t p; (p = name.find("_HUB")) != std::string::npos;) name.erase(p, 4);
+        std::string folder = pkg.substr(0, pkg.find_last_of('/') + 1);
+        for (size_t p; (p = folder.find("_HUB")) != std::string::npos;) folder.erase(p, 4);
+        // twins seen in dungeons live in HumanTown/Meshes (mesh probe); the hub copies may sit elsewhere
+        UStaticMesh* real = nullptr;
+        for (const std::string& dir : {folder, std::string("/Game/Environments/HumanTown/Meshes/")}) {
+            const std::string path = dir + name + "." + name;
+            const std::wstring wpath(path.begin(), path.end());
+            UObject* o = UKismetSystemLibrary::LoadAsset_Blocking(
+                UKismetSystemLibrary::Conv_SoftObjPathToSoftObjRef(UKismetSystemLibrary::MakeSoftObjectPath(FString(wpath.c_str()))));
+            real = PtrOk(o) && o->IsA(UStaticMesh::StaticClass()) ? static_cast<UStaticMesh*>(o) : nullptr;
+            char buf[400];
+            std::snprintf(buf, sizeof(buf), "[collision] real version %s (hub copy in %s): %s simple=%d trace=%d", path.c_str(), pkg.c_str(),
+                          real ? "found" : "missing", real ? SimpleShapes(real->BodySetup) : -1,
+                          real && PtrOk(real->BodySetup) ? int(real->BodySetup->CollisionTraceFlag) : -1);
+            logger::log(buf);
+            if (real) break;
+        }
         g_realMesh[hub] = real;
         return real;
     }
