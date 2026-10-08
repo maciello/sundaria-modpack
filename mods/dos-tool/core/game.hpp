@@ -77,10 +77,12 @@ namespace game {
     // cameras all override it) is replaced with this pose on the game thread. nullptr = off.
     struct CamPose { float x, y, z, pitch, yaw; float fovDelta = 0; };  // fovDelta: added to the game's own FOV
     // priority 1 (free camera) outranks 0 (a follow camera): while both are set, the priority-1 pose shows.
-    void SetFreeCam(const CamPose* pose, int priority = 1);
+    // true = this pose is on screen from the next camera update (false: no window focus yet, outranked, or nullptr)
+    bool SetFreeCam(const CamPose* pose, int priority = 1);
     int CamOwner();  // highest priority currently set, -1 = none
-    // The pose (and FOV in fovDelta) the game's BlueprintUpdateCamera computed before the override replaced it, so a
-    // camera move can blend from and back to the live gameplay camera. false unless captured in the last 250 ms.
+    // The pose (and FOV in fovDelta) the game's BlueprintUpdateCamera computed (before any override replaced it), so a
+    // camera move can blend from and back to the live gameplay camera. Captured while the ProcessEvent hook is
+    // installed, override or not. false unless captured in the last 250 ms.
     bool GameCamPose(CamPose& out);
     int FreeCamOverrides();  // BlueprintUpdateCamera calls replaced so far (0 while on = that path never runs here)
     // Hub walk: possess the hub's hero (the player character standing in the village) and drive it.

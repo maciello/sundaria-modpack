@@ -745,16 +745,19 @@ namespace {
         if (!skip || !skip(const_cast<UObject*>(obj), fn, parms)) g_oPE(obj, fn, parms);
         for (auto& l : g_listeners)
             if (game::EventListener f = l.load(std::memory_order_relaxed)) f(const_cast<UObject*>(obj), fn, parms);
-        if (g_freeOn.load(std::memory_order_relaxed) && PtrOk(fn) && PtrOk(parms)
-            && fn->Name.ComparisonIndex == g_camFnName.load(std::memory_order_relaxed)) {
+        if (PtrOk(fn) && PtrOk(parms) && fn->Name.ComparisonIndex == g_camFnName.load(std::memory_order_relaxed)) {
             auto* p = static_cast<Params::PlayerCameraManager_BlueprintUpdateCamera*>(parms);
-            if (p->ReturnValue) {
+            if (p->ReturnValue) {  // the game's own pose, captured whether or not it is overridden below
                 AcquireSRWLockExclusive(&g_gameCamMu);
                 g_gameCam = {p->NewCameraLocation.X, p->NewCameraLocation.Y, p->NewCameraLocation.Z,
                              p->NewCameraRotation.Pitch, p->NewCameraRotation.Yaw, p->NewCameraFOV};
                 g_gameCamAt = GetTickCount64();
                 ReleaseSRWLockExclusive(&g_gameCamMu);
             }
+        }
+        if (g_freeOn.load(std::memory_order_relaxed) && PtrOk(fn) && PtrOk(parms)
+            && fn->Name.ComparisonIndex == g_camFnName.load(std::memory_order_relaxed)) {
+            auto* p = static_cast<Params::PlayerCameraManager_BlueprintUpdateCamera*>(parms);
             AcquireSRWLockShared(&g_freeMu);
             p->NewCameraLocation = FVector{g_freePose.x, g_freePose.y, g_freePose.z};
             p->NewCameraRotation = FRotator{g_freePose.pitch, g_freePose.yaw, 0.0f};
@@ -843,32 +846,38 @@ namespace {
     bool g_slotOn[2] = {};
 }
 
-void game::SetFreeCam(const CamPose* pose, int priority) {
+namespace {
+    bool CamFnKnown() {
+        if (g_camFnName.load() >= 0) return true;
+        UFunction* fn = APlayerCameraManager::StaticClass()->GetFunction("PlayerCameraManager", "BlueprintUpdateCamera");
+        if (!PtrOk(fn)) return false;
+        g_camFnName = fn->Name.ComparisonIndex;
+        return true;
+    }
+}
+
+bool game::SetFreeCam(const CamPose* pose, int priority) {
     const int me = priority > 0 ? 1 : 0, other = 1 - me;
     if (pose) {
-        if (g_camFnName.load() < 0) {
-            UFunction* fn = APlayerCameraManager::StaticClass()->GetFunction("PlayerCameraManager", "BlueprintUpdateCamera");
-            if (!PtrOk(fn)) return;
-            g_camFnName = fn->Name.ComparisonIndex;
-        }
-        if (!EnsureGameTid()) return;
+        if (!CamFnKnown() || !EnsureGameTid()) return false;  // the game window has no focus yet
         g_slotOn[me] = true;
-        if (g_slotOn[other] && other > me) return;  // outranked: the other user's pose stays on screen
+        if (g_slotOn[other] && other > me) return false;  // outranked: the other user's pose stays on screen
         AcquireSRWLockExclusive(&g_freeMu);
         g_freePose = *pose;
         ReleaseSRWLockExclusive(&g_freeMu);
         g_poseSeq++;
         if (!g_freeOn.exchange(true)) UpdatePEHook();
-        return;
+        return true;
     }
-    if (!g_slotOn[me]) return;
+    if (!g_slotOn[me]) return false;
     g_slotOn[me] = false;
-    if (g_slotOn[other]) return;  // the other user keeps the camera (it posts its pose every frame)
+    if (g_slotOn[other]) return false;  // the other user keeps the camera (it posts its pose every frame)
     g_freeOn = false;
     // The game thread puts a moved view camera back on its next ProcessEvent; wait briefly, then unhook regardless.
     for (int i = 0; i < 50 && g_camMoved.load(); i++) Sleep(2);
     if (g_camMoved.exchange(false)) logger::log("[freecam] view camera not restored in time");
     UpdatePEHook();
+    return false;
 }
 
 int game::FreeCamOverrides() { return g_freeHits.load(); }
@@ -876,6 +885,7 @@ int game::FreeCamOverrides() { return g_freeHits.load(); }
 bool game::OnGameThread() { return EnsureGameTid() && GetCurrentThreadId() == g_gameTid.load(); }
 
 bool game::GameCamPose(CamPose& out) {
+    CamFnKnown();  // the hook captures the game's pose once it knows the function's name
     AcquireSRWLockShared(&g_gameCamMu);
     out = g_gameCam;
     const bool fresh = g_gameCamAt && GetTickCount64() - g_gameCamAt < 250;
