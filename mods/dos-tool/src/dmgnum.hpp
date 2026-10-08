@@ -13,11 +13,14 @@ namespace dmgnum {
     enum class Kind { Dealt, Taken, Heal };
     struct Number {
         float x, y, z;
-        float amount;  // always > 0
+        float amount;  // always > 0; running total while stacking
         Kind kind;
-        float scale;   // relative size: 1 = your typical hit
+        float scale;   // relative size: 1 = your typical single hit
         float drift;   // -1..1 sideways direction
-        double born;
+        double born;   // first hit
+        uintptr_t id = 0;
+        int hits = 1;
+        double bump = born;  // last hit merged in
     };
 
     // Fight = damage dealt to non-players with no gap longer than `gap` seconds.
@@ -29,10 +32,11 @@ namespace dmgnum {
     };
 
     struct Tracker {
-        double lifetime = 1.4;   // seconds on screen
+        double lifetime = 1.4;   // seconds on screen after the last hit
         double grace = 1.5;      // ignore changes this long after first sight (spawn HP fill-up)
         double gap = 5.0;        // fight ends after this long without damage dealt
-        float typical = 0;       // EMA of hit size (dealt), the "1.0" for scale
+        double stack = 1.0;      // hits on the same target+kind closer than this merge
+        float typical = 0;       // EMA of single dealt hits, the "1.0" for scale
 
         std::unordered_map<uintptr_t, float> last;
         std::unordered_map<uintptr_t, double> firstSeen;
@@ -40,11 +44,26 @@ namespace dmgnum {
         Fight fight;
         bool inFight = false;
 
-        float Scale(float amount) {
-            if (typical <= 0) typical = amount;
-            const float s = 1.0f + 0.45f * std::log2(amount / typical);
-            typical += 0.08f * (amount - typical);
-            return std::clamp(s, 0.6f, 2.2f);
+        float Rel(float amount) const {
+            const float t = typical > 0 ? typical : amount;
+            return std::clamp(1.0f + 0.45f * std::log2(amount / t), 0.8f, 2.4f);
+        }
+        void Learn(float amount) { typical = typical <= 0 ? amount : typical + 0.08f * (amount - typical); }
+        float Scale(float amount) { Learn(amount); return Rel(amount); }
+
+        void Add(const Sample& s, float amount, Kind kind, double now) {
+            for (Number& n : live)
+                if (n.id == s.id && n.kind == kind && now - n.bump <= stack) {
+                    n.amount += amount;
+                    n.hits++;
+                    n.bump = now;
+                    n.x = s.x; n.y = s.y; n.z = s.z;
+                    if (kind == Kind::Dealt) n.scale = Rel(n.amount);
+                    return;
+                }
+            const float drift = float((s.id >> 4) % 200) / 100.0f - 1.0f;
+            const float scale = kind == Kind::Dealt ? Rel(amount) : kind == Kind::Taken ? 0.95f : 0.9f;
+            live.push_back({s.x, s.y, s.z, amount, kind, scale, drift, now, s.id, 1, now});
         }
 
         void Update(const std::vector<Sample>& samples, double now) {
@@ -58,13 +77,13 @@ namespace dmgnum {
                 if (it == last.end() || s.health == it->second) continue;
                 if (now - first[s.id] < grace || it->second <= 0) continue;
                 const float delta = it->second - s.health;
-                const float drift = float((s.id >> 4) % 200) / 100.0f - 1.0f;
                 if (delta < 0) {
-                    live.push_back({s.x, s.y, s.z, -delta, Kind::Heal, 0.8f, drift, now});
+                    Add(s, -delta, Kind::Heal, now);
                 } else if (s.isPlayer) {
-                    live.push_back({s.x, s.y, s.z, delta, Kind::Taken, 0.9f, drift, now});
+                    Add(s, delta, Kind::Taken, now);
                 } else {
-                    live.push_back({s.x, s.y, s.z, delta, Kind::Dealt, Scale(delta), drift, now});
+                    Add(s, delta, Kind::Dealt, now);
+                    Learn(delta);
                     if (!inFight || now - fight.last > gap) { fight = {now, now, 0}; inFight = true; }
                     fight.total += delta;
                     fight.last = now;
@@ -72,7 +91,7 @@ namespace dmgnum {
             }
             last.swap(seen);  // actors that vanished are forgotten (no number on despawn)
             firstSeen.swap(first);
-            std::erase_if(live, [&](const Number& n) { return now - n.born > lifetime; });
+            std::erase_if(live, [&](const Number& n) { return now - n.bump > lifetime; });
         }
 
         bool FightActive(double now) const { return inFight && now - fight.last <= gap; }
@@ -112,18 +131,19 @@ namespace dmgnum {
         return 1 + c3 * u * u * u + c1 * u * u;
     }
 
-    // big: 0 = typical hit, 1 = huge (more overshoot, longer flash)
-    inline Anim Animate(double age, double lifetime, float drift, float big) {
-        const float t = float(std::clamp(age / lifetime, 0.0, 1.0));
-        const float pop = std::min(float(age) / 0.22f, 1.0f);
-        const float rise = std::min(float(age) / 0.6f, 1.0f);
-        const float out = std::clamp((t - 0.7f) / 0.3f, 0.0f, 1.0f);
+    // sinceBorn: first hit; sinceBump: last merged hit. big: 0 = typical, 1 = huge.
+    inline Anim Animate(double sinceBorn, double sinceBump, double lifetime, float drift, float big, bool stacked) {
+        const float age = float(sinceBorn), bump = float(sinceBump);
+        const float pop = std::min(age / 0.22f, 1.0f);
+        const float rise = std::min(age / 0.6f, 1.0f);
+        const float out = std::clamp(float(sinceBump / lifetime - 0.7) / 0.3f, 0.0f, 1.0f);
+        const float kick = stacked ? 0.35f * EaseInQuad(1.0f - std::min(bump / 0.25f, 1.0f)) : 0.0f;
         Anim a;
-        a.scale = EaseOutBack(pop, 1.7f + 1.6f * big) * (1.0f - 0.25f * EaseInQuad(out));
+        a.scale = EaseOutBack(pop, 1.7f + 1.6f * big) * (1.0f + kick) * (1.0f - 0.25f * EaseInQuad(out));
         a.dx = drift * 0.9f * EaseOutCubic(rise);
         a.dy = -1.6f * EaseOutCubic(rise) - 0.5f * EaseInQuad(out);
         a.alpha = 1.0f - EaseInQuad(out);
-        a.flash = 1.0f - std::min(float(age) / (0.12f + 0.1f * big), 1.0f);
+        a.flash = 1.0f - std::min(std::min(age, bump) / (0.12f + 0.1f * big), 1.0f);
         return a;
     }
 }

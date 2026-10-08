@@ -11,7 +11,7 @@
 #include <cfloat>
 
 #include "kiero.h"
-#include "font_lilita.h"
+#include "fonts.h"
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
@@ -34,7 +34,8 @@ static HWND                    g_hwnd = nullptr;
 static WNDPROC                 g_oWndProc = nullptr;
 static bool                    g_imguiReady = false;
 static bool                    g_showMenu = false;
-static ImFont*                 g_numFont = nullptr;
+static ImFont*                 g_fonts[sizeof(kFonts) / sizeof(kFonts[0])] = {};
+static int                     g_font = 1;  // Titan One
 
 // ---- feature state ----------------------------------------------------------
 static bool  g_seeded = false;
@@ -45,8 +46,9 @@ static bool  g_dmgNumbers = true;
 static bool  g_dpsPanel = true;
 static float g_height = 40.0f;  // cm above capsule center
 static float g_size = 1.0f;
-struct Preview { float sx, sy; dmgnum::Number n; };
+struct Preview { float sx, sy; dmgnum::Number n; std::vector<std::pair<double, float>> ticks; };
 static std::vector<Preview> g_preview;
+static float g_previewTypical = 20;
 static dmgnum::Tracker g_dmg;
 
 static LRESULT WINAPI hkWndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
@@ -90,7 +92,8 @@ static bool InitImGui(IDXGISwapChain* sc) {
     io.Fonts->AddFontDefault();
     ImFontConfig cfg;
     cfg.FontDataOwnedByAtlas = false;
-    g_numFont = io.Fonts->AddFontFromMemoryTTF((void*)kFontLilita, sizeof(kFontLilita), 64.0f, &cfg);
+    for (int i = 0; i < IM_ARRAYSIZE(kFonts); i++)
+        g_fonts[i] = io.Fonts->AddFontFromMemoryTTF((void*)kFonts[i].data, kFonts[i].size, 64.0f, &cfg);
     ImGui_ImplWin32_Init(g_hwnd);
     ImGui_ImplDX11_Init(g_device, g_context);
     g_oWndProc = (WNDPROC)SetWindowLongPtr(g_hwnd, GWLP_WNDPROC, (LONG_PTR)hkWndProc);
@@ -127,6 +130,11 @@ static void DrawMenu(const game::Snapshot& snap) {
     ImGui::Checkbox("DPS panel", &g_dpsPanel);
     ImGui::SliderFloat("Number height", &g_height, -60.0f, 160.0f, "%.0f cm");
     ImGui::SliderFloat("Number size", &g_size, 0.5f, 2.0f, "%.2fx");
+    if (ImGui::BeginCombo("Font", kFonts[g_font].name)) {
+        for (int i = 0; i < IM_ARRAYSIZE(kFonts); i++)
+            if (ImGui::Selectable(kFonts[i].name, i == g_font)) g_font = i;
+        ImGui::EndCombo();
+    }
     if (ImGui::Button("Preview numbers")) {
         const ImVec2 c(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.45f);
         const double now = ImGui::GetTime();
@@ -137,8 +145,12 @@ static void DrawMenu(const game::Snapshot& snap) {
             const float sc = scratch.Scale(amounts[i]);
             g_preview.push_back({c.x + (i - 2.5f) * 50.0f, c.y, {0, 0, 0, amounts[i], dmgnum::Kind::Dealt, sc, (i % 3) - 1.0f, now + i * 0.18}});
         }
-        g_preview.push_back({c.x - 220, c.y + 80, {0, 0, 0, 35, dmgnum::Kind::Taken, 0.9f, -1, now + 0.4}});
-        g_preview.push_back({c.x + 220, c.y + 80, {0, 0, 0, 50, dmgnum::Kind::Heal, 0.8f, 1, now + 0.7}});
+        g_preview.push_back({c.x - 220, c.y + 80, {0, 0, 0, 35, dmgnum::Kind::Taken, 0.95f, -1, now + 0.4}});
+        g_preview.push_back({c.x + 220, c.y + 80, {0, 0, 0, 50, dmgnum::Kind::Heal, 0.9f, 1, now + 0.7}});
+        Preview dot{c.x, c.y + 170, {0, 0, 0, 12, dmgnum::Kind::Dealt, scratch.Rel(12), 0.3f, now + 1.2}};  // DoT: 8 ticks stack
+        for (int i = 1; i < 8; i++) dot.ticks.push_back({now + 1.2 + i * 0.45, 12.0f + i});
+        g_preview.push_back(dot);
+        g_previewTypical = scratch.typical;
     }
 
     ImGui::Separator();
@@ -160,10 +172,11 @@ static void OutlinedText(ImDrawList* dl, ImFont* f, float size, ImVec2 p, ImU32 
 }
 
 static void DrawNumber(ImDrawList* dl, ImFont* font, float base, float sx, float sy, const dmgnum::Number& n, double now) {
-    const double age = now - n.born;
-    if (age < 0) return;
+    const double sinceBorn = now - n.born, sinceBump = now - n.bump;
+    if (sinceBorn < 0) return;
     const float big = std::clamp((n.scale - 1.0f) / 0.8f, 0.0f, 1.0f);
-    const dmgnum::Anim an = dmgnum::Animate(age, g_dmg.lifetime, n.drift, n.kind == dmgnum::Kind::Dealt ? big : 0.0f);
+    const dmgnum::Anim an = dmgnum::Animate(sinceBorn, sinceBump, g_dmg.lifetime, n.drift,
+                                            n.kind == dmgnum::Kind::Dealt ? big : 0.0f, n.hits > 1);
     if (an.scale <= 0.01f || an.alpha <= 0.0f) return;
     char buf[24];
     FormatAmount(buf, sizeof(buf) - 1, n.amount);
@@ -175,23 +188,40 @@ static void DrawNumber(ImDrawList* dl, ImFont* font, float base, float sx, float
     }
     r += (255 - r) * an.flash; g += (255 - g) * an.flash; b += (255 - b) * an.flash;  // impact flash
     const int a = int(255 * an.alpha);
-    const float size = base * g_size * n.scale * an.scale;
-    const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, buf);
     const float unit = base * g_size * n.scale;
+    const float size = unit * an.scale;
+    const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, buf);
     const ImVec2 pos(sx + an.dx * unit - ts.x * 0.5f, sy + an.dy * unit - ts.y * 0.5f);
     const float ow = std::max(1.5f, size / 16.0f);
+    const ImU32 outline = IM_COL32(20, 12, 8, int(a * 0.85f));
     if (an.flash > 0)  // soft glow while hot
         OutlinedText(dl, font, size, pos, IM_COL32(0, 0, 0, 0), IM_COL32(int(r), int(g), int(b), int(90 * an.flash * an.alpha)), ow * 3.0f, buf);
-    OutlinedText(dl, font, size, pos, IM_COL32(int(r), int(g), int(b), a), IM_COL32(20, 12, 8, int(a * 0.85f)), ow, buf);
+    OutlinedText(dl, font, size, pos, IM_COL32(int(r), int(g), int(b), a), outline, ow, buf);
+    if (n.hits > 1) {  // hit counter, sits on the top-right shoulder
+        char cnt[16];
+        std::snprintf(cnt, sizeof(cnt), "x%d", n.hits);
+        const float cs = std::max(14.0f, unit * 0.42f);
+        OutlinedText(dl, font, cs, ImVec2(pos.x + ts.x + 2, pos.y - cs * 0.15f), IM_COL32(255, 210, 120, a), outline, std::max(1.0f, cs / 14.0f), cnt);
+    }
 }
 
 static void DrawDamageNumbers() {
     const double now = ImGui::GetTime();
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
-    const float base = screen.y / 30.0f;  // ~36 px at 1080p for a typical hit
+    const float base = screen.y / 26.0f;  // ~42 px at 1080p for a typical hit
     ImDrawList* dl = ImGui::GetForegroundDrawList();
-    ImFont* font = g_numFont ? g_numFont : ImGui::GetFont();
-    std::erase_if(g_preview, [&](const Preview& p) { return now - p.n.born > g_dmg.lifetime; });
+    ImFont* font = g_fonts[g_font] ? g_fonts[g_font] : ImGui::GetFont();
+    dmgnum::Tracker rel;
+    rel.typical = g_previewTypical;
+    for (Preview& p : g_preview)
+        while (!p.ticks.empty() && p.ticks.front().first <= now) {
+            p.n.amount += p.ticks.front().second;
+            p.n.hits++;
+            p.n.bump = p.ticks.front().first;
+            p.n.scale = rel.Rel(p.n.amount);
+            p.ticks.erase(p.ticks.begin());
+        }
+    std::erase_if(g_preview, [&](const Preview& p) { return p.ticks.empty() && now - p.n.bump > g_dmg.lifetime; });
     for (const Preview& p : g_preview) DrawNumber(dl, font, base, p.sx, p.sy, p.n, now);
     dmgnum::View view;
     if (g_dmg.live.empty() || !game::GetView(view)) return;
@@ -215,12 +245,12 @@ static void DrawDpsPanel() {
     ImGui::SetNextWindowBgAlpha(0.35f);
     ImGui::Begin("##dps", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
                  ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    if (g_numFont) ImGui::PushFont(g_numFont);
+    if (g_fonts[g_font]) ImGui::PushFont(g_fonts[g_font]);
     ImGui::SetWindowFontScale(0.4f);
     ImGui::TextColored(active ? ImVec4(1, 0.85f, 0.4f, 1) : ImVec4(0.7f, 0.7f, 0.7f, 1), "DPS %s", dps);
     ImGui::SetWindowFontScale(0.28f);
     ImGui::Text("total %s  |  %.0fs", total, f.Duration());
-    if (g_numFont) ImGui::PopFont();
+    if (g_fonts[g_font]) ImGui::PopFont();
     ImGui::End();
 }
 

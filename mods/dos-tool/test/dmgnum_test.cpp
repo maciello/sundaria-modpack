@@ -30,12 +30,12 @@ int main() {
     // relative size: 4x typical is bigger, tiny is smaller, clamped
     dmgnum::Tracker s;
     assert(s.Scale(20) == 1.0f);
-    assert(s.Scale(80) > 1.5f && s.Scale(1) < 0.8f && s.Scale(1e9f) <= 2.2f);
+    assert(s.Scale(80) > 1.5f && s.Scale(1) == 0.8f && s.Scale(1e9f) <= 2.4f);   // floor 0.8: small hits stay readable
     // late game: typical drifts up, so the same 400 shrinks
     dmgnum::Tracker late;
     late.Scale(400);
     for (int i = 0; i < 100; i++) late.Scale(20000);
-    assert(late.Scale(400) < 0.7f);
+    assert(late.Scale(400) == 0.8f);
 
     // fights: total/DPS, new fight after the gap
     dmgnum::Tracker f;
@@ -70,17 +70,34 @@ int main() {
     assert(dmgnum::Project(down, 100, 0, -100, 1920, 1080, sx, sy) && near(sx, 960) && near(sy, 540));
 
     // animation curve
-    auto a0 = dmgnum::Animate(0.0, 1.4, 1, 0), a1 = dmgnum::Animate(0.12, 1.4, 1, 0);
-    auto a2 = dmgnum::Animate(0.5, 1.4, 1, 0), a3 = dmgnum::Animate(1.4, 1.4, 1, 0);
+    auto A = [](double t, float big) { return dmgnum::Animate(t, t, 1.4, 1, big, false); };
+    auto a0 = A(0.0, 0), a1 = A(0.12, 0), a2 = A(0.5, 0), a3 = A(1.4, 0);
     assert(a0.scale == 0 && a0.flash == 1 && a0.alpha == 1);           // starts from nothing, white-hot
     assert(a1.scale > 1.0f);                                             // overshoot during pop
     assert(near(a2.scale, 1.0f) && a2.alpha == 1 && a2.dy < -1.0f);      // settled, risen, opaque
     assert(a3.alpha == 0 && a3.scale < 1.0f);                            // gone at end of life
     float peakTypical = 0, peakBig = 0;
     for (double t = 0; t < 0.25; t += 0.005) {
-        peakTypical = std::max(peakTypical, dmgnum::Animate(t, 1.4, 0, 0).scale);
-        peakBig = std::max(peakBig, dmgnum::Animate(t, 1.4, 0, 1).scale);
+        peakTypical = std::max(peakTypical, A(t, 0).scale);
+        peakBig = std::max(peakBig, A(t, 1).scale);
     }
     assert(peakBig > peakTypical);                                       // big hits punch harder
+    // stacked number: bump kicks scale + flash, stays alive while hits keep coming
+    auto settled = dmgnum::Animate(2.0, 0.6, 1.4, 0, 0, true), kicked = dmgnum::Animate(2.0, 0.0, 1.4, 0, 0, true);
+    assert(kicked.scale > settled.scale + 0.3f && kicked.flash == 1 && kicked.alpha == 1);
+
+    // stacking: same target within window merges, total grows, size grows
+    dmgnum::Tracker st;
+    st.Update({{5, 0, 0, 0, 1000, false}, {6, 0, 0, 0, 1000, false}}, 0.0);
+    st.Update({{5, 0, 0, 0, 980, false}, {6, 0, 0, 0, 1000, false}}, 2.0);
+    const float s1 = st.live[0].scale;
+    st.Update({{5, 0, 0, 0, 960, false}, {6, 0, 0, 0, 1000, false}}, 2.5);
+    st.Update({{5, 0, 0, 0, 940, false}, {6, 0, 0, 0, 990, false}}, 3.0);   // other target: separate
+    assert(st.live.size() == 2 && st.live[0].amount == 60 && st.live[0].hits == 3 && st.live[0].scale > s1);
+    assert(std::fabs(st.typical - 19.2f) < 0.01f && st.live[1].amount == 10); // typical learns single hits (20,20,20,10), not the 60 stack
+    st.Update({{5, 0, 0, 0, 920, false}, {6, 0, 0, 0, 990, false}}, 4.2);  // 1.2 s gap > stack window: new number, old still fading
+    assert(st.live.size() == 3 && st.live[2].amount == 20);
+    st.Update({{5, 0, 0, 0, 920, false}, {6, 0, 0, 0, 990, false}}, 4.2 + 1.5);
+    assert(st.live.empty());                                               // all expired after last bump
     std::puts("ok");
 }
