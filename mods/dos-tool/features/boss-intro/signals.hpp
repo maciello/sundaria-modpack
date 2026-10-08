@@ -19,5 +19,9 @@ namespace boss_intro::game_side {
     bool Alive(std::uintptr_t fight);  // the fight actor still exists (map travel frees it)
     std::uintptr_t LocalPawn();  // id of the local pawn (= combat::Sample::id), 0 = none (render thread: memory reads)
     void Listen(bool on);
+    // #70: freeze the fight's bosses, partners and their controllers that this machine simulates (host / solo; a
+    // co-op client simulates none, so it writes nothing). Idempotent per frame; returns how many were newly frozen.
+    int Pause(std::uintptr_t fight);
+    int Resume();  // restores all frozen actors still alive; returns how many
     std::vector<Event> Take();  // render thread: events since the last call
 }

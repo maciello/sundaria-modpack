@@ -76,6 +76,25 @@ namespace boss_intro {
         }
     };
 
+    // The fight waits while its intro plays (#70): each boss/partner actor and its AI controller this machine simulates
+    // gets CustomTimeDilation 0 (its tick and its components' ticks, movement, animation, behaviour tree, run with
+    // delta 0), captured once; restore puts back the captured value unless the game has changed it since (it wins).
+    namespace pause {
+        template<class K> struct Held { K key; float was; };
+        template<class K> bool Hold(std::vector<Held<K>>& held, const K& k, float& dilation) {
+            for (const Held<K>& h : held)
+                if (h.key == k) return false;
+            held.push_back({k, dilation});
+            dilation = 0;
+            return true;
+        }
+        template<class K> bool Release(const Held<K>& h, float& dilation) {
+            if (dilation != 0) return false;
+            dilation = h.was;
+            return true;
+        }
+    }
+
     // Camera move (#18): live camera -> framing shot -> slow orbit -> back to the live camera, re-read every frame.
     namespace cam {
         constexpr float kApproach = 1.2f, kReturn = 0.8f;   // s, InOutCubic

@@ -56,6 +56,16 @@ int main() {
         d.On(Signal::FightBegin, 3, 500);
         assert(d.On(Signal::ArenaEnter, 3, 510).kind == Verdict::Start);
     }
+    {   // #70: pause holds each actor once, restores its own value, and leaves a value the game changed meanwhile
+        std::vector<pause::Held<int>> held;
+        float boss = 1.0f, add = 0.5f;
+        assert(pause::Hold(held, 1, boss) && boss == 0);
+        assert(!pause::Hold(held, 1, boss) && held.size() == 1);  // every frame: captured once, never as 0
+        assert(pause::Hold(held, 2, add) && add == 0);
+        add = 0.3f;                                                // the game slowed it meanwhile
+        assert(pause::Release(held[0], boss) && boss == 1.0f);
+        assert(!pause::Release(held[1], add) && add == 0.3f);
+    }
     {   // camera: no pop at either end, full shot in the hold, orbit only in the hold
         using namespace cam;
         auto near = [](float a, float b, float e = 1e-3f) { return std::fabs(a - b) < e; };

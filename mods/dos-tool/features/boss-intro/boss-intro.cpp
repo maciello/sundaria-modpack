@@ -18,6 +18,9 @@
 // boss splash. Spec: design-system.md § Boss intro camera; title constants in boss-intro.hpp.
 // The camera is the core override (game::SetFreeCam, the free camera's path): nothing of the game's is written, so
 // ending the override is the exact restore. Local to this client: co-op partners see nothing.
+// The fight waits (#70): the host (or solo) freezes the boss, its partners and their AI for the intro, restored on every
+// end (done, skip, Off, map change via "no local pawn"). A co-op client simulates no AI, so it freezes nothing and sees
+// the boss act during its own intro; the host's intro freezes the boss for everyone, at most kTotal + kWaitForBoss.
 // Skip (#20): the chosen key or Escape (the game's menu) ends camera and title at once; so do losing the pawn, being
 // downed and the game camera stopping. Never blocks input or other players.
 namespace {
@@ -68,6 +71,7 @@ namespace {
         void End(const char* why, double now) {
             if (!run.on) return;
             game::SetFreeCam(nullptr, 0);  // also clears a slot taken while outranked
+            if (const int n = game_side::Resume()) Log("[boss-intro] restored %.0f actors", n);
             char buf[160];
             std::snprintf(buf, sizeof(buf), "[boss-intro] camera %s after %.1f s (camera overrides so far %d)", why,
                           run.cam ? now - run.t0 : 0.0, game::FreeCamOverrides());
@@ -127,6 +131,7 @@ namespace {
             }
             if (!run.cam) Log("[boss-intro] camera start, boss half height %.0f", run.boss.halfHeight);
             run.cam = true;
+            if (const int n = game_side::Pause(run.fight)) Log("[boss-intro] paused %.0f actors", n);  // partners may spawn later
 
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             const float bar = cam::Letterbox(t) * f.h;

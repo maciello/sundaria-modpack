@@ -32,6 +32,11 @@ namespace {
     SRWLOCK g_mu = SRWLOCK_INIT;
     std::vector<boss_intro::game_side::Event> g_events;
     std::vector<ref::Ref> g_fights;  // ABP_BossFight_C seen by a signal, newest last
+    std::vector<boss_intro::pause::Held<ref::Ref>> g_held;  // render thread (Pause/Resume)
+
+    void HoldOne(AActor* a, int& n) {  // a: live (ref-checked)
+        if (a && a->Role == ENetRole::ROLE_Authority && boss_intro::pause::Hold(g_held, ref::Ref(a), a->CustomTimeDilation)) n++;
+    }
 
     void Resolve(const UClass* c, int from, int to) {
         if (!PtrOk(c)) return;
@@ -147,6 +152,27 @@ namespace boss_intro::game_side {
         const UCapsuleComponent* c = boss->CapsuleComponent;
         out = {p.X, p.Y, p.Z, c->CapsuleHalfHeight * c->RelativeScale3D.Z};
         return out.halfHeight > 1.0f;
+    }
+
+    int Pause(std::uintptr_t fight) {
+        const auto* bf = FightRef(fight).Get<ABP_BossFight_C>();
+        if (!bf) return 0;
+        int n = 0;
+        for (const TArray<AActor*>* list : {&bf->BossActors, &bf->PartnerActors})
+            for (int i = 0; i < list->Num(); i++) {
+                AActor* a = ref::Ref((*list)[i]).Get<AActor>();
+                HoldOne(a, n);
+                if (a && a->IsA(APawn::StaticClass())) HoldOne(ref::Ref(static_cast<APawn*>(a)->Controller).Get<AActor>(), n);
+            }
+        return n;
+    }
+
+    int Resume() {
+        int n = 0;
+        for (const auto& h : g_held)
+            if (AActor* a = h.key.Get<AActor>()) n += boss_intro::pause::Release(h, a->CustomTimeDilation);
+        g_held.clear();
+        return n;
     }
 
     std::vector<Event> Take() {
