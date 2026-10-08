@@ -65,6 +65,7 @@ namespace game {
     // One filter at a time. Replace a game action only where doing it twice is the alternative.
     using EventFilter = bool (*)(void* obj, void* fn, void* parms);
     void SetEventFilter(EventFilter f, bool on);
+    bool OnGameThread();  // for listeners: ProcessEvent also runs on worker threads; UFunction calls only here
 
     // Gameplay effects (game thread only: these call UFunctions). asc = UAbilitySystemComponent*,
     // ability = UGameplayAbility*. Cooldown effects of one ability: class IsA its cooldown GE (often one

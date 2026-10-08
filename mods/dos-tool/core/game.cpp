@@ -813,6 +813,8 @@ void game::SetFreeCam(const CamPose* pose, int priority) {
 
 int game::FreeCamOverrides() { return g_freeHits.load(); }
 
+bool game::OnGameThread() { return EnsureGameTid() && GetCurrentThreadId() == g_gameTid.load(); }
+
 int game::CamOwner() { return g_slotOn[1] ? 1 : g_slotOn[0] ? 0 : -1; }
 
 namespace {
