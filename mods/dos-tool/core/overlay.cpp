@@ -6,7 +6,6 @@
 #include <Windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
-#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -43,12 +42,11 @@ static bool                    g_dev = false;      // dos-tool.dev next to the e
 static char                    g_ini[MAX_PATH] = {};
 
 static combat::Tracker g_combat;
-static std::atomic<bool> g_featureInput{false};  // a feature drew clickable UI last frame (feature::wantInput)
 
 static LRESULT WINAPI hkWndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     if (msg == WM_KEYDOWN && w == VK_INSERT)
         g_showMenu = !g_showMenu;
-    if (g_showMenu || g_featureInput.load(std::memory_order_relaxed)) {
+    if (g_showMenu) {
         ImGui_ImplWin32_WndProcHandler(h, msg, w, l);
         const ImGuiIO& io = ImGui::GetIO();
         if (io.WantCaptureMouse || io.WantCaptureKeyboard)
@@ -184,14 +182,12 @@ static void RunFeatures(const game::Snapshot& snap) {
     const double now = ImGui::GetTime();
     const std::vector<combat::Sample> chars = game::SampleHealth();
     g_combat.Update(chars, now);
-    feature::wantInput = false;
     const feature::Frame fr{now, screen.x, screen.y, g_fonts[g_font] ? g_fonts[g_font] : ImGui::GetFont(), snap, g_combat, chars};
     for (feature::Feature* f : feature::Feature::All()) {
         if (f->wasEnabled && !f->enabled) f->Off();
         f->wasEnabled = f->enabled;
         if (f->enabled) f->OnFrame(fr);
     }
-    g_featureInput = feature::wantInput;
 }
 
 static HRESULT WINAPI hkPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) {
