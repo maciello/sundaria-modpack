@@ -115,6 +115,11 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Motion: plate slides in from −40·Ui with `kCardIn`; name scales 1.3 → 1 over 0.2 s OutCubic after 0.1 s; hold `kCardHold`; out `kCardOut` slide +40·Ui + fade. Skip → all out in 0.1 s.
 - Fallback: no name → class name with `BP_`/`_C` stripped. Names > 18 chars → `kLg`.
 
+### Boss intro camera (#18)
+- Sequence ≈ 4.6 s, skippable: approach 1.2 s InOutCubic → hold `kCardHold` with a linear 4°/s orbit → return 0.8 s InOutCubic to the live gameplay pose (re-read every frame).
+- Framing: boss on the right third, eye level −10°, distance ≈ 2.5 × boss capsule height, FOV −10° vs gameplay. Letterbox + hidden HUD for the whole sequence.
+- Don't: cuts, zoom punches, shake, roll. Borderlands energy stays in the name card.
+
 ### Menu (Insert window) and HUD panels
 - ImGuiStyle: WindowRounding `kLg`, FrameRounding/GrabRounding `kMd`, WindowPadding (k6, k6), FramePadding (k4, k2), ItemSpacing (k4, k3); WindowBg `kPanel`; Border `kPanelEdge`; Text `kText`; TextDisabled `kTextMuted`; CheckMark/SliderGrab `kGold`; Button/Header/FrameBg = `kGold` @ .25 / .40 (hovered) / .55 (active).
 - Section titles: selected display font at `kMd`. Body: default font.
