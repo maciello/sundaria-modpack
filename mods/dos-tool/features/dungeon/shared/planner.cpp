@@ -1,5 +1,6 @@
 #include "planner.hpp"
 #include "probe.hpp"
+#include "event.hpp"
 #include "game.hpp"
 #include "logger.hpp"
 #include "cost.hpp"
@@ -28,12 +29,13 @@ namespace {
     std::atomic<bool> g_fresh{false};  // a user came on: replan at the next world tick
     thread_local bool t_busy = false;
 
-    struct Events {  // Blueprint classes: resolved only inside a dungeon (a StaticClass miss searches GObjects)
-        ref::Fn floorOn{ABP_DungeonFloor_C::StaticClass, "BP_DungeonFloor_C", "I_SetFloorActivated"};
-        ref::Fn floorEnter{ABP_DungeonFloor_C::StaticClass, "BP_DungeonFloor_C",
-                           "BndEvt__FloorActivation_K2Node_ComponentBoundEvent_306_ComponentBeginOverlapSignature__DelegateSignature"};
-        ref::Fn state{ABP_TriggerBase_C::StaticClass, "BP_TriggerBase_C", "OnTriggerStateChanged"};
-        ref::Fn lock{ABP_TriggerBase_C::StaticClass, "BP_TriggerBase_C", "OnRep_LockStatus"};
+    struct Events {
+        dungeon_map::Event floorOn{ABP_DungeonFloor_C::StaticName, L"I_SetFloorActivated"};
+        dungeon_map::Event floorEnter{ABP_DungeonFloor_C::StaticName,
+                                      L"BndEvt__FloorActivation_K2Node_ComponentBoundEvent_306_ComponentBeginOverlapSignature__DelegateSignature"};
+        dungeon_map::Event state{ABP_TriggerBase_C::StaticName, L"OnTriggerStateChanged"};
+        dungeon_map::Event lock{ABP_TriggerBase_C::StaticName, L"OnRep_LockStatus"};
+        void Warm() { floorOn.Warm(), floorEnter.Warm(), state.Warm(), lock.Warm(); }
     } g_ev;
 
     // Game thread state.
@@ -86,6 +88,8 @@ namespace {
             static cost::Path warmCost{"dungeon plan warm-up (names, navmesh functions)"};
             cost::Scope c(warmCost);
             dungeon_map::Warm();
+            dungeon_map::probe::Warm();
+            g_ev.Warm();
             warm = true;
         }
         CheckGameState();

@@ -1,6 +1,7 @@
 #include "draw.hpp"
 #include "../shared/planner.hpp"
 #include "../shared/probe.hpp"
+#include "../shared/event.hpp"
 #include "feature.hpp"
 #include "game.hpp"
 #include "logger.hpp"
@@ -35,7 +36,7 @@ namespace {
     std::atomic<bool> g_on{false}, g_probe{false};
     bool g_listening = false;
     thread_local bool t_busy = false;
-    ref::Fn g_minimapTick{UWidgetMiniMap_C::StaticClass, "WidgetMiniMap_C", "Tick"};
+    dungeon_map::Event g_minimapTick{UWidgetMiniMap_C::StaticName, L"Tick"};
     ref::Ref g_minimap;  // the live HUD minimap, from its own Tick (no search)
     ref::Fn g_cachedGeo{UWidget::StaticClass, "Widget", "GetCachedGeometry"};
     ref::Fn g_localSize{USlateBlueprintLibrary::StaticClass, "SlateBlueprintLibrary", "GetLocalSize"};

@@ -6,6 +6,7 @@
 namespace dungeon_map::probe {
     // YAML report; minimap = the live WidgetMiniMap_C or null.
     std::string Report(void* minimap);
+    void Warm();  // the watched events' FNames
     // One log line for a watched game event (slice discovered, door/lever state change, floor activated), else "".
     std::string Event(void* obj, void* fn);
 }

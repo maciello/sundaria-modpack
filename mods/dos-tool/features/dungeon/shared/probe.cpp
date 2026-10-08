@@ -1,4 +1,5 @@
 #include "probe.hpp"
+#include "event.hpp"
 #include "ref.hpp"
 #include "tmap.hpp"
 #include "umg.hpp"
@@ -164,12 +165,13 @@ namespace {
     }
 
     struct Watch {
-        ref::Fn discovered{Abp_breadslice_C::StaticClass, "bp_breadslice_C", "BecomeDiscovered"};
-        ref::Fn floorOn{ABP_DungeonFloor_C::StaticClass, "BP_DungeonFloor_C", "I_SetFloorActivated"};
-        ref::Fn state{ABP_TriggerBase_C::StaticClass, "BP_TriggerBase_C", "OnTriggerStateChanged"};
-        ref::Fn lockRep{ABP_TriggerBase_C::StaticClass, "BP_TriggerBase_C", "OnRep_LockStatus"};
-        ref::Fn activate{ABP_TriggerBase_C::StaticClass, "BP_TriggerBase_C", "I_ActivateTrigger_Server"};
-        ref::Fn unlock{ABP_TriggerBase_C::StaticClass, "BP_TriggerBase_C", "I_UnlockByRule"};
+        dungeon_map::Event discovered{Abp_breadslice_C::StaticName, L"BecomeDiscovered"};
+        dungeon_map::Event floorOn{ABP_DungeonFloor_C::StaticName, L"I_SetFloorActivated"};
+        dungeon_map::Event state{ABP_TriggerBase_C::StaticName, L"OnTriggerStateChanged"};
+        dungeon_map::Event lockRep{ABP_TriggerBase_C::StaticName, L"OnRep_LockStatus"};
+        dungeon_map::Event activate{ABP_TriggerBase_C::StaticName, L"I_ActivateTrigger_Server"};
+        dungeon_map::Event unlock{ABP_TriggerBase_C::StaticName, L"I_UnlockByRule"};
+        void Warm() { discovered.Warm(), floorOn.Warm(), state.Warm(), lockRep.Warm(), activate.Warm(), unlock.Warm(); }
     } g_w;
 }
 
@@ -222,6 +224,8 @@ namespace dungeon_map::probe {
         }
         return o;
     }
+
+    void Warm() { g_w.Warm(); }
 
     std::string Event(void* obj, void* fn) {
         auto* o = static_cast<UObject*>(obj);
