@@ -23,6 +23,13 @@ namespace {
     std::vector<Req> g_queue;
     std::atomic<bool> g_pending{false}, g_listening{false};
 
+    // render thread → game thread: the last Scan request and its answer, guarded by g_mu
+    struct NearReq { float x, y, z, radius; };
+    NearReq g_scan{};
+    bool g_scanAsked = false;
+    std::vector<props::Prop> g_near;
+    std::vector<props::Prop> NearNow(const NearReq& q);
+
     // game thread: name → actor, resolved once per map
     std::unordered_map<std::string, ref::Ref> g_byName;
     ref::Ref g_world;
@@ -72,8 +79,21 @@ namespace {
         std::vector<Req> batch;
         AcquireSRWLockExclusive(&g_mu);
         batch.swap(g_queue);
+        const bool scan = g_scanAsked;
+        const NearReq q = g_scan;
+        g_scanAsked = false;
         ReleaseSRWLockExclusive(&g_mu);
         for (const Req& r : batch) Run(r);
+        if (!scan) return;
+        std::vector<props::Prop> found = NearNow(q);
+        AcquireSRWLockExclusive(&g_mu);
+        g_near.swap(found);
+        ReleaseSRWLockExclusive(&g_mu);
+    }
+
+    void Wake() {
+        g_pending = true;
+        if (!g_listening.exchange(true)) game::SetEventListener(OnEvent, true);
     }
 
     void Post(Req r) {
@@ -82,13 +102,13 @@ namespace {
             for (Req& q : g_queue) if (!q.highlight && q.name == r.name) { q = r; r.name.clear(); break; }
         if (!r.name.empty()) g_queue.push_back(r);
         ReleaseSRWLockExclusive(&g_mu);
-        g_pending = true;
-        if (!g_listening.exchange(true)) game::SetEventListener(OnEvent, true);
+        Wake();
     }
-}
 
-// ponytail: walks the loaded levels' actors; build mode calls it only after the hero moved 2 m
-std::vector<props::Prop> props::Near(float x, float y, float z, float radius) {
+// Game thread. ponytail: walks the loaded levels' actors; build mode asks only after the hero moved 2 m
+std::vector<props::Prop> NearNow(const NearReq& q) {
+    using props::Prop;
+    const float x = q.x, y = q.y, z = q.z, radius = q.radius;
     std::vector<Prop> out;
     UWorld* w = UWorld::GetWorld();
     if (!PtrOk(w)) return out;
@@ -113,6 +133,22 @@ std::vector<props::Prop> props::Near(float x, float y, float z, float radius) {
             out.push_back({a->GetName(), p.X, p.Y, p.Z, p.Z + b.Origin.Z * s.Z, a->RootComponent->RelativeRotation.Yaw, r, base});
         }
     }
+    return out;
+}
+}
+
+void props::Scan(float x, float y, float z, float radius) {
+    AcquireSRWLockExclusive(&g_mu);
+    g_scan = {x, y, z, radius};
+    g_scanAsked = true;
+    ReleaseSRWLockExclusive(&g_mu);
+    Wake();
+}
+
+std::vector<props::Prop> props::Near() {
+    AcquireSRWLockShared(&g_mu);
+    std::vector<Prop> out = g_near;
+    ReleaseSRWLockShared(&g_mu);
     return out;
 }
 

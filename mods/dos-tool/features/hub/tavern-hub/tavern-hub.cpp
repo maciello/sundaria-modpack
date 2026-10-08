@@ -281,7 +281,8 @@ namespace {
             const bool cancelKey = keys && ((!flying && Down(VK_RBUTTON)) || Down(VK_BACK)), cancel = cancelKey && !cancelWas;
             cancelWas = cancelKey;
             const float dx = h.x - scanX, dy = h.y - scanY;
-            if (dx * dx + dy * dy > 200.0f * 200.0f) { nearProps = props::Near(h.x, h.y, h.z, 2000.0f); scanX = h.x; scanY = h.y; }
+            if (dx * dx + dy * dy > 200.0f * 200.0f) { props::Scan(h.x, h.y, h.z, 2000.0f); scanX = h.x; scanY = h.y; }
+            nearProps = props::Near();
             if (!carried.empty()) {
                 const bool rot = keys && Down('R');
                 if (rot && !rotWas) carryYaw = std::fmod(carryYaw + 15.0f, 360.0f);
