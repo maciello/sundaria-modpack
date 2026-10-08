@@ -2,3 +2,4 @@ build/
 dist/
 .claude/settings.local.json
 .env
+.claude/worktrees/

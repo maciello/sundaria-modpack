@@ -28,7 +28,7 @@ they confirm. A new hook can crash the user's game: ship it default-off and let 
 ## Push
 Only `just ship` (pull --rebase origin master + push HEAD:master; works from any worktree). Never `git push` by hand.
 The pre-push hook runs `just test` on a clean checkout of the pushed commit, so uncommitted edits can't fake a pass.
-Parallel work: one `git worktree` per task at `../worktrees/<task>` (never next to `pack/`; remove it once shipped); set work aside with a WIP commit, never `git stash`
+Parallel work: Claude Code worktrees only: `Agent(isolation: "worktree")` or `EnterWorktree` → `.claude/worktrees/<name>` (gitignored, auto-removed if unchanged); by hand `git worktree add .claude/worktrees/<task>`. Never outside the repo; remove once shipped; set work aside with a WIP commit, never `git stash`
 (the stash is shared by every worktree and session).
 
 ## Ship to friends
