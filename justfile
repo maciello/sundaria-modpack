@@ -107,7 +107,7 @@ ui *classes:
     req="{{win64}}/dos-tool-ui.request"; out="{{win64}}/dos-tool-ui.yaml"
     echo "{{classes}}" > "$req"
     for _ in $(seq 50); do [ -e "$req" ] || break; sleep 0.2; done
-    [ ! -e "$req" ] || { rm -f "$req"; echo "no answer: game not running, or UI probe off/not loaded (just dev)"; exit 1; }
+    [ ! -e "$req" ] || { echo "pending: open that screen in game (request kept), or UI probe not loaded (just dev)"; exit 1; }
     sleep 0.3; echo "$out"
 
 # game running: rebuild; the loader swaps DoS-Tool.dll in within ~1 s

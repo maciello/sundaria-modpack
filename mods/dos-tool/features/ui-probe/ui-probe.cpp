@@ -10,7 +10,8 @@
 
 // UI probe (dev): dumps the game's live UMG widget trees with their style data (button brushes, fonts, colours,
 // paddings, slot layout) to dos-tool-ui.yaml next to the DLL. Agent tool: `just ui [class-substrings]` writes
-// dos-tool-ui.request (its text = space-separated root class substrings), the probe answers and deletes it.
+// dos-tool-ui.request (its text = space-separated root class substrings); the probe answers and deletes it once a
+// matching widget exists (open the screen in game), so a request may wait.
 // Render thread, plain memory reads of UPROPERTY fields only. Feeds references/game-ui.md.
 using namespace SDK;
 
@@ -141,7 +142,7 @@ namespace {
     }
 
     // Roots = user widgets not nested in another widget tree (added to the viewport or owned by the HUD).
-    void Dump(std::string filter) {
+    bool Dump(std::string filter) {
         if (filter.find_first_not_of(" \r\n\t") == std::string::npos) filter = "Inventory Storage Character Option Merchant Menu";
         for (char& c : filter) if (c == '\r' || c == '\n' || c == '\t') c = ' ';
         std::string out = "# dos-tool UI probe: live UMG trees. vis 0 Visible 1 Collapsed 2 Hidden 3 HitTestInvisible 4 SelfHitTestInvisible\nroots:\n";
@@ -149,13 +150,15 @@ namespace {
         for (int i = 0; i < UObject::GObjects->Num(); i++) {
             UObject* o = UObject::GObjects->GetByIndex(i);
             if (!PtrOk(o) || o->IsDefaultObject() || !o->IsA(UUserWidget::StaticClass())) continue;
-            if (PtrOk(o->Outer) && o->Outer->IsA(UWidgetTree::StaticClass())) continue;  // nested: printed under its root
             const std::string cls = Cls(o);
             if (!Wanted(cls, filter)) continue;
+            UObject* tree = o->Outer;  // nested in a matching user widget: printed under that one
+            if (PtrOk(tree) && tree->IsA(UWidgetTree::StaticClass()) && Wanted(Cls(tree->Outer), filter)) continue;
             roots++;
             out += F("- root: %s  # outer %s\n", cls.c_str(), Cls(o->Outer).c_str());
             Walk(static_cast<UWidget*>(o), 1, out, budget);
         }
+        if (!roots) return false;  // not open yet: keep the request, retry
         HANDLE h = CreateFileA((Dir() + "dos-tool-ui.yaml").c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (h != INVALID_HANDLE_VALUE) {
             DWORD n = 0;
@@ -163,6 +166,7 @@ namespace {
             CloseHandle(h);
         }
         logger::log(F("[ui-probe] %d roots (filter '%s'), %d bytes -> dos-tool-ui.yaml", roots, filter.c_str(), int(out.size())));
+        return true;
     }
 
     struct UiProbe : feature::Feature {
@@ -179,8 +183,7 @@ namespace {
             DWORD n = 0;
             ReadFile(h, buf, sizeof(buf) - 1, &n, nullptr);
             CloseHandle(h);
-            Dump(std::string(buf, n));
-            DeleteFileA(req.c_str());
+            if (Dump(std::string(buf, n))) DeleteFileA(req.c_str());
         }
     } g_ui_probe;
 }
