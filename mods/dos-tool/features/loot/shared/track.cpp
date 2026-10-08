@@ -45,18 +45,25 @@ namespace {
         return false;
     }
 
-    UPrimitiveComponent* Mesh(const ABP_TriggerBase_C* t, loot::Kind kind) {
-        if (kind == loot::Kind::Item) {
-            auto* i = static_cast<const ABP_WorldSingleItemtLoot_C*>(t);
-            if (PtrOk(i->AssetPrimitiveComponent)) return i->AssetPrimitiveComponent;
-        }
-        return PtrOk(t->CachedPrimitiveComp) ? t->CachedPrimitiveComp : nullptr;
+    UBP_RimShaderComponent_C* Rim(const ABP_TriggerBase_C* t, loot::Kind kind) {
+        UBP_RimShaderComponent_C* r = kind == loot::Kind::Item ? static_cast<const ABP_WorldSingleItemtLoot_C*>(t)->RimShaderComponent
+                                                               : static_cast<const ABP_WorldLootBase_C*>(t)->RimShaderComponent;
+        return PtrOk(r) ? r : nullptr;
     }
 
-    // UPrimitiveComponent::LastRenderTimeOnScreen (native, after BoundsScale; same read as core SampleHealth).
-    float Seen(const UPrimitiveComponent* p) {
+    // Newest UPrimitiveComponent::LastRenderTimeOnScreen (native, after BoundsScale; same read as core SampleHealth) over
+    // the meshes the game's rim highlight draws: the loot's visible meshes (CachedPrimitiveComp is a trigger, never
+    // rendered). NaN = no mesh known.
+    float Seen(const ABP_TriggerBase_C* t, loot::Kind kind) {
         static_assert(offsetof(UPrimitiveComponent, BoundsScale) == 0x284, "re-check LastRenderTimeOnScreen offset");
-        return p ? *reinterpret_cast<const float*>(reinterpret_cast<const uint8*>(p) + 0x290) : NAN;
+        float seen = NAN;
+        if (UBP_RimShaderComponent_C* rim = Rim(t, kind))
+            for (int i = 0; i < rim->RenderComponents.Num() && i < 8; i++)
+                if (const UPrimitiveComponent* p = rim->RenderComponents[i]; PtrOk(p)) {
+                    const float s = *reinterpret_cast<const float*>(reinterpret_cast<const uint8*>(p) + 0x290);
+                    seen = std::isnan(seen) ? s : std::max(seen, s);
+                }
+        return seen;
     }
 
     loot::State StateOf(const ABP_TriggerBase_C* t, loot::Kind kind, int& grade) {
@@ -109,16 +116,16 @@ namespace {
             const loot::State s = StateOf(t, e.kind, grade);
             UParticleSystemComponent* ps = e.kind == loot::Kind::Item ? static_cast<ABP_WorldSingleItemtLoot_C*>(t)->LootParticleSystem
                                                                       : static_cast<ABP_WorldLootBase_C*>(t)->LootParticleSystem;
-            UBP_RimShaderComponent_C* rim = e.kind == loot::Kind::Item ? static_cast<ABP_WorldSingleItemtLoot_C*>(t)->RimShaderComponent
-                                                                       : static_cast<ABP_WorldLootBase_C*>(t)->RimShaderComponent;
+            UBP_RimShaderComponent_C* rim = Rim(t, e.kind);
             char b[400];
             std::snprintf(b, sizeof b,
                           "[loot] %s @ %.0f %.0f %.0f hidden=%d ready=%d anim=%d lock=%d open=%d items=%d grade=%d attached=%d unlooted=%d"
-                          " | ps=%s active=%d visible=%d | rim use=%d vis=%d stencil=%d",
+                          " | ps=%s active=%d visible=%d | rim use=%d vis=%d stencil=%d meshes=%d seen=%.1f",
                           cls.c_str(), e.x, e.y, e.z, s.hidden, s.ready, s.anim, int(t->LockStatus), t->CanBeOpened, Items(t, e.kind), grade,
                           PtrOk(t->RootComponent) && PtrOk(t->RootComponent->AttachParent), loot::Unlooted(s),
                           PtrOk(ps) ? ClassName(ps->Template).c_str() : "-", PtrOk(ps) && ps->bIsActive, PtrOk(ps) && ps->bVisible,
-                          PtrOk(rim) && rim->UseRimShader, PtrOk(rim) && rim->Visualize, PtrOk(rim) ? rim->Stencil : -1);
+                          PtrOk(rim) && rim->UseRimShader, PtrOk(rim) && rim->Visualize, PtrOk(rim) ? rim->Stencil : -1,
+                          PtrOk(rim) ? rim->RenderComponents.Num() : -1, Seen(t, e.kind));
             std::string line = b;
             if (PtrOk(ps) && PtrOk(ps->Template)) line += " template=" + ps->Template->GetName();
             logger::log(line);
@@ -205,7 +212,7 @@ namespace loot {
             if (!t) continue;
             int grade;
             const State s = StateOf(t, e.kind, grade);
-            out.push_back({reinterpret_cast<uintptr_t>(t), e.kind, e.x, e.y, e.z, Unlooted(s), grade, Seen(Mesh(t, e.kind))});
+            out.push_back({reinterpret_cast<uintptr_t>(t), e.kind, e.x, e.y, e.z, Unlooted(s), grade, Seen(t, e.kind)});
         }
         ReleaseSRWLockShared(&g_mu);
     }
