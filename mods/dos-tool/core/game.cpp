@@ -557,6 +557,17 @@ namespace {
             }
         }
         if (!best) { SetRoomMsg("no collision-less building around the hero"); return; }
+        // A colliding twin of the building (HumanTown/Meshes) beats any box shell: real walls, floors and stairs.
+        if (w != g_colWorld) { g_colWorld = w; g_colDone.clear(); g_colLogged.clear(); }
+        if (UStaticMesh* real = RealMesh(best->StaticMesh)) {
+            if (g_colDone.insert(best).second) AddCollisionProxy(bestActor, best, real);
+            for (UBoxComponent* old : g_rooms[bestActor]) if (Alive(old)) old->K2_DestroyComponent(bestActor);
+            g_rooms[bestActor].clear();
+            if (r.teleportHero && Alive(h))
+                h->K2_SetActorLocation(FVector{r.at.X, r.at.Y, feetZ + halfHeight + 5.0f}, false, nullptr, true);
+            SetRoomMsg(best->StaticMesh->GetName() + ": real collision from its twin " + real->GetName());
+            return;
+        }
         const FTransform t = best->K2_GetComponentToWorld();
         const FVector lf = UKismetMathLibrary::InverseTransformLocation(t, FVector{r.at.X, r.at.Y, feetZ});
         // the local frame may be scaled: convert world-unit inset/thickness/height into local units per axis
