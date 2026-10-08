@@ -92,22 +92,46 @@ game::Snapshot game::Gather() {
     return s;
 }
 
-void game::SetFOV(float degrees) {
-    if (ABP_PlayerCamera_C* cam = PlayerCam())
-        cam->DefaultFOV = degrees;
-}
+namespace {
+    // Render thread → game thread: camera values, written on the next world tick (CamTick).
+    struct CamSet { bool fov = false, dist = false, col = false; float fovV = 0, distV = 0; bool colV = true; };
+    SRWLOCK g_camSetMu = SRWLOCK_INIT;
+    CamSet g_camSet;
+    std::atomic<ULONGLONG> g_coreTickAt{0};   // last CoreTick run
+    std::atomic<ULONGLONG> g_camPostedAt{0};  // last camera request: the camera feature posts every frame while on
 
-void game::SetCameraDistance(float units) {
-    if (ABP_PlayerCamera_C* cam = PlayerCam())
-        cam->kInitialOrbitDistance = units;
-}
+    void CamWrite(const CamSet& c) {
+        if (!c.fov && !c.dist && !c.col) return;
+        ABP_PlayerCamera_C* cam = PlayerCam();
+        if (!cam) return;
+        if (c.fov) cam->DefaultFOV = c.fovV;
+        if (c.dist) cam->kInitialOrbitDistance = c.distV;
+        if (c.col && PtrOk(cam->ArchonSpringArm)) cam->ArchonSpringArm->bDoCollisionTest = c.colV ? 1 : 0;
+    }
 
-void game::SetCameraCollision(bool enabled) {
-    if (ABP_PlayerCamera_C* cam = PlayerCam()) {
-        if (PtrOk(cam->ArchonSpringArm))
-            cam->ArchonSpringArm->bDoCollisionTest = enabled ? 1 : 0;
+    void CamTick() {
+        AcquireSRWLockExclusive(&g_camSetMu);
+        const CamSet c = g_camSet;
+        g_camSet = {};
+        ReleaseSRWLockExclusive(&g_camSetMu);
+        CamWrite(c);
+    }
+
+    void UpdateCoreTick();
+    template <class F> void PostCam(F&& set) {
+        AcquireSRWLockExclusive(&g_camSetMu);
+        set(g_camSet);
+        ReleaseSRWLockExclusive(&g_camSetMu);
+        g_camPostedAt = GetTickCount64();
+        UpdateCoreTick();
+        // No world tick lately (unload: the hooks are gone; menus): write here, as before #80.
+        if (GetTickCount64() - g_coreTickAt.load() > 150) CamTick();
     }
 }
+
+void game::SetFOV(float degrees) { PostCam([&](CamSet& c) { c.fov = true; c.fovV = degrees; }); }
+void game::SetCameraDistance(float units) { PostCam([&](CamSet& c) { c.dist = true; c.distV = units; }); }
+void game::SetCameraCollision(bool enabled) { PostCam([&](CamSet& c) { c.col = true; c.colV = enabled; }); }
 
 namespace {
     // Damage-type class → element, by class name; resolved once per class (game thread only).
@@ -188,11 +212,13 @@ void CoreTick(void*, void* fn, void*) {
         ReleaseSRWLockExclusive(&g_samplesMu);
     }
     if (g_moving.load()) MoveTick();
+    CamTick();
+    g_coreTickAt = GetTickCount64();
 }
 
 // CoreTick is registered only while a core user needs it: with every feature off, no listener and no world reads.
 void UpdateCoreTick() {
-    const bool want = g_sampling.load() || g_moving.load();
+    const bool want = g_sampling.load() || g_moving.load() || GetTickCount64() - g_camPostedAt.load() < 500;
     if (want != g_coreTick.exchange(want)) game::SetEventListener(&CoreTick, want);
 }
 }
