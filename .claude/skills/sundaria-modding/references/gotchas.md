@@ -20,3 +20,5 @@
 | crash diagnosis | UE writes `<prefix>/drive_c/users/steamuser/AppData/Local/Archon/Saved/Crashes/UE4CC-*/UE4Minidump.dmp` | `scripts/minidump.py <dmp>` → fault module+offset, stack return addresses into DoS-Tool/Archon |
 | command handed to the user fails in their terminal | user shell is fish: no heredocs (`<<EOF`), no `$(...)` bash-isms | put it in a `just` recipe (or a file + recipe) and hand over `just <recipe>` |
 - Feature toggles persist as `<name>=<on>,<stage>` in `dos-tool.ini`. A choice saved under another stage (or the old `<name>=<on>` form) is ignored, so a promotion (Beta → Stable) actually turns the feature on for players who never touched it. Re-tick after a stage change if you want a non-default.
+- `dos-tool.ini` stores only toggles that differ from the default (`Default()` in `core/overlay.cpp`). Writing every toggle froze whatever default was current at first save.
+- Native (non-UPROPERTY) field offsets: scan the object's floats twice a few seconds apart and log those that moved by the elapsed time; match against the UE source layout and the Dumper-7 `Pad_*` gap. Guess-by-order was wrong once (0x1FC read 0).

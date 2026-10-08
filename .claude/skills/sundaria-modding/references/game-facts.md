@@ -42,4 +42,4 @@ attack_type: EGameplayAttackType {Melee, Range, Magic} via UArchonGameplayEffect
 ProcessEvent: Offsets::ProcessEvent (Basic.hpp) — hookable with MinHook; see gotchas before locking in the detour
 damage_numbers_source_today: per-frame CurrentHealth diff (core/combat.hpp) → cannot tell whose hit or crits
 - `UArchonAttributeSet_Secondary::Health` is NOT max HP: it exceeds `CurrentHealth` on unhit enemies. Max HP = peak `CurrentHealth` seen.
-- On-screen test (behind wall = not drawn): `UPrimitiveComponent::LastRenderTimeOnScreen` at `+0x1FC` of `ACharacter::Mesh` (Dumper-7 shows it as `Pad_1F8`; UE 4.27 layout; unverified). Compare against the newest value over all characters, not wall time. `seen=` in the debug-probe `[hp]` log.
+- On-screen test (behind wall = not drawn): `UPrimitiveComponent::LastRenderTimeOnScreen` at `+0x290` of `ACharacter::Mesh` (inside Dumper-7 `Pad_288` after `BoundsScale`; 0x288 LastSubmitTime, 0x28C LastRenderTime; found by scanning floats that advance with time). Compare against the newest value over all characters, not wall time. `seen=` in the debug-probe `[hp]` log.
