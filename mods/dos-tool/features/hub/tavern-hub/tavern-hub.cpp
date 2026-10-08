@@ -1,6 +1,7 @@
 #include "feature.hpp"
 #include "tavern-hub.hpp"
 #include "../shared/hub_ui.hpp"
+#include "../shared/mini_map.hpp"
 #include "logger.hpp"
 #include "imgui.h"
 
@@ -136,6 +137,7 @@ namespace {
             ui = false;
             hub_ui::SetButtonsHidden(true);  // the hub's own indicators and click targets off while you walk
             RebuildRoom(true);  // you start in the tavern
+            RebuildMap();
             roomWorld = world;
             logger::log("[tavern] walk on");
         }
@@ -146,7 +148,7 @@ namespace {
             walking = looking = ui = false;
             game::SetHubWalk(nullptr);
             game::SetFreeCam(nullptr, 0);
-            if (was) { hub_ui::Focus(false, 0, 0, 0); hub_ui::SetButtonsHidden(false); hub_ui::Stop(); }
+            if (was) { hub_ui::Focus(false, 0, 0, 0); hub_ui::SetButtonsHidden(false); hub_ui::Stop(); mini_map::Stop(); }
             focusedName.clear();
         }
 
@@ -155,9 +157,10 @@ namespace {
         void Scan(const feature::Frame& f) {
             if (f.now < nextScan) return;
             nextScan = f.now + 1.0;
-            if (f.snap.worldName != world && f.snap.worldName == "Hub" && HasRoom()) {
-                RebuildRoom();  // floor first: placed NPCs stand in the tavern and would fall through it
+            if (f.snap.worldName != world && f.snap.worldName == "Hub") {
+                if (HasRoom()) RebuildRoom();  // floor first: placed NPCs stand in the tavern and would fall through it
                 roomWorld = f.snap.worldName;
+                RebuildMap();
             }
             world = f.snap.worldName;
             npcs = game::ListNpcs();
@@ -191,24 +194,44 @@ namespace {
         std::string focusedName;
         bool camHeld = false;  // our follow camera is on screen  // NPC the camera looks at: focused like the gamepad does (its name shows)
 
-        // the NPC under the camera's aim (12°, 15 m), focused through its own click zone when it changes
-        const game::Npc* UpdateFocus() {
+        // what the camera aims at (12°, 15 m): an NPC or a dungeon on the miniature map, focused through its own click
+        // zone when it changes. Returns false when nothing is aimed at; `at` = that click zone's spot.
+        struct Aim { std::string name; float x, y, z; };
+        bool UpdateFocus(Aim& at) {
             combat::View v{};
-            const game::Npc* hit = nullptr;
+            bool hit = false;
             if (game::GetView(v)) {
+                std::vector<Aim> all;
+                for (const game::Npc& n : npcs) if (n.hasButton) all.push_back({n.name, n.x, n.y, n.z});
+                for (const mini_map::Target& t : mini_map::Targets()) all.push_back({t.name, t.x, t.y, t.z});
                 std::vector<tavern_hub::Target> ts;
-                std::vector<const game::Npc*> who;
-                for (const game::Npc& n : npcs) if (n.hasButton) { ts.push_back({n.x, n.y, n.z}); who.push_back(&n); }
+                for (const Aim& a : all) ts.push_back({a.x, a.y, a.z});
                 const int i = tavern_hub::LookedAt(v.x, v.y, v.z, v.pitch, v.yaw, ts, 12.0f, 1500.0f, 0.0f);
-                if (i >= 0) hit = who[i];
+                if (i >= 0) { at = all[i]; hit = true; }
             }
-            const std::string name = hit ? hit->name : "";
+            const std::string name = hit ? at.name : "";
             if (name != focusedName) {
                 focusedName = name;
-                if (hit) hub_ui::Focus(true, hit->x, hit->y, hit->z); else hub_ui::Focus(false, 0, 0, 0);
+                if (hit) hub_ui::Focus(true, at.x, at.y, at.z); else hub_ui::Focus(false, 0, 0, 0);
             }
             return hit;
         }
+
+        // M: the world map, shrunk to 1.5 m, at table height 1.2 m in front of you; saved as MAP=x,y,z,yaw
+        void PlaceMap(const game::Hero& h) {
+            const float r = camYaw * tavern_hub::kD2R;
+            const tavern_hub::Spot spot{"MAP", h.x + 120.0f * std::cos(r), h.y + 120.0f * std::sin(r), h.z - 5.0f, camYaw};
+            mini_map::Place({spot.x, spot.y, spot.z, spot.yaw, kMapWidth});
+            tavern_hub::SetSpot(layout, spot);
+            Save();
+        }
+
+        void RebuildMap() {
+            for (const tavern_hub::Spot& s : layout)
+                if (s.name == "MAP") mini_map::Place({s.x, s.y, s.z, s.yaw, kMapWidth});
+        }
+        static constexpr float kMapWidth = 150.0f;
+        bool mapWas = false;
 
         // the NPC within talking range (3 m) closest to the hero, or nullptr
         const game::Npc* TalkTarget(const game::Hero& h) const {
@@ -264,13 +287,17 @@ namespace {
                 if (d && !uiKeysWas[i]) ui = kUiKeys[i] == VK_ESCAPE ? false : !ui;
                 uiKeysWas[i] = d;
             }
-            const game::Npc* looked = ui ? nullptr : UpdateFocus();
+            Aim aim;
+            const bool looked = !ui && UpdateFocus(aim);
             const bool e = focused && !typing && Down('E');
             if (e && !talkWas && !ui && game::CamOwner() != 1) {  // E is up for the free camera
-                // like Space on the focused NPC before; standing right next to one works without aiming
-                const game::Npc* n = looked ? looked : TalkTarget(h);
-                if (n) { hub_ui::Talk(n->x, n->y, n->z); ui = true; }
+                // like Space on the focused click zone before; standing right next to an NPC works without aiming
+                if (looked) { hub_ui::Talk(aim.x, aim.y, aim.z); ui = true; }
+                else if (const game::Npc* n = TalkTarget(h)) { hub_ui::Talk(n->x, n->y, n->z); ui = true; }
             }
+            const bool m = focused && !typing && !ui && Down('M');
+            if (m && !mapWas) PlaceMap(h);
+            mapWas = m;
             talkWas = e;
             float fwd = 0, right = 0;
             bool jump = false;
@@ -350,14 +377,18 @@ namespace {
         }
 
         void ResetAll() {  // NPCs only: the closed room stays
-            layout.erase(std::remove_if(layout.begin(), layout.end(), [](const tavern_hub::Spot& s) { return s.name.rfind("ROOM", 0) != 0; }),
+            layout.erase(std::remove_if(layout.begin(), layout.end(), [](const tavern_hub::Spot& s) { return s.name.rfind("ROOM", 0) != 0 && s.name != "MAP"; }),
                          layout.end());
             for (const game::Npc& n : npcs) SendHome(n);
             Save();
             logger::log("[tavern] layout reset");
         }
 
-        void Off() override { StopWalk(); }
+        void Off() override {
+            StopWalk();
+            mini_map::Restore();  // the world map back on its plateau
+            mini_map::Stop();
+        }
 
         void Menu() override {
             if (ImGui::Button(walking ? "Stop walking (F7)" : "Walk (F7)")) walking ? StopWalk() : StartWalk();

@@ -71,7 +71,8 @@ namespace {
             return;
         }
         ForEachButton(w, [](AActor* a) {
-            if (a->bHidden || a->Class->GetName() == "BP_TriggerVolumeButton_Character_C") return;  // NPC zones stay; hub-hidden ones aren't ours
+            // NPC and world map zones stay (they live in the tavern now); hub-hidden ones aren't ours to bring back
+            if (a->bHidden || a->Class->GetName() == "BP_TriggerVolumeButton_Character_C" || a->GetName().rfind("Button_Map_", 0) == 0) return;
             a->SetActorHiddenInGame(true);
             a->SetActorEnableCollision(false);
             g_hidden.push_back(ref::Ref(a));
@@ -84,7 +85,8 @@ namespace {
         AActor* best = nullptr;
         float bestD = 500.0f * 500.0f;
         ForEachButton(w, [&](AActor* a) {
-            if (a->Class->GetName() != "BP_TriggerVolumeButton_Character_C" || !PtrOk(a->RootComponent)) return;
+            const bool zone = a->Class->GetName() == "BP_TriggerVolumeButton_Character_C" || a->GetName().rfind("Button_Map_", 0) == 0;
+            if (!zone || !PtrOk(a->RootComponent)) return;
             const FVector p = a->RootComponent->RelativeLocation;
             const float dx = p.X - at[0], dy = p.Y - at[1], dz = p.Z - at[2];
             const float d = dx * dx + dy * dy + dz * dz;
