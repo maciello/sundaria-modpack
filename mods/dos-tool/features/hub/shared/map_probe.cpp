@@ -1,7 +1,9 @@
 #include "map_probe.hpp"
+#include "game.hpp"
 #include "logger.hpp"
 
 #include <Windows.h>
+#include <atomic>
 #include <cstdio>
 #include <string>
 #include "Engine_classes.hpp"
@@ -77,6 +79,16 @@ namespace {
         }
         Line("[map] %d actors within 8000", n);
     }
+
+    std::atomic<bool> g_asked{false}, g_listening{false};
+
+    void OnEvent(void*, void*, void*) {  // the survey walks the levels' actors: game thread only (#80)
+        if (!game::OnGameThread() || !g_asked.load()) return;
+        UWorld* w = UWorld::GetWorld();
+        if (PtrOk(w) && w->GetName() == "Hub") Survey(w);  // the map scene lives in the hub
+        else logger::log("[map] not in the hub: no survey");
+        g_asked = false;
+    }
 }
 
 void map_probe::Tick() {
@@ -84,10 +96,12 @@ void map_probe::Tick() {
     const ULONGLONG now = GetTickCount64();
     if (now < next) return;
     next = now + 2000;
+    if (g_asked.load()) return;
+    if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);  // the survey ran
     const std::string f = GamePath("dos-tool-mapsurvey.txt");
     if (GetFileAttributesA(f.c_str()) == INVALID_FILE_ATTRIBUTES) return;
-    UWorld* w = UWorld::GetWorld();
-    if (!PtrOk(w) || w->GetName() != "Hub") return;  // the map scene lives in the hub
-    Survey(w);
     MoveFileExA(f.c_str(), (f + ".done").c_str(), MOVEFILE_REPLACE_EXISTING);
+    g_asked = true;
+    g_listening = true;
+    game::SetEventListener(OnEvent, true);
 }
