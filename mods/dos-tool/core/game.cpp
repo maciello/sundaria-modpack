@@ -174,7 +174,8 @@ SRWLOCK g_samplesMu = SRWLOCK_INIT;
 std::vector<combat::Sample> g_samples;  // latest world tick's copy; plain data, safe on any thread
 std::atomic<bool> g_sampling{false};
 
-void SampleOnTick(void*, void* fn, void*) {
+// Core's game-thread work: one listener slot for everything core reads or writes in the world.
+void CoreTick(void*, void* fn, void*) {
     if (!umg::IsWorldTick(fn) || !game::OnGameThread()) return;
     std::vector<combat::Sample> s = SampleNow();
     AcquireSRWLockExclusive(&g_samplesMu);
@@ -187,7 +188,7 @@ void SampleOnTick(void*, void* fn, void*) {
 std::vector<combat::Sample> game::SampleHealth(bool want) {
     if (want != g_sampling.load()) {  // nothing enabled needs it: no listener, no actor walk
         g_sampling = want;
-        game::SetEventListener(&SampleOnTick, want);
+        game::SetEventListener(&CoreTick, want);
         if (!want) {
             AcquireSRWLockExclusive(&g_samplesMu);
             g_samples.clear();
