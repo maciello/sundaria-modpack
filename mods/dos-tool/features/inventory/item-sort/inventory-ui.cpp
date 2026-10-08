@@ -31,8 +31,8 @@ using umg::PtrOk;
 namespace {
 
     struct Fns {
-        UFunction *create, *addChild, *removeChild, *setSize, *setPad, *setH, *setV, *setText, *clicked;
-        bool ok() const { return create && addChild && removeChild && setSize && setPad && setH && setV && setText && clicked; }
+        UFunction *create, *addChild, *removeChild, *setSize, *setPad, *setH, *setV, *setText, *clicked, *setStyle;
+        bool ok() const { return create && addChild && removeChild && setSize && setPad && setH && setV && setText && clicked && setStyle; }
     } g_fn{};
     struct Placed { UWidgetitemBagHeaderMenu_C* header; int32 headerIdx; UWidgetButton01_C* button; int32 buttonIdx; };
     std::vector<Placed> g_placed;
@@ -53,6 +53,7 @@ namespace {
         g_fn.setPad = UHorizontalBoxSlot::StaticClass()->GetFunction("HorizontalBoxSlot", "SetPadding");
         g_fn.setH = UHorizontalBoxSlot::StaticClass()->GetFunction("HorizontalBoxSlot", "SetHorizontalAlignment");
         g_fn.setV = UHorizontalBoxSlot::StaticClass()->GetFunction("HorizontalBoxSlot", "SetVerticalAlignment");
+        g_fn.setStyle = UButton::StaticClass()->GetFunction("Button", "SetStyle");
         g_fn.setText = UWidgetButton01_C::StaticClass()->GetFunction("WidgetButton01_C", "SetButtonText");
         g_fn.clicked = UWidgetButton01_C::StaticClass()->GetFunction("WidgetButton01_C", "BndEvt__WidgetButton01_Button_K2Node_ComponentBoundEvent_0_OnButtonClickedEvent__DelegateSignature");
         return g_fn.ok();
@@ -104,7 +105,12 @@ namespace {
         auto* b = static_cast<UWidgetButton01_C*>(c.ReturnValue);
         if (!PtrOk(b) || !PtrOk(b->Button) || !PtrOk(b->Text)) return nullptr;
         UButton* sort = h->Button_Sort;
-        b->Button->WidgetStyle = sort->WidgetStyle;  // before the Slate widget exists: Sort's brushes, paddings, sounds
+        // Sort's brushes, paddings, sounds. Through the game's setter, never `WidgetStyle = …`: each FSlateBrush holds a
+        // TSharedPtr (resource handle) that a C++ byte copy duplicates without a reference, so the second widget to die
+        // frees it again and corrupts the heap (crash in GC on the next map change, #61).
+        Params::Button_SetStyle st{};
+        st.InStyle = sort->WidgetStyle;  // byte copy: takes no reference, releases none (never destroyed)
+        CallNative(b->Button, g_fn.setStyle, &st);  // the engine's copy takes the one reference the button owns
         UWidget* label = sort->Slots.Num() > 0 && PtrOk(sort->Slots[0]) ? sort->Slots[0]->Content : nullptr;
         if (PtrOk(label) && label->IsA(UTextBlock::StaticClass()))
             b->Text->ColorAndOpacity.SpecifiedColor = static_cast<UTextBlock*>(label)->ColorAndOpacity.SpecifiedColor;
