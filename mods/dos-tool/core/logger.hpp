@@ -3,7 +3,8 @@
 #include <Windows.h>
 
 // Minimal logger via the Win32 API (no <fstream>, so the static CRT link has no
-// dllimport-stdio dependency). Writes dos-tool.log next to DoS-Tool.asi.
+// dllimport-stdio dependency). Writes dos-tool.log next to DoS-Tool.asi; the previous load's log (game restart
+// or hot-reload) is kept as dos-tool.prev.log.
 namespace logger {
     inline void log(const std::string& msg) {
         static bool first = true;
@@ -16,6 +17,7 @@ namespace logger {
             std::string p = buf;
             return p.substr(0, p.find_last_of("\\/") + 1) + "dos-tool.log";
         }();
+        if (first) MoveFileExA(path.c_str(), (path.substr(0, path.size() - 3) + "prev.log").c_str(), MOVEFILE_REPLACE_EXISTING);
         HANDLE h = CreateFileA(path.c_str(),
             FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
             first ? CREATE_ALWAYS : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
