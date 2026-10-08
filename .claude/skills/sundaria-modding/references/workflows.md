@@ -12,6 +12,7 @@ scripts/sdk.py class UCharacterMovementComponent
 scripts/sdk.py chain AArchonCharacter      # → ACharacter → APawn → AActor → UObject
 scripts/sdk.py subs UDamageType            # what IsA() will catch
 ```
+Values (DataTables, curves, GE modifiers, Blueprint logic such as the damage formula): `just data …`, offline, see `game-data.md`.
 Read `game-facts.md` first; add every newly confirmed path there.
 
 ## Dev loop

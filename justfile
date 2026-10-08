@@ -76,8 +76,18 @@ test:
     sh scripts/actor-walk-check.sh
     sh scripts/widget-off-check.sh
     {{python}} scripts/ref-check.py --self-test && {{python}} scripts/ref-check.py
+    {{python}} scripts/data.py --self-test
     {{python}} updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
     mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp mods/*/features/*/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); {{cxx}} -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp){{exe}} && build/$(basename $t .cpp){{exe}} || exit 1; done
+
+# offline game data from the pak: find <regex> [--class C] | show <asset> | table <asset> | bp <asset> [fn] | grep <regex> [--in <path regex>]
+[positional-arguments]
+data *args:
+    @PAKS="{{win64}}/../../Content/Paks" {{python}} scripts/data.py "$@"
+
+# once per machine: .NET 10 SDK for `just data`, into ../tools/dotnet next to the main clone (skipped if one is on PATH)
+data-setup:
+    dotnet --list-sdks 2>/dev/null | grep -q '^10\.' || { t="$(git rev-parse --path-format=absolute --git-common-dir)/../../tools"; mkdir -p "$t" && curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 --install-dir "$t/dotnet" --no-path; }
 
 # fetches SDK + MSVC kit first if this machine has none
 build:

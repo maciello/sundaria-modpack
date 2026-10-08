@@ -34,6 +34,7 @@ Maintenance contract:
 | path | does |
 |---|---|
 | `scripts/sdk.py` | query the SDK: `class`, `chain`, `field <regex>`, `subs` |
+| `just data` (repo `scripts/data.py`) | offline pak data: `find`, `show` JSON, `table` YAML, `bp` bytecode, `grep` values → `references/game-data.md` |
 | `scripts/new-feature.sh` | scaffold `features/<kebab>/` (+ `--logic`: header + test) |
 | `scripts/dev-check.sh` | game alive? hot-swap happened? log tail |
 | `scripts/minidump.py` | crash dump → fault module+offset + stack, ours as function file:line (`--dll` for a rebuild) |
