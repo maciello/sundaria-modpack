@@ -288,6 +288,9 @@ namespace {
     std::atomic<int32> g_camFnName{-1};  // FName index of "BlueprintUpdateCamera" (BP overrides share it)
     SRWLOCK g_freeMu = SRWLOCK_INIT;
     game::CamPose g_freePose{};
+    SRWLOCK g_gameCamMu = SRWLOCK_INIT;
+    game::CamPose g_gameCam{};  // fovDelta = the game's absolute FOV here
+    ULONGLONG g_gameCamAt = 0;
     std::atomic<uint32_t> g_poseSeq{0};
     std::atomic<DWORD> g_gameTid{0};      // UE's game thread owns the window (it pumps the messages)
     std::atomic<bool> g_camMoved{false};  // a view camera actor sits at the free pose and needs restoring
@@ -728,11 +731,19 @@ namespace {
         if (g_freeOn.load(std::memory_order_relaxed) && PtrOk(fn) && PtrOk(parms)
             && fn->Name.ComparisonIndex == g_camFnName.load(std::memory_order_relaxed)) {
             auto* p = static_cast<Params::PlayerCameraManager_BlueprintUpdateCamera*>(parms);
+            if (p->ReturnValue) {
+                AcquireSRWLockExclusive(&g_gameCamMu);
+                g_gameCam = {p->NewCameraLocation.X, p->NewCameraLocation.Y, p->NewCameraLocation.Z,
+                             p->NewCameraRotation.Pitch, p->NewCameraRotation.Yaw, p->NewCameraFOV};
+                g_gameCamAt = GetTickCount64();
+                ReleaseSRWLockExclusive(&g_gameCamMu);
+            }
             AcquireSRWLockShared(&g_freeMu);
             p->NewCameraLocation = FVector{g_freePose.x, g_freePose.y, g_freePose.z};
             p->NewCameraRotation = FRotator{g_freePose.pitch, g_freePose.yaw, 0.0f};
-            ReleaseSRWLockShared(&g_freeMu);
             if (!p->ReturnValue || p->NewCameraFOV < 5.0f) p->NewCameraFOV = 90.0f;  // BP computed nothing: no FOV either
+            p->NewCameraFOV += g_freePose.fovDelta;
+            ReleaseSRWLockShared(&g_freeMu);
             p->ReturnValue = true;
             g_freeHits++;
         }
@@ -846,6 +857,14 @@ void game::SetFreeCam(const CamPose* pose, int priority) {
 int game::FreeCamOverrides() { return g_freeHits.load(); }
 
 bool game::OnGameThread() { return EnsureGameTid() && GetCurrentThreadId() == g_gameTid.load(); }
+
+bool game::GameCamPose(CamPose& out) {
+    AcquireSRWLockShared(&g_gameCamMu);
+    out = g_gameCam;
+    const bool fresh = g_gameCamAt && GetTickCount64() - g_gameCamAt < 250;
+    ReleaseSRWLockShared(&g_gameCamMu);
+    return fresh;
+}
 
 int game::CamOwner() { return g_slotOn[1] ? 1 : g_slotOn[0] ? 0 : -1; }
 
