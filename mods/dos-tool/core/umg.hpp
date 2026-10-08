@@ -15,6 +15,9 @@ namespace umg {
     // Live screen widget, not a class default or designer template (never modify those).
     bool Live(const SDK::UObject* o);
     SDK::APlayerController* LocalPC();
+    // fn is a player controller's ReceiveTick: the world tick, outside Slate paint/layout and widget Construct.
+    // The only point where a listener may add or remove widgets (AddChild/RemoveChild); elsewhere it crashes the game.
+    bool IsWorldTick(const void* fn);
     // UTF-8 -> FText. ponytail: each call leaks one FText reference (a few bytes); call on change only.
     SDK::FText Text(const std::string& s);
     // New plain widget (UImage, UTextBlock …⊇) owned by a user widget's tree; add it to a panel afterwards.

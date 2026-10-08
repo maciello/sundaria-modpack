@@ -231,7 +231,7 @@ namespace {
         if (t_busy || !g_on.load(std::memory_order_relaxed)) return;
         t_busy = true;
         const ULONGLONG now = GetTickCount64();
-        if (now >= g_nextScan) {
+        if (umg::IsWorldTick(fnp) && now >= g_nextScan) {  // adds widgets: world tick only (#50)
             g_nextScan = now + 500;
             if (!g_texSearched) FindTextures();
             if (g_texSearched) {

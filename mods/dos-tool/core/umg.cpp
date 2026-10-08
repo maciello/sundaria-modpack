@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include "Engine_classes.hpp"
 #include "Engine_parameters.hpp"
+#include "BP_PlayerControllerGame_classes.hpp"
 
 using namespace SDK;
 
@@ -25,6 +26,13 @@ namespace umg {
         if (!PtrOk(w) || !PtrOk(w->OwningGameInstance) || w->OwningGameInstance->LocalPlayers.Num() < 1) return nullptr;
         ULocalPlayer* lp = w->OwningGameInstance->LocalPlayers[0];
         return PtrOk(lp) && PtrOk(lp->PlayerController) ? lp->PlayerController : nullptr;
+    }
+
+    bool IsWorldTick(const void* fn) {
+        static UFunction *online = nullptr, *game = nullptr;  // classes load late (main menu has neither): resolve until found
+        if (!online) if (UClass* c = ABP_PlayerControllerOnline_C::StaticClass()) online = c->GetFunction("BP_PlayerControllerOnline_C", "ReceiveTick");
+        if (!game) if (UClass* c = ABP_PlayerControllerGame_C::StaticClass()) game = c->GetFunction("BP_PlayerControllerGame_C", "ReceiveTick");
+        return fn && (fn == online || fn == game);
     }
 
     FText Text(const std::string& s) {

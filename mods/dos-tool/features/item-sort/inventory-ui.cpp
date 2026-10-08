@@ -5,6 +5,7 @@
 #include "umg.hpp"
 
 #include <Windows.h>
+#include <algorithm>
 #include <atomic>
 #include <string>
 #include <vector>
@@ -154,6 +155,8 @@ namespace {
         return added;
     }
     bool g_scanned = false;
+    struct Pending { UWidgetitemBagHeaderMenu_C* h; int32 idx; };
+    std::vector<Pending> g_pending;  // headers seen since the last world tick
 
     void OnEvent(void* objp, void* fnp, void*) {
         if (t_busy || !g_on.load(std::memory_order_relaxed)) return;
@@ -168,11 +171,16 @@ namespace {
                 }
         const int active = item_sort::api::ActiveProfile();
         auto* obj = static_cast<UObject*>(objp);
-        const bool header = PtrOk(obj) && obj->Class == g_headerCls;  // one compare per event
-        if (!g_scanned || header) {
+        if (PtrOk(obj) && obj->Class == g_headerCls &&  // one compare per event; placing waits for the world tick (#50)
+            std::none_of(g_pending.begin(), g_pending.end(), [&](const Pending& p) { return p.h == obj; }))
+            g_pending.push_back({static_cast<UWidgetitemBagHeaderMenu_C*>(obj), obj->Index});
+        if (umg::IsWorldTick(fnp) && (!g_scanned || !g_pending.empty())) {
             if (APlayerController* pc = umg::LocalPC()) {
                 std::erase_if(g_placed, [](const Placed& p) { return !Alive(p.header, p.headerIdx) || !Alive(p.button, p.buttonIdx); });
-                if (!g_scanned ? ScanOnce(pc) : Consider(static_cast<UWidgetitemBagHeaderMenu_C*>(obj), pc)) g_shown = -1;
+                bool added = !g_scanned && ScanOnce(pc);
+                for (const Pending& p : g_pending) if (Alive(p.h, p.idx)) added |= Consider(p.h, pc);
+                if (added) g_shown = -1;
+                g_pending.clear();
                 g_scanned = true;
             }
         }
@@ -203,5 +211,6 @@ namespace item_sort::ui {
         game::SetEventListener(&OnEvent, false);
         g_placed.clear();
         g_scanned = false;
+        g_pending.clear();
     }
 }
