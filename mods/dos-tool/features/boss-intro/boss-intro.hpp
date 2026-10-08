@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <vector>
 #include "style.hpp"
 
@@ -117,5 +118,45 @@ namespace boss_intro {
         }
         // Direction from the live camera to the boss: the shot looks the way the player already does.
         inline float YawTo(float fromX, float fromY, float bx, float by) { return std::atan2(by - fromY, bx - fromX) / kD2R; }
+    }
+
+    // Boss title (#19, Genshin style): centred name + optional epithet over a thin divider, soft fade, during the hold.
+    // The game's own boss splash wins: while it shows, no title of ours.
+    namespace title {
+        constexpr float kCentreY = 0.76f;      // × screen height, above the bottom letterbox
+        constexpr float kRise = 12.0f;         // px at 1080p, fade-in rise
+        constexpr float kDividerPx = 1.5f;     // px at 1080p
+        constexpr float kDividerAlpha = 0.7f;
+        constexpr float kDividerWidth = 1.15f; // × name width
+        constexpr float kInkAlpha = 0.6f;      // × stroke::kOutlineAlpha: a light outline, not a heavy one
+        constexpr int kLongName = 18;          // chars: longer names use type::kLg
+        constexpr float kSkip = 0.1f;          // s: everything out on skip / when the game's splash appears
+        constexpr float kIn = cam::kApproach, kOut = cam::kApproach + cam::kHold;  // shown during the hold
+
+        struct Look { float alpha, rise, divider; };  // rise in px at 1080p, divider = share of full width
+        inline Look At(float t) {
+            using style::ease::Apply; using namespace style::motion;
+            if (t < kIn || t >= kOut) return {0, 0, 0};
+            const float in = Apply(kCardIn.curve, (t - kIn) / kCardIn.dur);
+            const float out = Apply(kCardOut.curve, (t - (kOut - kCardOut.dur)) / kCardOut.dur);
+            return {in * (1 - out), kRise * (1 - in), in};
+        }
+        // 1 → 0 over kSkip after `since` seconds (skip pressed, game splash shown); 1 while since < 0 (not happened).
+        inline float Fade(float since) { return since < 0 ? 1.0f : std::max(0.0f, 1 - since / kSkip); }
+
+        // Fallback name from the fight class: BP_BossFight_CricTheThief_2nd_C -> "Cric The Thief 2nd".
+        inline std::string FromClass(std::string s) {
+            const std::string pre = "BP_BossFight_", suf = "_C";
+            if (s.rfind(pre, 0) == 0) s.erase(0, pre.size());
+            else if (s.rfind("BP_", 0) == 0) s.erase(0, 3);
+            if (s.size() > suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0) s.erase(s.size() - suf.size());
+            std::string out;
+            for (size_t i = 0; i < s.size(); i++) {
+                const char c = s[i] == '_' ? ' ' : s[i];
+                if (c >= 'A' && c <= 'Z' && i && s[i - 1] >= 'a' && s[i - 1] <= 'z') out += ' ';
+                if (c != ' ' || (!out.empty() && out.back() != ' ')) out += c;
+            }
+            return out;
+        }
     }
 }

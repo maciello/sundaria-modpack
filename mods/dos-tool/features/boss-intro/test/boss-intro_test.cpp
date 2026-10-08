@@ -73,5 +73,18 @@ int main() {
         assert(std::sqrt(tiny.x * tiny.x + tiny.y * tiny.y) > kMinDist * 0.9f);
         assert(near(YawTo(0, 0, 0, 100), 90));
     }
+    {   // title: hidden outside the hold, full in the middle, soft in and out; skip / game splash fades it
+        using namespace title;
+        assert(At(0).alpha == 0 && At(kIn - 0.01f).alpha == 0 && At(kOut).alpha == 0);
+        const Look mid = At((kIn + kOut) / 2);
+        assert(mid.alpha > 0.99f && mid.rise < 0.01f && mid.divider > 0.99f);
+        assert(At(kIn + 0.05f).alpha < 0.5f && At(kIn + 0.05f).rise > 0);  // fades in, rising
+        assert(At(kOut - 0.05f).alpha < 0.5f);                              // fades out in place
+        assert(Fade(-1) == 1 && Fade(0) == 1 && Fade(kSkip) == 0 && Fade(kSkip / 2) > 0.4f);
+        assert(FromClass("BP_BossFight_CricTheThief_2nd_C") == "Cric The Thief 2nd");
+        assert(FromClass("BP_BossFight_SkeletonLord_C") == "Skeleton Lord");
+        assert(FromClass("BP_FinalBossFight_C") == "Final Boss Fight");
+        assert(FromClass("") == "");
+    }
     std::puts("boss-intro: ok");
 }
