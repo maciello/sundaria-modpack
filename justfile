@@ -1,13 +1,25 @@
 # Dungeons of Sundaria modpack. Local build needs the game SDK + MSVC kit (not in this repo):
 #   SDK_DIR = Dumper-7 CppSDK of your game build, XWIN = `xwin splat` output
-sdk  := env_var_or_default("SDK_DIR", justfile_directory() / "../sdk/CppSDK")
-xwin := env_var_or_default("XWIN", justfile_directory() / "../tools/msvc")
+buildid := `grep -Pos '"buildid"\s+"\K[0-9]+' "$HOME/.steam/steam/steamapps/appmanifest_587520.acf" || true`
+store_sdk := "/srv/dumps/sundaria/" + buildid + "/CppSDK"
+sdk  := env_var_or_default("SDK_DIR", if path_exists(store_sdk) == "true" { store_sdk } else { justfile_directory() / "../sdk/CppSDK" })
+xwin := env_var_or_default("XWIN", if path_exists("/srv/toolchains/xwin-msvc") == "true" { "/srv/toolchains/xwin-msvc" } else { justfile_directory() / "../tools/msvc" })
 repo := "maciello/sundaria-modpack"
 win64 := env_var_or_default("GAME_WIN64", env_var("HOME") / ".steam/steam/steamapps/common/DungeonsofSundaria/Archon/Binaries/Win64")
 
 # SDK for the installed game build from the shared dump store (ssh alias `dumps`)
 sdk-pull host="dumps":
-    b=$(grep -Po '"buildid"\s+"\K[0-9]+' "{{win64}}/../../../../../appmanifest_587520.acf") && mkdir -p {{sdk}} && rsync -a --delete {{host}}:/srv/dumps/sundaria/$b/CppSDK/ {{sdk}}/
+    mkdir -p {{sdk}} && rsync -a --delete {{host}}:/srv/dumps/sundaria/{{buildid}}/CppSDK/ {{sdk}}/
+
+# start of work: get the other's commits
+sync:
+    git pull --rebase
+    git log --oneline -10
+
+# end of work: test, rebase on the other's commits, push
+ship: test
+    git pull --rebase
+    git push
 
 test:
     python3 updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
