@@ -130,7 +130,7 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Blocked: where the path stops at a locked door: 16 px `kInk` diamond plate @.85 + red X (two 11×3 bars, `kTaken`).
 - Lever (heuristic: unpulled levers in the locked door's room): 14 px `kInk` plate @.85 + `kGameHighlight` handle bar 9×3 at −60°.
 - Icons stay upright on screen (counter-rotate with the map). The game's own icons (party, NPCs) stay above the line (z: line 0, icons 5).
-- Constants: `features/dungeon-map/path.hpp`.
+- Constants: `features/dungeon-map/path.hpp` (path, flow), `scene.hpp` (geometry, opacity, z).
 - Don't: show the path beyond the frontier; own fog; textures we ship; ImGui over the minimap.
 
 ### Suggested sell/salvage (#23, game screen)

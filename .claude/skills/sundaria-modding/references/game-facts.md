@@ -89,7 +89,7 @@ dungeon (#40 survey 2026-10-08; SDK unless marked "in game"; probe: features/dun
   exit: ABP_DungeonExitVolume_C {Volume box, bAllowSoloExtract, TimerDuration}; final floor: ABP_DungeonExitVolume_FinalBossFightPortal_C
   objective: quest tracker only (WidgetSingleQuestTracker_C → ABP_QuestTrackerActor_C, HandleQuestUpdated(QuestId, IsCompleted)); no objective location found
   navigation: (in game) NavigationSystemV1.FindPathToLocationSynchronously 0.16–0.32 ms for 27–49 points across floors; closed doors block it
-    (the partial path ends at the next closed door, also unlocked ones); per-floor NavMeshVolume; BP_NavigationQueryFilter_Exclude_Door* filters exist (path queries can exclude doors); ABP_WayPoint_C chains are AI patrols
+    (the partial path ends at the next closed door, also unlocked ones); partial test: NavigationPath.IsPartial via umg::CallNative (unverified in game) or end > 300 from the goal; per-floor NavMeshVolume; BP_NavigationQueryFilter_Exclude_Door* filters exist (path queries can exclude doors); ABP_WayPoint_C chains are AI patrols
   doors_levers: both subclass ABP_TriggerBase_C (: AArchonTriggerBase, native, empty)
     state: mOpenCloseAnimState @0x248 (in game: 0 closed, 2 open/pulled; 1/3 unseen, likely transitions), LockStatus @0x288 (in game: 0 unlocked, 1 locked), CanBeOpened, bStartOpen
     locks: LockRules_OR[] {LockType (ELockType 0..6), Value, TargetTag}, LockTags[], ItemLockGroup[]; door I_DoorAddLockTag / I_DoorRemoveLockTag
