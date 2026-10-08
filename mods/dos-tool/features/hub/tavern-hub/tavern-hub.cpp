@@ -217,21 +217,32 @@ namespace {
             return hit;
         }
 
-        // M: the world map, shrunk to 1.5 m, at table height 1.2 m in front of you; saved as MAP=x,y,z,yaw
+        // M: the world map, shrunk to mapWidth, at table height in front of you; saved as MAP=x,y,z,yaw (+ MAP_SIZE=w)
         void PlaceMap(const game::Hero& h) {
-            const float r = camYaw * tavern_hub::kD2R;
-            const tavern_hub::Spot spot{"MAP", h.x + 120.0f * std::cos(r), h.y + 120.0f * std::sin(r), h.z - 5.0f, camYaw};
-            mini_map::Place({spot.x, spot.y, spot.z, spot.yaw, kMapWidth});
+            const float yaw = std::fmod(camYaw, 360.0f), r = yaw * tavern_hub::kD2R;
+            const float ahead = 60.0f + mapWidth / 2;  // its near edge a little in front of you
+            const tavern_hub::Spot spot{"MAP", h.x + ahead * std::cos(r), h.y + ahead * std::sin(r), h.z - 5.0f, yaw};
             tavern_hub::SetSpot(layout, spot);
             Save();
+            RebuildMap();
         }
 
         void RebuildMap() {
-            for (const tavern_hub::Spot& s : layout)
-                if (s.name == "MAP") mini_map::Place({s.x, s.y, s.z, s.yaw, kMapWidth});
+            for (const tavern_hub::Spot& s : layout) {
+                if (s.name == "MAP_SIZE") mapWidth = s.x;
+                if (s.name == "MAP") mini_map::Place({s.x, s.y, s.z, s.yaw, mapWidth});
+            }
         }
-        static constexpr float kMapWidth = 150.0f;
-        bool mapWas = false;
+
+        // + / -: the miniature 25 cm larger / smaller, saved
+        void ResizeMap(float d) {
+            mapWidth = std::clamp(mapWidth + d, 75.0f, 800.0f);
+            tavern_hub::SetSpot(layout, {"MAP_SIZE", mapWidth, 0, 0, 0});
+            Save();
+            RebuildMap();
+        }
+        float mapWidth = 250.0f;
+        bool mapWas = false, sizeWas = false;
 
         // the NPC within talking range (3 m) closest to the hero, or nullptr
         const game::Npc* TalkTarget(const game::Hero& h) const {
@@ -298,6 +309,10 @@ namespace {
             const bool m = focused && !typing && !ui && Down('M');
             if (m && !mapWas) PlaceMap(h);
             mapWas = m;
+            const bool bigger = focused && !typing && !ui && (Down(VK_OEM_PLUS) || Down(VK_ADD));
+            const bool smaller = focused && !typing && !ui && (Down(VK_OEM_MINUS) || Down(VK_SUBTRACT));
+            if ((bigger || smaller) && !sizeWas) ResizeMap(bigger ? 25.0f : -25.0f);
+            sizeWas = bigger || smaller;
             talkWas = e;
             float fwd = 0, right = 0;
             bool jump = false;
@@ -377,7 +392,7 @@ namespace {
         }
 
         void ResetAll() {  // NPCs only: the closed room stays
-            layout.erase(std::remove_if(layout.begin(), layout.end(), [](const tavern_hub::Spot& s) { return s.name.rfind("ROOM", 0) != 0 && s.name != "MAP"; }),
+            layout.erase(std::remove_if(layout.begin(), layout.end(), [](const tavern_hub::Spot& s) { return s.name.rfind("ROOM", 0) != 0 && s.name.rfind("MAP", 0) != 0; }),
                          layout.end());
             for (const game::Npc& n : npcs) SendHome(n);
             Save();

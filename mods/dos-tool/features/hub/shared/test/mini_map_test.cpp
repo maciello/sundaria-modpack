@@ -17,5 +17,14 @@ int main() {
     // desk turned 90°: +X offset becomes +Y, yaw adds
     Xf b = Shrink({1100, 2000, 500, 30, 1}, 1000, 2000, 500, 0, 0, 0, 90, 0.1f);
     assert(Near(b.x, 0) && Near(b.y, 10) && Near(b.yaw, 120));
+    // scene record round-trips; junk lines are skipped; no centre = not a scene
+    Scene sc;
+    sc.cx = 1; sc.cy = 2; sc.cz = 3;
+    sc.actors = {{"Button_Map_LichCastle", 10, 20, 30, 0, 90, 0, 7.25f, true}, {"wm_worldMap_2", -1, -2, -3, 1, 2, 3, 0.004f, false}};
+    Scene back;
+    assert(ReadScene(WriteScene(sc) + "garbage\n", back));
+    assert(back.actors.size() == 2 && back.actors[0].name == "Button_Map_LichCastle" && back.actors[0].button);
+    assert(Near(back.actors[1].scale, 0.004f) && Near(back.cz, 3) && Near(back.actors[1].roll, 3));
+    assert(!ReadScene("wm 1 2 3 4 5 6 7 0\n", back));
     std::puts("ok");
 }

@@ -7,6 +7,7 @@
 #include <Windows.h>
 #include <atomic>
 #include <cstdio>
+#include <unordered_map>
 #include "Engine_classes.hpp"
 
 using namespace SDK;
@@ -32,45 +33,90 @@ namespace {
     float g_cx = 0, g_cy = 0, g_cz = 0;
     constexpr float kSceneWidth = 5000.0f;  // diorama extent (map probe, 2026-10-08)
     constexpr float kRadius = 3500.0f;      // scene actors around the buttons' centre
+    constexpr float kPlateauZ = 6000.0f;    // the map stands at z ≈ 7600; anywhere lower it has been moved
+
+    std::string GamePath(const char* file) {
+        char buf[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, buf, MAX_PATH);
+        std::string p = buf;
+        return p.substr(0, p.find_last_of("\\/") + 1) + file;
+    }
+
+    std::string ReadText(const std::string& path) {
+        std::string out;
+        HANDLE h = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return out;
+        char buf[4096];
+        DWORD n = 0;
+        while (ReadFile(h, buf, sizeof(buf), &n, nullptr) && n > 0) out.append(buf, n);
+        CloseHandle(h);
+        return out;
+    }
+
+    void WriteText(const std::string& path, const std::string& text) {
+        HANDLE h = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return;
+        DWORD n = 0;
+        WriteFile(h, text.data(), DWORD(text.size()), &n, nullptr);
+        CloseHandle(h);
+    }
+
+    template <class F> void ForEachActor(UWorld* w, F&& fn) {
+        for (int li = 0; li < w->Levels.Num(); li++) {
+            ULevel* lvl = w->Levels[li];
+            if (!PtrOk(lvl)) continue;
+            for (int ai = 0; ai < lvl->Actors.Num(); ai++) {
+                AActor* a = lvl->Actors[ai];
+                if (PtrOk(a) && PtrOk(a->Class) && PtrOk(a->RootComponent)) fn(a);
+            }
+        }
+    }
+
+    // First run only: the scene read off the plateau. Refuses when the map's click zones are not up there (already
+    // moved by an earlier run): then every actor around them would be taken for the map - the tavern included.
+    bool Record(UWorld* w, mini_map::Scene& sc) {
+        std::vector<AActor*> buttons;
+        ForEachActor(w, [&](AActor* a) { if (a->GetName().rfind("Button_Map_", 0) == 0) buttons.push_back(a); });
+        if (buttons.empty()) return false;
+        for (AActor* b : buttons) { const FVector p = b->RootComponent->RelativeLocation; sc.cx += p.X; sc.cy += p.Y; sc.cz += p.Z; }
+        sc.cx /= buttons.size(); sc.cy /= buttons.size(); sc.cz /= buttons.size();
+        if (sc.cz < kPlateauZ) { logger::log("[mini-map] the world map is not on its plateau and no scene was recorded: reload the hub"); return false; }
+        ForEachActor(w, [&](AActor* a) {
+            const FVector p = a->RootComponent->RelativeLocation;
+            const float dx = p.X - sc.cx, dy = p.Y - sc.cy, dz = p.Z - sc.cz;
+            if (dx * dx + dy * dy > kRadius * kRadius || std::fabs(dz) > 1500.0f || a->IsA(APawn::StaticClass())) return;
+            const std::string cls = a->Class->GetName();
+            const bool button = Has(cls, "TriggerVolumeButton");
+            if (!button && (Has(cls, "Light") || Has(cls, "Volume") || Has(cls, "WorldMap_C"))) return;  // stay put
+            const FRotator r = a->RootComponent->RelativeRotation;
+            sc.actors.push_back({a->GetName(), p.X, p.Y, p.Z, r.Pitch, r.Yaw, r.Roll, a->RootComponent->RelativeScale3D.X, button});
+        });
+        return !sc.actors.empty();
+    }
 
     bool Collect(UWorld* w) {
         g_orig.clear();
-        std::vector<AActor*> buttons;
-        for (int li = 0; li < w->Levels.Num(); li++) {
-            ULevel* lvl = w->Levels[li];
-            if (!PtrOk(lvl)) continue;
-            for (int ai = 0; ai < lvl->Actors.Num(); ai++) {
-                AActor* a = lvl->Actors[ai];
-                if (PtrOk(a) && PtrOk(a->RootComponent) && a->GetName().rfind("Button_Map_", 0) == 0) buttons.push_back(a);
-            }
+        mini_map::Scene sc;
+        const std::string file = GamePath("dos-tool-worldmap.ini");
+        if (!mini_map::ReadScene(ReadText(file), sc)) {
+            if (!Record(w, sc)) return false;
+            WriteText(file, mini_map::WriteScene(sc));
+            logger::log("[mini-map] scene recorded to dos-tool-worldmap.ini");
         }
-        if (buttons.empty()) return false;
-        g_cx = g_cy = g_cz = 0;
-        for (AActor* b : buttons) { const FVector p = b->RootComponent->RelativeLocation; g_cx += p.X; g_cy += p.Y; g_cz += p.Z; }
-        g_cx /= buttons.size(); g_cy /= buttons.size(); g_cz /= buttons.size();
-        for (int li = 0; li < w->Levels.Num(); li++) {
-            ULevel* lvl = w->Levels[li];
-            if (!PtrOk(lvl)) continue;
-            for (int ai = 0; ai < lvl->Actors.Num(); ai++) {
-                AActor* a = lvl->Actors[ai];
-                if (!PtrOk(a) || !PtrOk(a->Class) || !PtrOk(a->RootComponent)) continue;
-                const FVector p = a->RootComponent->RelativeLocation;
-                const float dx = p.X - g_cx, dy = p.Y - g_cy, dz = p.Z - g_cz;
-                if (dx * dx + dy * dy > kRadius * kRadius || std::fabs(dz) > 1500.0f) continue;
-                const std::string cls = a->Class->GetName();
-                const bool button = Has(cls, "TriggerVolumeButton");
-                if (!button && (Has(cls, "Light") || Has(cls, "Volume") || Has(cls, "WorldMap_C"))) continue;  // stay put
-                if (a->IsA(APawn::StaticClass())) continue;
-                const FRotator r = a->RootComponent->RelativeRotation;
-                g_orig.push_back({ref::Ref(a), {p.X, p.Y, p.Z, r.Yaw, a->RootComponent->RelativeScale3D.X}, r,
-                                  Has(cls, "TriggerVolumeButton"), a->GetName()});
-            }
-        }
+        g_cx = sc.cx; g_cy = sc.cy; g_cz = sc.cz;
+        std::unordered_map<std::string, const mini_map::SceneActor*> want;
+        for (const mini_map::SceneActor& sa : sc.actors) want[sa.name] = &sa;
+        ForEachActor(w, [&](AActor* a) {
+            auto it = want.find(a->GetName());
+            if (it == want.end()) return;
+            const mini_map::SceneActor& sa = *it->second;
+            g_orig.push_back({ref::Ref(a), {sa.x, sa.y, sa.z, sa.yaw, sa.scale}, FRotator{sa.pitch, sa.yaw, sa.roll}, sa.button, sa.name});
+        });
         char buf[160];
-        std::snprintf(buf, sizeof(buf), "[mini-map] scene: %d actors, %d click zones, centre %.0f %.0f %.0f", int(g_orig.size()),
-                      int(buttons.size()), g_cx, g_cy, g_cz);
+        std::snprintf(buf, sizeof(buf), "[mini-map] scene: %d of %d recorded actors found, centre %.0f %.0f %.0f", int(g_orig.size()),
+                      int(sc.actors.size()), g_cx, g_cy, g_cz);
         logger::log(buf);
-        return true;
+        return !g_orig.empty();
     }
 
     void Move(AActor* a, const FVector& loc, const FRotator& rot, float scale) {
