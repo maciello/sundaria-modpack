@@ -1,9 +1,14 @@
 #pragma once
 #include <algorithm>
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include "combat.hpp"
 #include "style.hpp"
 
 // Cast indicator (#3): one pip per hit the playing montage should land, filled per landed hit.
-// SDK-free: the game thread publishes Cast, the render thread animates Pips. Spec: design-system.md § Hit pips.
+// SDK-free: the game thread publishes Montage, the render thread counts landed hits (Tracker + Records) and animates Pips. Spec: design-system.md § Hit pips.
 namespace cast_indicator {
     constexpr int kMaxHits = 64;
     constexpr int kMinHits = 2;         // single-hit casts get no indicator
@@ -18,8 +23,30 @@ namespace cast_indicator {
     // UBP_GameplayAnimNotify_C::mGameplayAnimNotifyType: ApplyEffect 0, ShootProjectile 1 are hits.
     inline bool IsHit(int notifyType) { return notifyType == 0 || notifyType == 1; }
 
-    // Game thread → render thread. cast changes per montage start; done = no more hits will count.
+    // Game thread → render thread: the hero's current multi-hit montage. cast changes per montage start.
+    struct Montage { unsigned cast = 0; int hits = 0; bool ended = true; std::uintptr_t hero = 0; std::string ability, name; };
+    // Tracker → Pips. done = no more hits will count.
     struct Cast { unsigned cast = 0; int hits = 0, landed = 0; bool done = true; };
+
+    // Landed hits = new hit records (AArchonCharacter::LastTakeHitInfo, sampled by core) on non-players whose
+    // instigator is the hero. Keeps every character's last stamp so only records made after a sample count.
+    struct Records {
+        std::unordered_map<std::uintptr_t, unsigned> stamp;
+        // Returns the hero's new records; every new record (anyone's) goes to `fresh` if given (trace).
+        int New(const std::vector<combat::Sample>& chars, std::uintptr_t hero, std::vector<const combat::Sample*>* fresh = nullptr) {
+            std::unordered_map<std::uintptr_t, unsigned> next;
+            int n = 0;
+            for (const combat::Sample& s : chars) {
+                next[s.id] = s.hitStamp;
+                auto it = stamp.find(s.id);
+                if (it == stamp.end() || it->second == s.hitStamp) continue;
+                if (fresh) fresh->push_back(&s);
+                if (!s.isPlayer && hero && s.hitBy == hero) n++;
+            }
+            stamp.swap(next);  // characters that left are forgotten
+            return n;
+        }
+    };
 
     struct Pips {
         unsigned seen = 0;              // last Cast::cast looked at (shown or not)
@@ -75,12 +102,12 @@ namespace cast_indicator {
         return cx + (i - (n - 1) * 0.5f) * step;
     }
 
-    // Game-thread bookkeeping of one cast: montage ended → late hits for kLateHits, then done.
+    // One cast's bookkeeping (render thread): montage ended → late hits for kLateHits, then done.
     struct Tracker {
         Cast c;
         double endedAt = -1;
 
-        void Begin(int hits) { c = {c.cast + 1, hits, 0, false}; endedAt = -1; }
+        void Begin(unsigned cast, int hits) { c = {cast, hits, 0, false}; endedAt = -1; }
         void Hit() { if (!c.done && c.landed < c.hits) c.landed++; }
         void End(double now) { if (!c.done && endedAt < 0) endedAt = now; }
         // true once when the cast becomes done (caller logs it).

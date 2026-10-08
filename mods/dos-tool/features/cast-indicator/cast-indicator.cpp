@@ -10,18 +10,20 @@
 #include <Windows.h>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <string>
+#include <vector>
 #include "Engine_classes.hpp"
 #include "Archon_classes.hpp"
-#include "Archon_parameters.hpp"
 #include "GameplayAbilities_classes.hpp"
 #include "BP_GameplayAnimNotify_classes.hpp"
 
 // Cast indicator (#3): while the local hero plays an ability montage with 2+ hit notifies, a row of pips under
 // the character, one per hit the montage should land, filling per landed hit.
 //   N      = ApplyEffect/ShootProjectile notifies (UBP_GameplayAnimNotify_C) in ASC.LocalAnimMontageInfo.AnimMontage
-//   landed = OnProjectileHit(Hit, Instigator) on that montage's ability with Hit.Actor a character other than the hero
-// Game thread (ProcessEvent listener) reads the game and publishes plain counts; the render thread only animates them.
+//   landed = new hit records (LastTakeHitInfo, core's game-thread sampling) on non-players instigated by the hero (#81:
+//            a listener on OnProjectileHit counted 0 in game; likely called inside the BP VM, which skips ProcessEvent)
+// Game thread (ProcessEvent listener) publishes the montage; the render thread counts records in its plain sample copy.
 using namespace SDK;
 
 namespace {
@@ -29,38 +31,23 @@ namespace {
     using namespace cast_indicator;
 
     std::atomic<bool> g_on{false};
-    std::atomic<int> g_casts{0}, g_projectileHits{0}, g_landed{0};
+    std::atomic<int> g_casts{0};
 
     // Game thread state.
-    ref::Fn g_fnHit{UArchonGameplayAbility::StaticClass, "ArchonGameplayAbility", "OnProjectileHit"};
     ref::Cached<UClass> g_notifyCls{[] { return UBP_GameplayAnimNotify_C::StaticClass(); }};
-    int32 g_hitName = -1;  // FName index of OnProjectileHit: Blueprint overrides are other UFunctions with this name
     ref::Ref g_lastAbility, g_lastMontage;  // the ASC's montage info last seen
     bool g_lastBit = false;
-    ref::Ref g_castAbility;                 // the shown cast's ability: its hits count until the cast is done
-    std::string g_castName, g_montageName;
-    Tracker g_tr;
+    Montage g_mon;
     double g_lastTick = 0;
 
-    // Game thread → render thread.
+    // Game thread -> render thread.
     SRWLOCK g_mu = SRWLOCK_INIT;
-    Cast g_pub;
-    std::string g_lastLine;  // menu readout
+    Montage g_pub;
 
     void Publish() {
         AcquireSRWLockExclusive(&g_mu);
-        g_pub = g_tr.c;
+        g_pub = g_mon;
         ReleaseSRWLockExclusive(&g_mu);
-    }
-
-    void Done() {
-        const std::string line = "[cast-indicator] " + g_castName + " montage " + g_montageName + " hits "
-                               + std::to_string(g_tr.c.hits) + ", landed " + std::to_string(g_tr.c.landed);
-        logger::log(line);
-        AcquireSRWLockExclusive(&g_mu);
-        g_lastLine = line;
-        ReleaseSRWLockExclusive(&g_mu);
-        g_castAbility = {};
     }
 
     AArchonCharacter* Hero() {
@@ -83,7 +70,7 @@ namespace {
     }
 
     // The hero's montage info changed: the old cast's montage ended, maybe a new one starts.
-    void Track(double now) {
+    void Track() {
         AArchonCharacter* hero = Hero();
         UAbilitySystemComponent* asc = hero ? hero->mAbilitySystemComponent : nullptr;
         if (!PtrOk(asc)) return;
@@ -99,58 +86,65 @@ namespace {
 
         const int hits = m ? CountHits(m) : 0;
         if (hits >= kMinHits) {
-            if (g_tr.Finish()) Done();  // recast before the last one settled
-            g_tr.Begin(hits);
-            g_castAbility = ref::Ref(ab);
-            g_castName = ab->Class->GetName();
-            g_montageName = m->GetName();
+            g_mon = {g_mon.cast + 1, hits, false, reinterpret_cast<std::uintptr_t>(hero), ab->Class->GetName(), m->GetName()};
             g_casts++;
-            cast_trace::Begin((g_castName + " montage " + g_montageName + " hits " + std::to_string(hits)).c_str());
+            cast_trace::Begin((g_mon.ability + " montage " + g_mon.name + " hits " + std::to_string(hits)).c_str());
         } else {
-            g_tr.End(now);  // arrows in flight still count for kLateHits
+            g_mon.ended = true;  // render thread: arrows in flight still count for kLateHits
             cast_trace::End();
         }
         Publish();
     }
 
-    // Hit.Actor (weak) is a character other than the hero: the arrow landed on someone, not on a wall.
-    bool Landed(const void* parms) {
-        if (!parms) return false;
-        const auto* p = static_cast<const Params::ArchonGameplayAbility_OnProjectileHit*>(parms);
-        UObject* target = p->Hit.Actor.Get();
-        return PtrOk(target) && target->IsA(AArchonCharacter::StaticClass()) && target != Hero();
-    }
-
-    void OnEvent(void* objp, void* fnp, void* parms) {
+    void OnEvent(void* objp, void* fnp, void*) {
         if (!g_on.load(std::memory_order_relaxed) || !game::OnGameThread()) return;
         if (cast_trace::Active()) { cast_trace::Event(objp, fnp); cast_trace::Tick(); }
-        if (g_hitName < 0) {
-            UFunction* f = g_fnHit.Get();
-            if (!f) return;
-            g_hitName = f->Name.ComparisonIndex;  // native class: the index outlives map travel
-        }
         const double now = GetTickCount64() / 1000.0;
-        if (PtrOk(fnp) && static_cast<const UFunction*>(fnp)->Name.ComparisonIndex == g_hitName) {
-            g_projectileHits++;
-            if (!g_castAbility.Is(objp) || !Landed(parms)) return;
-            g_landed++;
-            g_tr.Hit();
-            if (g_tr.Tick(now)) Done();
-            Publish();
-            return;
-        }
         if (now - g_lastTick < 0.015) return;  // ~60 Hz: montage start/end checks are O(1)
         g_lastTick = now;
-        Track(now);
-        if (g_tr.Tick(now)) { Done(); Publish(); }
+        Track();
     }
 
     struct CastIndicator : feature::Feature {
         Pips pips;
+        Tracker tr;
+        Records rec;
+        std::string ability, montage, last;  // the tracked cast's names; last log line (menu)
+        int landed = 0;
         double nextTrigger = 0;
         std::string trigger;
 
-        CastIndicator() : Feature("Cast indicator", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
+        CastIndicator() : Feature("Cast indicator", feature::Stage::Alpha) {
+            optIn = true;       // new game-thread hook
+            usesCombat = true;  // hit records
+        }
+
+        void Log() {
+            last = ability + " montage " + montage + " hits " + std::to_string(tr.c.hits) + ", landed " + std::to_string(tr.c.landed);
+            logger::log("[cast-indicator] " + last);
+        }
+
+        // Render thread, plain data only: the published montage + core's sample copy.
+        void Count(const Montage& m, const feature::Frame& f) {
+            if (m.cast != tr.c.cast && m.hits >= kMinHits) {
+                if (tr.Finish()) Log();  // recast before the last one settled
+                tr.Begin(m.cast, m.hits);
+                ability = m.ability; montage = m.name;
+            }
+            if (m.ended) tr.End(f.now);
+            std::vector<const combat::Sample*> fresh;
+            const bool trace = cast_trace::Active();
+            const int n = rec.New(f.chars, m.hero, trace ? &fresh : nullptr);
+            for (const combat::Sample* s : fresh) {
+                char b[160];
+                std::snprintf(b, sizeof b, "record target=%llx player=%d by=%s dmg=%.1f type=%llx", (unsigned long long)s->id,
+                              int(s->isPlayer), s->hitBy == m.hero ? "hero" : s->hitBy ? "other" : "none", s->hitDamage,
+                              (unsigned long long)s->hitType);
+                cast_trace::Note(b);
+            }
+            for (int i = 0; i < n; i++) { tr.Hit(); landed++; }
+            if (tr.Tick(f.now)) Log();
+        }
 
         void OnFrame(const feature::Frame& f) override {
             if (!g_on) { g_on = true; game::SetEventListener(&OnEvent, true); }
@@ -164,9 +158,10 @@ namespace {
                 if (GetFileAttributesA(trigger.c_str()) != INVALID_FILE_ATTRIBUTES) { DeleteFileA(trigger.c_str()); cast_trace::Arm(); }
             }
             AcquireSRWLockShared(&g_mu);
-            const Cast c = g_pub;
+            const Montage m = g_pub;
             ReleaseSRWLockShared(&g_mu);
-            pips.Update(c, f.now);
+            Count(m, f);
+            pips.Update(tr.c, f.now);
             if (!pips.Visible(f.now)) return;
             Draw(ImGui::GetForegroundDrawList(), f);  // Layer::Hud
         }
@@ -210,18 +205,16 @@ namespace {
         void Off() override {
             g_on = false;
             game::SetEventListener(&OnEvent, false);
-            g_tr = {};
-            g_castAbility = g_lastAbility = g_lastMontage = {};
-            g_pub = {};
+            g_lastAbility = g_lastMontage = {};
+            g_mon = g_pub = {};
             pips = {};
+            tr = {};
+            rec = {};
         }
 
         void Menu() override {
-            AcquireSRWLockShared(&g_mu);
-            const std::string last = g_lastLine;
-            ReleaseSRWLockShared(&g_mu);
-            ImGui::TextDisabled("casts %d  projectile hits %d  landed %d", g_casts.load(), g_projectileHits.load(), g_landed.load());
-            if (!last.empty()) ImGui::TextDisabled("%s", last.c_str() + sizeof("[cast-indicator]"));
+            ImGui::TextDisabled("casts %d  landed hits %d", g_casts.load(), landed);
+            if (!last.empty()) ImGui::TextDisabled("%s", last.c_str());
         }
     } g_cast_indicator;
 }

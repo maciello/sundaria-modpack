@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 using namespace cast_indicator;
 
@@ -17,7 +18,7 @@ int main() {
 
     // game thread: 8 hits, 5 land, montage ends, late arrow lands inside the window, then done once
     Tracker tr;
-    tr.Begin(8);
+    tr.Begin(1, 8);
     for (int i = 0; i < 5; i++) tr.Hit();
     tr.End(10.0);
     assert(!tr.Tick(10.3));
@@ -29,14 +30,27 @@ int main() {
     assert(tr.c.landed == 6);  // after done nothing counts
 
     // all hits landed → done at once; extra hits (pierce) capped
-    tr.Begin(2);
+    tr.Begin(2, 2);
     const unsigned second = tr.c.cast;
     tr.Hit(); tr.Hit(); tr.Hit();
     assert(tr.c.landed == 2 && tr.Tick(0) && second == 2);
 
     // a new cast cuts an unfinished one
-    tr.Begin(3);
+    tr.Begin(3, 3);
     assert(tr.Finish() && !tr.Finish());
+
+    // landed = new records on non-players by the hero; first sight and others' records do not count
+    Records rec;
+    std::vector<combat::Sample> w = {{1, 0, 0, 0, 100, false}, {2, 0, 0, 0, 100, false}, {3, 0, 0, 0, 100, true}};
+    w[0].hitStamp = 5; w[0].hitBy = 9;
+    assert(rec.New(w, 9) == 0);  // first sight
+    w[0].hitStamp = 7; w[1].hitStamp = 1; w[1].hitBy = 9; w[2].hitStamp = 3; w[2].hitBy = 9;
+    std::vector<const combat::Sample*> fresh;
+    assert(rec.New(w, 9, &fresh) == 2 && fresh.size() == 3);  // enemy 1 + 2; the player record is not ours
+    assert(rec.New(w, 9) == 0);  // same sample again
+    w[0].hitStamp = 8; w[0].hitBy = 4;
+    assert(rec.New(w, 9) == 0);  // someone else's hit
+    assert(rec.New({}, 9) == 0 && rec.stamp.empty());
 
     // render: fill animation, punch, hold, fade
     Pips p;
