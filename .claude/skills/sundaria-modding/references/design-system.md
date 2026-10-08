@@ -95,6 +95,11 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - N > 10: one segmented bar (w = 120·Ui, h = 6·Ui, `Pill`) with N−1 ink ticks, segments fill like pips.
 - Motion: row fades in `kFadeIn`; each hit: pip scales 0.4 → 1 with `kPipFill` + white flash `kFlash`; all filled: row punch 1.15 → 1 over 0.25 s OutCubic, hold 0.5 s, fade `kFadeOut`. Cast ended with empty pips: those turn `kTextMuted`, row fades. No red, no shake.
 
+### Charge bar (arm / cast time, #82)
+- Anchor (HUD): bar centred at (w/2, `hud::kChargeY`·h), just below the hit pips. Size `hud::kBarW` × `hud::kBarH` ·Ui, `Pill`.
+- Track `kTrack`; fill left → right `kTextSoft`; 1 px outline `kTextSoft` @.6. Hold abilities: `kMaxHoldLevel` segments, N−1 `kInk` ticks; the current level fills over `mHoldInterval`.
+- Motion: fade in `kFadeIn`; full = armed: white flash `kFlash` + punch 1.1 → 1 over 0.25 s OutCubic. Cast time: hold 0.3 s, fade `kFadeOut`. Hold: stays full until release, then fades. Ended before full: fill turns `kTextMuted`, fades. No red, no shake.
+
 ### Loot marker: rarity glow, beam, idle shimmer (#25, #27)
 - Anchor: projected item position. depth as above; cull beyond 30 m, fade 25–30 m.
 - Tier < `kGlowFrom`: ground ring only, alpha .5. Tier ≥ `kGlowFrom`: ring + glow. Tier ≥ 4: + beam. Tier ≥ 5: + drop burst.
