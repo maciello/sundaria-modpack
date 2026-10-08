@@ -125,12 +125,8 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Section titles: selected display font at `kMd`. Body: default font.
 - DPS meter: top-right, margin `space::k6`·Ui, panel `kPanel` @.45, radius `kMd`; DPS `kMd` `kGold` (inactive `kTextMuted`), detail line `kSm` `kTextSoft`.
 
-### Inventory sort strip (#21)
-Maintainer 2026-10-08: item sort lives INSIDE the game's inventory UI, never in the Insert window.
-- Anchor: the game's bag header (`UWidgetitemBagHeaderMenu_C`, the one with the Sort button), above it right-aligned, gap `kGapToHeader` 6·Ui; below it when no room. Shown only while the header is visible and the game cursor is on. At the bank: the inventory bag's header.
-- Anatomy, one row: muted "Sort by" · profile combo (`kComboW` 120·Ui) · "Weights" button → popup (SliderFloat 0–2 per weapon attack type and per stat on the player's items, "Reset profile") · muted "First" · kind combo + attack combo (`kFilterW` 96·Ui) · search field (`kSearchW` 120·Ui). A second muted line only when a sort was refused.
-- Look: the Menu/HUD panel tokens above (kPanel plate, kPanelEdge border, kGold @ .25/.40/.55 frames), all text in the selected display font at `kSm`·Ui (closer to the game's display type than ImGui's default font).
-- Do: leave the game's own Sort button and X key as the only sort action. Don't: add a second sort button or list items outside the game's grid.
+### Inventory sort controls (#21)
+Not specified: visuals by the design lead (maintainer 2026-10-08: "let the designer do the item sort visuals"). Data/actions: `item_sort::api` in `features/item-sort/item-sort.hpp`.
 
 ## Shelf (prior art used)
 WoW item-quality colours (rarity) · Robert Penner easings (ease) · OKLab ΔE (Ottosson) + WCAG 2.x contrast (test) ·

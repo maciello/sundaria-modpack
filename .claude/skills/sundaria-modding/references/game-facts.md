@@ -44,17 +44,18 @@ last_hit:   # verified in game 2026-10-08 (host): plain memory read on the rende
   zero_damage: Magic_C records with ActualDamage 0 on the player (self-cast) happen
   consumer: core/combat.hpp ledger (records claim HP loss) → damage numbers per ability, coloured by element
 
-items:   # features/item-sort; read from headers, all UNVERIFIED at runtime (check the [item-sort] log lines)
+items:   # features/item-sort; VERIFIED in game 2026-10-08 unless marked
   inventory: local PC IsA ABP_PlayerControllerOnline_C → InventoryItemContainerComponent @0x6F0, InvManagerComponent @0x6F8
-  bank: UBP_InvManagerComponent_C::PlayerPersistentComponent @0x148 (UBP_ItemContainerStorage_C), else ItemStorage @0xC0 → PlayerComponent @0x238
-  container: UBP_ItemContainerComponent_C::Items @0x128 (FBP_ItemStruct: SpecID, ContainerSlot, ContainerType, grade, level); one component holds several EItemContainerType values
-  stats: same component ItemStatList @0x1D8, joined on (ItemSlot, ItemContainerType) → SingleStatList {EStatType, float}
-  spec: UArchonSpecManager::mLoadedSpecMap @0x28 (TMap<int32, UArchonSpec*>), every non-CDO manager; weapon spec WeaponAnimationType @0x158, WeaponDamageType @0x159; equipSlot @0x90
+  bank: InvManager.PlayerPersistentComponent and ItemStorage are null in the world; found by GObjects scan of UBP_ItemContainerStorage_C (PlayerController == local PC); Items 0 when probed (bank UI state unknown; contents while the bank is open UNVERIFIED)
+  container: UBP_ItemContainerComponent_C::Items @0x128 (FBP_ItemStruct: SpecID, ContainerSlot, ContainerType, grade, level, ChangedID @0x14); one component holds several EItemContainerType values (bag 0, equip 1, temp loot 8)
+  identity: ChangedID is rewritten for every item on each reorder; SpecID repeats (122 distinct over 145 bag items) → key = (SpecID, level)
+  stats: ItemStatList is sparse; use GetItemAttributeSet(slot, type, false) (game thread) → UArchonAttributeSet_Secondary, 128 float props read by reflection (FProperty::Offset); weapon attack stat names Map / RAP / SP
+  spec: UArchonSpecManager::mLoadedSpecMap @0x28 (TMap<int32, UArchonSpec*>), every non-CDO manager; equipSlot @0x90
   enum_names: BP enums are UUserDefinedEnum: Names (NewEnumeratorN) + DisplayNameMap @0x60 (FName → FText); EnumNames() in item-sort.cpp
-  ranged_melee: EWeaponDamageType display name (3 values, expected Melee/Range/Magic), fallback EWeaponType name; keyword rule AttackIn() in item-sort.hpp
-  inventory_ui: bag header UWidgetitemBagHeaderMenu_C (Button_Sort @0x278, Owning_Widget @0x308); vanilla sort UFunctions seen by ProcessEvent (expected): BndEvt__Button_Sort_*, SortItem (HUD), RequestSortItems/ReorderItems (manager); X key path unknown
-  widget_rect: game thread only: UWidget::GetCachedGeometry → SlateBlueprintLibrary GetLocalSize + LocalToViewport(0,0 / size) = viewport pixels; visibility = Visibility + switcher page up the Slot→Parent chain, across WidgetTree→owner user widget
-  sort: SortItemsInternalClient(EItemSort, IsStorage) → SlotsToMove (game's format) → permuted by profile → ReorderItems(SlotsToMove, IsStorage); format plain vs encoded decided per call, encoded decoded with FItemContainerFunctions_C::ConvertCompressedItemSlot
+  ranged_melee: EWeaponDamageType names are Slash/Crush/Pierce (not melee/ranged); use EWeaponType name → AttackOfWeapon() in item-sort.hpp (bow = ranged)
+  inventory_ui: bag header UWidgetitemBagHeaderMenu_C (Button_Sort @0x278, IsStorage @0x2A8); only BndEvt__Button_Sort_* passes ProcessEvent (SortItem/RequestSortItems are BP-to-BP); X key path unknown
+  widget_rect: game thread only: UWidget::GetCachedGeometry → SlateBlueprintLibrary GetLocalSize + LocalToViewport(0,0 / size) = viewport pixels
+  sort_apply: InvManager.ReorderItems(SlotsToMove, IsStorage) with SlotsToMove[i] = current slot of the item that goes i-th → bag reads back in that order at once and still 5 s later (server-kept). FItemSortFunctions_C::SortItems and SortItemsInternalClient return 0 entries
 
 combat_log (unused so far; crits + own-vs-party damage; whether its delegates pass ProcessEvent: UNVERIFIED):
   delegates: AArchonCharacter::OnCombatLogGeneratedDelegate_Offense / _Defense
