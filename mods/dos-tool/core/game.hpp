@@ -112,6 +112,7 @@ namespace game {
     float OriginalDistance();
 
     // One-time singleton lookup (the only allowed GObjects walk outside dev probes): first live, non-default
-    // object whose class is named className; logs its cost in ms. Callers cache the result. Game thread.
-    void* FindSingleton(const char* className);
+    // object whose class is named className (and, if given, whose own name is objectName); logs its cost in ms.
+    // Callers cache the result and retry only on an event, never on a timer. Game thread.
+    void* FindSingleton(const char* className, const char* objectName = nullptr);
 }

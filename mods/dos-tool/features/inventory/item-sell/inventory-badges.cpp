@@ -10,6 +10,8 @@
 #include "UMG_classes.hpp"
 #include "UMG_parameters.hpp"
 #include "WidgetItemBag_classes.hpp"
+#include "WidgetItemInventory_classes.hpp"
+#include "WidgetItemStorage_classes.hpp"
 #include "WidgetItemIconContainer_classes.hpp"
 #include "WidgetItemDisplayDetail_classes.hpp"
 #include "FItemContainerFunctions_classes.hpp"
@@ -47,9 +49,16 @@ namespace {
     };
     std::vector<Badge> g_badges;
     std::vector<Line> g_lines;
+    // Bags and detail panels the game itself reported through their own events; nothing is searched for.
+    struct Tracked { UObject* w; int32 idx; };
+    std::vector<Tracked> g_bags;        // UWidgetItemBag_C
+    std::vector<Tracked> g_newDetails;  // UWidgetItemDisplayDetail_C without a line yet
+    std::vector<Tracked> g_noLine;      // detail panels whose layout took no line; not retried
+    bool g_dirty = false, g_texRetry = false;
+    int g_profile = -1;
+    UClass *g_bagCls, *g_invCls, *g_storCls;
     std::atomic<bool> g_on{false};
     thread_local bool t_busy = false;
-    ULONGLONG g_nextScan = 0;
 
     bool Resolve() {
         g_fn.addChild = UPanelWidget::StaticClass()->GetFunction("PanelWidget", "AddChild");
@@ -63,26 +72,21 @@ namespace {
         g_fn.setText = UTextBlock::StaticClass()->GetFunction("TextBlock", "SetText");
         g_fn.convert = UFItemContainerFunctions_C::StaticClass()->GetFunction("FItemContainerFunctions_C", "ConvertCompressedItemSlot");
         g_fn.detailTick = UWidgetItemDisplayDetail_C::StaticClass()->GetFunction("WidgetItemDisplayDetail_C", "Tick");
+        g_bagCls = UWidgetItemBag_C::StaticClass();
+        g_invCls = UWidgetItemInventory_C::StaticClass();
+        g_storCls = UWidgetItemStorage_C::StaticClass();
+        if (!g_bagCls || !g_invCls || !g_storCls) return false;
         return g_fn.ok();
     }
 
-    // The game's action icons are loaded with its item tooltip class; one GObjects pass, logged once.
+    // The game's action icons load with its item tooltip class. Looked up once per newly seen bag or detail panel
+    // until found (game::FindSingleton logs the cost); cached for the session.
     void FindTextures() {
-        std::string seen;
-        UClass* cls = UTexture2D::StaticClass();
-        for (int i = 0; i < UObject::GObjects->Num(); i++) {
-            UObject* o = UObject::GObjects->GetByIndex(i);
-            if (!PtrOk(o) || !o->IsA(cls)) continue;
-            const std::string n = o->GetName();
-            if (n.rfind("Tooltip_", 0) != 0) continue;
-            seen += " " + n;
-            if (n == "Tooltip_Sell") g_tex[0] = static_cast<UTexture2D*>(o);
-            if (n == "Tooltip_Salvage") g_tex[1] = static_cast<UTexture2D*>(o);
-        }
-        if (!g_tex[0]) return;  // not loaded yet: next scan
+        g_tex[0] = static_cast<UTexture2D*>(game::FindSingleton("Texture2D", "Tooltip_Sell"));
+        if (!g_tex[0]) return;
+        g_tex[1] = static_cast<UTexture2D*>(game::FindSingleton("Texture2D", "Tooltip_Salvage"));
         if (!g_tex[1]) g_tex[1] = g_tex[0];
         g_texSearched = true;
-        logger::log("[item-sell] action icons:" + seen);
     }
 
     void SetVis(UWidget* w, ESlateVisibility v) {
@@ -159,13 +163,11 @@ namespace {
         return nullptr;
     }
 
-    void ScanSlots(const std::vector<Suggestion>& all) {
+    // O(slots on the tracked bags x suggestions); runs only after a bag event or a profile change.
+    void UpdateSlots(const std::vector<Suggestion>& all) {
         std::erase_if(g_badges, [](const Badge& b) { return !Alive(b.slot, b.slotIdx) || !Alive(b.img, b.imgIdx); });
-        UClass* bagCls = UWidgetItemBag_C::StaticClass();
-        for (int i = 0; PtrOk(bagCls) && i < UObject::GObjects->Num(); i++) {
-            UObject* o = UObject::GObjects->GetByIndex(i);
-            if (!umg::Live(o) || !o->IsA(bagCls)) continue;
-            auto& slots = static_cast<UWidgetItemBag_C*>(o)->ItemContainers;
+        for (const Tracked& t : g_bags) {
+            auto& slots = static_cast<UWidgetItemBag_C*>(t.w)->ItemContainers;
             for (int k = 0; k < slots.Num(); k++) {
                 UWidgetItemIconContainer_C* c = slots[k];
                 if (!umg::Live(c) || !PtrOk(c->Overlay_Container) || !PtrOk(c->WidgetTree)) continue;
@@ -186,20 +188,6 @@ namespace {
                 SetVis(b->img, want >= 0 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
                 b->shown = want;
             }
-        }
-    }
-
-    void ScanDetails() {
-        std::erase_if(g_lines, [](const Line& l) { return !Alive(l.detail, l.detailIdx) || !Alive(l.text, l.textIdx); });
-        UClass* cls = UWidgetItemDisplayDetail_C::StaticClass();
-        for (int i = 0; PtrOk(cls) && i < UObject::GObjects->Num(); i++) {
-            UObject* o = UObject::GObjects->GetByIndex(i);
-            if (!umg::Live(o) || !o->IsA(cls)) continue;
-            auto* d = static_cast<UWidgetItemDisplayDetail_C*>(o);
-            bool known = false;
-            for (const Line& l : g_lines) known |= l.detail == d;
-            if (known || !PtrOk(d->WidgetTree)) continue;
-            if (UTextBlock* t = NewLine(d)) g_lines.push_back({d, d->Index, t, t->Index, {}});
         }
     }
 
@@ -227,21 +215,65 @@ namespace {
         l.shown = std::move(want);
     }
 
+    void Track(std::vector<Tracked>& v, UObject* w) {
+        for (const Tracked& t : v) if (t.w == w) return;
+        v.push_back({w, w->Index});
+        g_texRetry = true;
+    }
+
+    // Per event O(1) plus the lines of one detail panel; the world-tick work only runs when something changed.
     void OnEvent(void* objp, void* fnp, void*) {
-        if (t_busy || !g_on.load(std::memory_order_relaxed)) return;
+        if (t_busy || !g_on.load(std::memory_order_relaxed) || !PtrOk(objp)) return;
         t_busy = true;
-        const ULONGLONG now = GetTickCount64();
-        if (umg::IsWorldTick(fnp) && now >= g_nextScan) {  // adds widgets: world tick only (#50)
-            g_nextScan = now + 500;
-            if (!g_texSearched) FindTextures();
-            if (g_texSearched) {
-                ScanSlots(item_sell::api::Suggested());
-                ScanDetails();
+        auto* obj = static_cast<UObject*>(objp);
+        if (fnp == g_fn.detailTick) {
+            bool known = false;
+            for (Line& l : g_lines) if (l.detail == obj) { UpdateLine(l); known = true; }
+            for (const Tracked& t : g_noLine) known |= t.w == obj;
+            if (!known) Track(g_newDetails, obj);
+        } else {
+            UClass* c = obj->Class;
+            UObject* bag = c == g_bagCls  ? obj
+                         : c == g_invCls  ? static_cast<UWidgetItemInventory_C*>(obj)->widget_ItemBag
+                         : c == g_storCls ? static_cast<UWidgetItemStorage_C*>(obj)->widget_ItemStorageBag
+                                          : nullptr;
+            if (PtrOk(bag) && bag->Class == g_bagCls) {
+                Track(g_bags, bag);
+                g_dirty = true;
             }
         }
-        if (fnp == g_fn.detailTick)
-            for (Line& l : g_lines)
-                if (l.detail == objp) UpdateLine(l);
+        if (umg::IsWorldTick(fnp)) {  // adds widgets: world tick only (#50)
+            const int profile = items::profiles::ActiveIndex();
+            if (profile != g_profile) g_dirty = !g_bags.empty();
+            g_profile = profile;
+            if (!g_texSearched && g_texRetry) FindTextures();
+            g_texRetry = false;
+            if (g_texSearched && g_dirty) {
+                LARGE_INTEGER t0, t1, f;
+                QueryPerformanceCounter(&t0);
+                std::erase_if(g_bags, [](const Tracked& t) { return !Alive(t.w, t.idx); });
+                const auto& all = item_sell::api::Suggested();
+                UpdateSlots(all);
+                QueryPerformanceCounter(&t1);
+                QueryPerformanceFrequency(&f);
+                char buf[128];
+                std::snprintf(buf, sizeof buf, "[item-sell] badges: %zu bags, %zu badges, %zu suggestions, %.2f ms", g_bags.size(),
+                              g_badges.size(), all.size(), double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart));
+                logger::log(buf);
+            }
+            g_dirty = false;
+            if (g_texSearched && !g_newDetails.empty()) {
+                std::erase_if(g_noLine, [](const Tracked& t) { return !Alive(t.w, t.idx); });
+                std::erase_if(g_lines, [](const Line& l) { return !Alive(l.detail, l.detailIdx) || !Alive(l.text, l.textIdx); });
+                for (const Tracked& t : g_newDetails) {
+                    auto* d = static_cast<UWidgetItemDisplayDetail_C*>(t.w);
+                    if (!Alive(d, t.idx) || !PtrOk(d->WidgetTree)) continue;
+                    if (UTextBlock* tb = NewLine(d)) g_lines.push_back({d, d->Index, tb, tb->Index, {}});
+                    else g_noLine.push_back(t);
+                }
+                g_newDetails.clear();
+            }
+        }
         t_busy = false;
     }
 }
@@ -269,5 +301,8 @@ namespace item_sell::badges {
         game::SetEventListener(&OnEvent, false);
         g_badges.clear();
         g_lines.clear();
+        g_bags.clear();
+        g_newDetails.clear();
+        g_noLine.clear();
     }
 }

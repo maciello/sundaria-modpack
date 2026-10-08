@@ -1070,18 +1070,20 @@ bool game::RemoveEffect(void* ascp, int handle) {
 }
 
 namespace game {
-    void* FindSingleton(const char* className) {
+    void* FindSingleton(const char* className, const char* objectName) {
         LARGE_INTEGER t0, t1, f;
         QueryPerformanceCounter(&t0);
         UObject* found = nullptr;
         for (int i = 0; !found && UObject::GObjects && i < UObject::GObjects->Num(); i++) {
             UObject* o = UObject::GObjects->GetByIndex(i);
-            if (PtrOk(o) && PtrOk(o->Class) && !o->IsDefaultObject() && o->Class->GetName() == className) found = o;
+            if (PtrOk(o) && PtrOk(o->Class) && !o->IsDefaultObject() && o->Class->GetName() == className &&
+                (!objectName || o->GetName() == objectName))
+                found = o;
         }
         QueryPerformanceCounter(&t1);
         QueryPerformanceFrequency(&f);
         char buf[160];
-        std::snprintf(buf, sizeof buf, "[game] singleton %s: %s, %.2f ms", className, found ? "found" : "none",
+        std::snprintf(buf, sizeof buf, "[game] singleton %s %s: %s, %.2f ms", className, objectName ? objectName : "", found ? "found" : "none",
                       double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart));
         logger::log(buf);
         return found;
