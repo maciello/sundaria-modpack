@@ -18,6 +18,7 @@
 #include "GameplayAbilities_classes.hpp"
 #include "GameplayAbilities_parameters.hpp"
 #include "BP_GameplayAnimNotify_classes.hpp"
+#include "BP_GameAbilityBase_classes.hpp"
 
 // Ability mods: Lua scripts in <Win64>/dos-mods/abilities/*.lua tweak existing abilities and build new
 // ones on donors (script.hpp has the API). Scripts only declare and record commands; the systems below
@@ -39,6 +40,7 @@ namespace {
 
     // Components.
     struct Cast { UGameplayAbility* ability; UAnimMontage* montage; std::string cls; bool out = false; };
+    struct ProjectileSwap { UBP_GameAbilityBase_C* ability; UClass* original; };  // on the cast entity, undone at its end
     struct CooldownWatch { UAbilitySystemComponent* asc; UGameplayAbility* ability; float scale; ULONGLONG until; std::vector<int> seen; };
     struct CooldownTimer { UAbilitySystemComponent* asc; int handle; ULONGLONG at; };
 
@@ -157,6 +159,7 @@ namespace {
                 fprintf(f, "%s: tweak %s", r.file.c_str(), r.pattern.c_str());
                 if (r.tweak.hasRate) fprintf(f, "  anim_rate %.2f", r.tweak.animRate);
                 if (r.tweak.hasCooldown) fprintf(f, "  cooldown %.2f", r.tweak.cooldown);
+                if (!r.tweak.projectile.empty()) fprintf(f, "  projectile %s", r.tweak.projectile.c_str());
                 fprintf(f, "\r\n");
             }
             for (const auto& hk : g_host.Hooks())
@@ -179,6 +182,21 @@ namespace {
         if (!PtrOk(anim)) return;
         anim->Montage_SetPlayRate(montage, rate);
         g_liveRate = anim->Montage_GetPlayRate(montage);
+    }
+
+    // Loaded classes only (FindClassFast walks GObjects: cached per name, misses too).
+    std::unordered_map<std::string, UClass*> g_projectileClasses;
+    UClass* ProjectileClass(const std::string& name) {
+        auto it = g_projectileClasses.find(name);
+        if (it != g_projectileClasses.end()) return it->second;
+        UClass* cls = UObject::FindClassFast(name);
+        if (!PtrOk(cls) && !name.ends_with("_C")) cls = UObject::FindClassFast(name + "_C");
+        if (PtrOk(cls) && !cls->IsSubclassOf(AActor::StaticClass())) cls = nullptr;
+        return g_projectileClasses[name] = PtrOk(cls) ? cls : nullptr;
+    }
+
+    void UndoSwap(ecs::Entity e) {
+        if (ProjectileSwap* s = g_reg.Get<ProjectileSwap>(e); s && PtrOk(s->ability)) s->ability->mProjectileClass = s->original;
     }
 
     UClass* EffectClass(const std::string& name) {
@@ -242,6 +260,7 @@ namespace {
         ecs::Entity e;
         if (Cast* old = CurrentCast(&e)) {
             g_host.Fire(old->cls, Event::End, g_cmds);
+            UndoSwap(e);
             g_reg.Destroy(e);
         }
         if (!ab) return;
@@ -251,6 +270,14 @@ namespace {
         const ability_script::Tweak t = g_host.TweakFor(c.cls);
         if (t.hasRate) SetRate(hero, montage, t.animRate);
         if (t.hasCooldown) g_reg.Add(g_reg.Create(), CooldownWatch{asc, ab, t.cooldown, now + 3000});
+        // Projectile swap: the ability shoots mProjectileClass (unverified that spawning reads it, #44).
+        if (!t.projectile.empty() && ab->IsA(UBP_GameAbilityBase_C::StaticClass())) {
+            auto* gab = static_cast<UBP_GameAbilityBase_C*>(ab);
+            if (UClass* p = ProjectileClass(t.projectile)) {
+                g_reg.Add(e, ProjectileSwap{gab, gab->mProjectileClass});
+                gab->mProjectileClass = p;
+            } else g_host.Report("projectile", "no loaded actor class '" + t.projectile + "'");
+        }
         const ability_script::Host::New* n = g_host.NewFor(c.cls);
         AcquireSRWLockExclusive(&g_mu);
         g_snap.lastCast = n ? n->label + " (" + ability_script::ShortName(c.cls) + ")" : ability_script::ShortName(c.cls);
@@ -347,6 +374,7 @@ namespace {
             if (!g_on) return;
             g_on = false;
             game::SetEventListener(&OnEvent, false);
+            g_reg.Each<ProjectileSwap>([](ecs::Entity e, ProjectileSwap&) { UndoSwap(e); });  // memory writes only
             g_host.Close();  // pending cooldown timers are dropped: those cooldowns run to their vanilla end
             g_reg.Clear();
             g_cmds.clear();

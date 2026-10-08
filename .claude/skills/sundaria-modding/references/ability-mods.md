@@ -32,6 +32,11 @@ New action = `Command::Kind` + ctx method in `script.hpp` (+ test) + a `case` in
 - Anim rate: `USkeletalMeshComponent::GetAnimInstance()->Montage_SetPlayRate(montage, r)` right after the cast is seen.
 - Cooldown scale: watch the cast 3 s; each cooldown effect becomes a timer at `Spec.Duration x scale`, then
   `RemoveActiveGameplayEffect`. Scale > 1 not supported.
+- Projectile swap: `UBP_GameAbilityBase_C::mProjectileClass` @0x4D8 written at cast start, restored at its end and on
+  Off (`mSpawnProjectile` @0x4D0, `ProjectileClassSoft` @0x520, BP `SpawnProjectile`/`InternalSpawnProjectile`).
+  Only loaded classes resolve. Unverified that the spawn reads this field (#44).
+- Area: `UBP_GameAbilityBase_C::K2_DoRadiusTargetDataTask(StartLocation, Radius, IgnoreActorScale, SkipLOS)`;
+  spawning: `UArchonActorSpawnQueueComponent::QueueSpawn(class, transform, collision, delegate, owner)` (#44).
 - Dash: `ACharacter::LaunchCharacter(facing yaw x speed, XY override)`. Effects: `MakeEffectContext` +
   `BP_ApplyGameplayEffectToSelf` (GameplayAbilities functions aren't linked: call via `GetFunction` + `Params::`).
   Class names resolve with `UObject::FindClassFast` (slow: cached per name).

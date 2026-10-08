@@ -12,7 +12,7 @@
 // Ability scripts: a sandboxed Lua host (SDK-free, tested in test/script_test.cpp).
 // Scripts only declare things and record commands; the feature's C++ systems read the declarations
 // and run the commands on the game thread. Lua API (see mods/dos-tool/abilities/_examples.lua):
-//   ability.tweak("FireBall", {anim_rate = 1.3, cooldown = 0.5})
+//   ability.tweak("FireBall", {anim_rate = 1.3, cooldown = 0.5, projectile = "BP_Projectile_PoisonArrow_C"})
 //   ability.on("FireBall", "out", function(ctx) ctx:dash(900) end)        -- activate | out | end
 //   ability.new{name = "Blink", donor = "Dash", cooldown = 0.5, on_out = function(ctx) ... end}
 //   ctx:dash(speed)  ctx:apply_effect("BP_GameplayEffect_X_C")  ctx:play_rate(x)  ctx:cancel()  ctx:log(...)
@@ -24,6 +24,7 @@ namespace ability_script {
 
     struct Tweak {
         float animRate = 1.0f, cooldown = 1.0f;
+        std::string projectile;  // projectile class to shoot instead (empty = the ability's own)
         bool hasRate = false, hasCooldown = false;
     };
     constexpr float kMinRate = 0.1f, kMaxRate = 5.0f, kMaxDash = 5000.0f;
@@ -132,6 +133,7 @@ namespace ability_script {
             auto merge = [&](const Tweak& r) {
                 if (r.hasRate) { t.animRate = r.animRate; t.hasRate = true; }
                 if (r.hasCooldown) { t.cooldown = r.cooldown; t.hasCooldown = true; }
+                if (!r.projectile.empty()) t.projectile = r.projectile;
             };
             for (int pass = 0; pass < 2; pass++)
                 for (const Rule& r : rules_)
@@ -280,6 +282,10 @@ namespace ability_script {
                 // > 1 would need the effect re-applied longer: not supported yet (#42).
                 t.cooldown = Number(L, -1, "cooldown", 0.0f, 1.0f); t.hasCooldown = true; return true;
             }
+            if (!std::strcmp(key, "projectile")) {
+                if (lua_type(L, -1) != LUA_TSTRING || !*lua_tostring(L, -1)) luaL_error(L, "projectile must be a class name");
+                t.projectile = lua_tostring(L, -1); return true;
+            }
             return false;
         }
 
@@ -297,7 +303,7 @@ namespace ability_script {
             lua_pushnil(L);
             while (lua_next(L, 2)) {
                 const char* key = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : "?";
-                if (!TweakKey(L, key, r.tweak)) luaL_error(L, "unknown tweak '%s' (anim_rate, cooldown)", key);
+                if (!TweakKey(L, key, r.tweak)) luaL_error(L, "unknown tweak '%s' (anim_rate, cooldown, projectile)", key);
                 lua_pop(L, 1);
             }
             h->rules_.push_back(std::move(r));

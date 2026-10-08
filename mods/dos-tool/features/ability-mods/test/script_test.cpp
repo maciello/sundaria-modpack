@@ -55,6 +55,12 @@ int main() {
     assert(Has(h.Errors(), "c.lua", "c.lua:2:") && Has(h.Errors(), "c.lua", "cooldown must be"));
     assert(h.Rules().size() == 2);
 
+    // Projectile swap: a class name, merged like the others.
+    h.Load({{"p.lua", "ability.tweak('*', {projectile = 'BP_Projectile_A_C'})\nability.tweak('FireBall', {projectile = 'BP_Projectile_B_C'})"},
+            {"q.lua", "ability.tweak('Bash', {projectile = 5})"}});
+    assert(h.TweakFor(fire).projectile == "BP_Projectile_B_C" && h.TweakFor(bash).projectile == "BP_Projectile_A_C");
+    assert(Has(h.Errors(), "q.lua", "projectile must be"));
+
     // Syntax error: the file's last good version keeps running; other files are untouched.
     h.Load({{"a.lua", "ability.tweak('FireBall', {anim_rate = 2})"}});
     assert(h.Errors().empty() && h.TweakFor(fire).animRate == 2.0f);
@@ -131,7 +137,7 @@ int main() {
     assert(f && "run from the repo root");
     std::stringstream src; src << f.rdbuf();
     h.Load({{"_examples.lua", src.str()}});
-    assert(h.Errors().empty() && h.Rules().size() == 2 && h.Hooks().size() == 1 && h.News().size() == 1);
+    assert(h.Errors().empty() && h.Rules().size() == 3 && h.Hooks().size() == 1 && h.News().size() == 1);
 
     // The menu republishes on Version() changes.
     const unsigned v = h.Version();

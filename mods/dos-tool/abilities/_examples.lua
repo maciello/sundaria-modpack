@@ -6,9 +6,12 @@
 -- pattern with * ("Bash*" also matches the scroll versions, "*" matches every ability).
 -- Host only in co-op: as a client the host's game decides.
 
--- 1. Tweaks: animation speed (0.1..5) and cooldown scale (0..1, 0.5 = half the cooldown).
+-- 1. Tweaks: animation speed (0.1..5), cooldown scale (0..1, 0.5 = half the cooldown), projectile class.
 ability.tweak("FireBall", {anim_rate = 1.3, cooldown = 0.5})
 ability.tweak("*", {anim_rate = 1.1})              -- every ability a bit faster; named tweaks win
+-- Projectile swap: shoot another projectile class (it must be loaded in the game: a class some
+-- ability already used this session). Works for abilities that shoot projectiles.
+ability.tweak("ToxicArrow", {projectile = "BP_Projectile_PoisonArrow_C"})
 
 -- 2. Events: "activate" (cast starts), "out" (its effect/projectile frame), "end" (animation over).
 ability.on("FireBall", "out", function(ctx)
