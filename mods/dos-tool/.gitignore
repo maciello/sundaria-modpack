@@ -1,0 +1,15 @@
+# build output
+/build/
+/dist/
+
+# built artifacts
+*.asi
+*.obj
+
+# runtime log (written via Wine Z: drive)
+dos-tool.log
+
+# generated Dumper-7 SDK is game-derived — generate your own, never commit it
+/sdk/
+*-SDK/
+CppSDK/

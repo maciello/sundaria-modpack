@@ -1,0 +1,16 @@
+# clang-cl + lld-link → x86_64-pc-windows-msvc, against an `xwin splat` tree (-DXWIN_SDK=...).
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR AMD64)
+set(CMAKE_C_COMPILER clang-cl)
+set(CMAKE_CXX_COMPILER clang-cl)
+set(CMAKE_LINKER lld-link)
+set(CMAKE_RC_COMPILER llvm-rc)
+set(CMAKE_MT llvm-mt)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+
+set(_inc "/imsvc${XWIN_SDK}/crt/include /imsvc${XWIN_SDK}/sdk/include/ucrt /imsvc${XWIN_SDK}/sdk/include/um /imsvc${XWIN_SDK}/sdk/include/shared")
+set(CMAKE_C_FLAGS_INIT "--target=x86_64-pc-windows-msvc ${_inc}")
+set(CMAKE_CXX_FLAGS_INIT "--target=x86_64-pc-windows-msvc ${_inc} /EHsc -Wno-invalid-constexpr")
+set(_lib "/libpath:${XWIN_SDK}/crt/lib/x86_64 /libpath:${XWIN_SDK}/sdk/lib/um/x86_64 /libpath:${XWIN_SDK}/sdk/lib/ucrt/x86_64")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "${_lib}")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "${_lib}")
