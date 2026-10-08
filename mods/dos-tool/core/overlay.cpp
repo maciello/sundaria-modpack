@@ -98,6 +98,12 @@ static bool InitImGui(IDXGISwapChain* sc) {
     h.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler*, void*, const char* line) {
         int v;
         if (sscanf(line, "Font=%d", &v) == 1 && v >= 0 && v < IM_ARRAYSIZE(kFonts)) { g_font = v; return; }
+        for (feature::Feature* f : feature::Feature::All()) {  // "<feature name>.<key>=<value>"
+            const size_t n = strlen(f->name);
+            if (strncmp(line, f->name, n) || line[n] != '.') continue;
+            if (const char* e = strchr(line + n + 1, '=')) f->Load(std::string(line + n + 1, e).c_str(), e + 1);
+            return;
+        }
         const char* eq = strrchr(line, '=');
         if (!eq) return;
         int on, stage;  // "<name>=<on>,<stage>": a choice made under another stage is dropped, so promotions apply
@@ -110,6 +116,12 @@ static bool InitImGui(IDXGISwapChain* sc) {
         out->appendf("[%s][Settings]\nFont=%d\n", hh->TypeName, g_font);
         for (feature::Feature* f : feature::Feature::All())
             if (f->enabled != Default(f)) out->appendf("%s=%d,%d\n", f->name, f->enabled ? 1 : 0, int(f->stage));
+        std::vector<std::pair<std::string, std::string>> kv;
+        for (feature::Feature* f : feature::Feature::All()) {
+            kv.clear();
+            f->Save(kv);
+            for (auto& [k, v] : kv) out->appendf("%s.%s=%s\n", f->name, k.c_str(), v.c_str());
+        }
         out->append("\n");
     };
     ImGui::AddSettingsHandler(&h);

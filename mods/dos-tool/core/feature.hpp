@@ -1,4 +1,6 @@
 #pragma once
+#include <string>
+#include <utility>
 #include <vector>
 #include "combat.hpp"
 #include "game.hpp"
@@ -33,6 +35,10 @@ namespace feature {
         virtual void OnFrame(const Frame&) {}
         virtual void Menu() {}
         virtual void Off() {}
+        // Own settings, local per install: dos-tool.ini lines "<name>.<key>=<value>". After a change call
+        // ImGui::MarkIniSettingsDirty().
+        virtual void Load(const char* key, const char* value) {}
+        virtual void Save(std::vector<std::pair<std::string, std::string>>& out) {}
         static std::vector<Feature*>& All() { static std::vector<Feature*> v; return v; }
     };
 }
