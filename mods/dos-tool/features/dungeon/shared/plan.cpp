@@ -65,12 +65,15 @@ namespace {
         return o;
     }
 
-    // Stairs-down room, else the floor's exit volume (last floor). Null = neither.
-    AActor* Goal(const Floor& f) {
+    // Stairs-down room, else the floor's exit volume (last floor). Null = neither. The exit-volume class is asked for only
+    // when there are no stairs: a Blueprint class not loaded yet costs a GObjects search on every StaticClass() call.
+    AActor* Goal(const Floor& f, bool& exitVolume) {
+        exitVolume = false;
         for (Abp_breadslice_C* s : f.slices)
             if (PtrOk(s->Class) && s->Class->GetName().find("Stairs_Down") != std::string::npos) return s;
-        for (int j = 0; j < f.actor->ChunkSpawnedActors.Num(); j++)
-            if (AActor* a = f.actor->ChunkSpawnedActors[j]; PtrOk(a) && a->IsA(ABP_DungeonExitVolume_C::StaticClass())) return a;
+        UClass* ev = ABP_DungeonExitVolume_C::StaticClass();
+        for (int j = 0; ev && j < f.actor->ChunkSpawnedActors.Num(); j++)
+            if (AActor* a = f.actor->ChunkSpawnedActors[j]; PtrOk(a) && a->IsA(ev)) return exitVolume = true, a;
         return nullptr;
     }
 
@@ -133,17 +136,23 @@ namespace {
     }
 }
 
+namespace {
+    dungeon_map::Nav NavOf(UWorld* w) {
+        return {[w](dungeon_map::V3 a, dungeon_map::V3 b, dungeon_map::Path& out, bool& partial) { return NavPath(w, a, b, out, partial); },
+                [w](const dungeon_map::Box& r, dungeon_map::V3& out) { return Anchor(w, r, out); }};
+    }
+}
+
 namespace dungeon_map {
-    Plan Compute(V3 pawn) {
-        Plan p;
+    bool Begin(V3 pawn, Planning& out) {
+        out = {};
+        Plan& p = out.plan;
         UWorld* w = UWorld::GetWorld();
         AGameStateBase* gs = PtrOk(w) ? w->GameState : nullptr;
-        if (!PtrOk(gs) || !gs->IsA(ABP_GameState_C::StaticClass())) return p.why = "no dungeon game state", p;
+        if (!PtrOk(gs) || !gs->IsA(ABP_GameState_C::StaticClass())) return p.why = "no dungeon game state", false;
         AActor* da = static_cast<ABP_GameState_C*>(gs)->DungeonActor;
-        if (!PtrOk(da) || !da->IsA(ABP_Dungeon_C::StaticClass())) return p.why = "no dungeon actor", p;
+        if (!PtrOk(da) || !da->IsA(ABP_Dungeon_C::StaticClass())) return p.why = "no dungeon actor", false;
         auto* d = static_cast<ABP_Dungeon_C*>(da);
-        LARGE_INTEGER t0, t1, fq;
-        QueryPerformanceCounter(&t0);
 
         // The pawn's floor: the one with a room around it, else the dungeon's active floor (corridor, stairs).
         Floor floor;
@@ -158,50 +167,55 @@ namespace dungeon_map {
             if (PtrOk(fa) && fa->IsA(ABP_DungeonFloor_C::StaticClass()) && static_cast<ABP_DungeonFloor_C*>(fa)->FloorNumber == d->CurrentActiveFloor)
                 floor = Read(static_cast<ABP_DungeonFloor_C*>(fa));
         }
-        if (!floor.actor) return p.why = F("no floor for the pawn (active floor %d)", d->CurrentActiveFloor), p;
+        if (!floor.actor) return p.why = F("no floor for the pawn (active floor %d)", d->CurrentActiveFloor), false;
         p.floor = floor.actor->FloorNumber;
-        AActor* goal = Goal(floor);
-        if (!goal) return p.why = F("floor %d: no stairs down or exit volume", p.floor), p;
-        const V3 to = Loc(goal);
-        const Nav nav{[&](V3 a, V3 b, Path& out, bool& partial) { return NavPath(w, a, b, out, partial); },
-                      [&](const Box& r, V3& out) { return Anchor(w, r, out); }};
-        const V3 entry = Loc(floor.actor);  // floor actor = its entry door
-        Route route = PlanRoute(entry, to, floor.rooms, nav);
-        p.path = route.path;
-        p.partial = !route.stops.empty();
+        AActor* goal = Goal(floor, out.exitVolume);
+        if (!goal) return p.why = F("floor %d: no stairs down or exit volume", p.floor), false;
+        out.goal = Loc(goal);
         p.rooms = floor.rooms;
+        for (int r = 0; r < int(floor.slices.size()); r++)
+            for (int j = 0; j < floor.slices[r]->TriggerBaseComponents.Num(); j++)
+                if (UChildActorComponent* c = floor.slices[r]->TriggerBaseComponents[j]; PtrOk(c)) AddTrigger(out.ts, c->ChildActor, r);
+        for (int j = 0; j < floor.actor->ChunkSpawnedActors.Num(); j++)
+            if (AActor* a = floor.actor->ChunkSpawnedActors[j]; AddTrigger(out.ts, a, -1)) out.ts.back().room = RoomOf(floor.rooms, out.ts.back().at);
+        out.route.Start(Loc(floor.actor), out.goal, floor.rooms);  // floor actor = its entry door
+        return true;
+    }
 
-        int door = -1;
-        if (p.partial) {
-            std::vector<Trigger> ts;
-            for (int r = 0; r < int(floor.slices.size()); r++)
-                for (int j = 0; j < floor.slices[r]->TriggerBaseComponents.Num(); j++)
-                    if (UChildActorComponent* c = floor.slices[r]->TriggerBaseComponents[j]; PtrOk(c)) AddTrigger(ts, c->ChildActor, r);
-            for (int j = 0; j < floor.actor->ChunkSpawnedActors.Num(); j++)
-                if (AActor* a = floor.actor->ChunkSpawnedActors[j]; AddTrigger(ts, a, -1)) ts.back().room = RoomOf(floor.rooms, ts.back().at);
-            // Why each leg stopped short (#83): a closed door in front of it, else a navmesh island.
-            std::string why = F("goal %s %s on-navmesh %s; stops:", goal->IsA(ABP_DungeonExitVolume_C::StaticClass()) ? "exit-volume" : "stairs-room",
-                                Pt(to).c_str(), OnNav(w, to).c_str());
-            for (const V3& s : route.stops) {
-                const int sd = StoppingDoor(ts, s);
-                why += F(" %s room %d: %s, nearest door %.0f;", Pt(s).c_str(), NearestRoom(floor.rooms, s),
-                         sd < 0 ? "navmesh island" : ts[sd].locked ? "locked door" : "closed door", DoorsAround(ts, s).nearestDoor);
-                if (door < 0) door = sd;
+    bool Step(Planning& s) {
+        UWorld* w = UWorld::GetWorld();
+        const Nav nav = NavOf(w);
+        Plan& p = s.plan;
+        if (!s.route.done) {
+            if (!s.route.Step(nav)) return false;
+            const Route& r = s.route.r;
+            p.path = r.path;
+            p.partial = !r.stops.empty();
+            if (p.partial) {  // why each leg stopped short (#83): a closed door in front of it, else a navmesh island
+                std::string why = F("goal %s %s on-navmesh %s; stops:", s.exitVolume ? "exit-volume" : "stairs-room", Pt(s.goal).c_str(), OnNav(w, s.goal).c_str());
+                for (size_t k = 0; k < r.stops.size(); k++) {
+                    const int sd = StoppingDoor(s.ts, r.stops[k]);
+                    why += F(" %s room %d: %s, nearest door %.0f;", Pt(r.stops[k]).c_str(), NearestRoom(p.rooms, r.stops[k]),
+                             sd < 0 ? "navmesh island" : s.ts[sd].locked ? "locked door" : "closed door", DoorsAround(s.ts, r.stops[k]).nearestDoor);
+                    if (s.door < 0 && sd >= 0) s.door = sd, s.detourAt = r.stopAt[k];
+                }
+                logger::log("[dungeon-map] partial: " + why);
+                p.marks = MarksFor(s.ts, s.door);
             }
-            logger::log("[dungeon-map] partial: " + why);
-            p.marks = MarksFor(ts, door);
             if (p.marks.locked && !p.marks.levers.empty()) {  // the way runs through the levers first (#93)
-                route = PlanVia(entry, LeverOrder(entry, p.marks.levers), to, floor.rooms, nav);
-                p.path = route.path;
+                const V3 stop = p.path[s.detourAt];
+                s.detour.Start(stop, LeverOrder(stop, p.marks.levers));
+                s.detouring = true;
+                return false;
             }
+        } else if (s.detouring) {
+            if (!s.detour.Step(nav)) return false;
+            p.path = Splice(p.path, s.detourAt, s.detour.path);
         }
         p.ok = true;
-        QueryPerformanceCounter(&t1);
-        QueryPerformanceFrequency(&fq);
-        p.why = F("floor %d: %zu points, %.0f long, legs %d, stops %zu, stopping door %d, locked %d, levers %zu on route, %.2f ms", p.floor, p.path.size(),
-                  Length(p.path), route.legs, route.stops.size(), door >= 0, p.marks.locked, p.marks.levers.size(),
-                  double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(fq.QuadPart));
-        return p;
+        p.why = F("floor %d: %zu points, %.0f long, legs %d, stops %zu, stopping door %d, locked %d, levers %zu on route", p.floor, p.path.size(),
+                  Length(p.path), s.route.r.legs + s.detour.legs, s.route.r.stops.size(), s.door >= 0, p.marks.locked, p.marks.levers.size());
+        return true;
     }
 
     Path Connect(V3 from, V3 to) {

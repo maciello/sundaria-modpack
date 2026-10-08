@@ -4,6 +4,7 @@
 #include "feature.hpp"
 #include "game.hpp"
 #include "logger.hpp"
+#include "cost.hpp"
 #include "ref.hpp"
 #include "drain.hpp"
 #include "umg.hpp"
@@ -99,7 +100,11 @@ namespace {
         const bool stray = g_link.empty() || dungeon_map::Project(g_link, pawn).d > dungeon_map::kOffLine || (room >= 0 && room != g_room);
         if (stray && Now() >= g_linkedAt + kReplanGap) {
             const dungeon_map::V3 join = dungeon_map::Join(plan.path, pawn, g_progress.S(plan.path));
-            g_link = dungeon_map::Connect(pawn, join);
+            static cost::Path linkCost{"dungeon connector query"};
+            {
+                cost::Scope cs(linkCost);  // one navmesh query; logged at its first call and every new max
+                g_link = dungeon_map::Connect(pawn, join);
+            }
             g_room = room;
             g_linkedAt = Now();
             char b[160];

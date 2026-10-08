@@ -2,12 +2,14 @@
 #include "probe.hpp"
 #include "game.hpp"
 #include "logger.hpp"
+#include "cost.hpp"
 #include "ref.hpp"
 #include "umg.hpp"
 
 #include <Windows.h>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include "Engine_classes.hpp"
 #include "BP_DungeonFloor_classes.hpp"
@@ -40,6 +42,10 @@ namespace {
     double g_replanAt = INFINITY;
     dungeon_map::Plan g_plan;
     int g_version = 0;
+    dungeon_map::Planning g_next;  // being made, one navmesh query per world tick
+    bool g_planning = false;
+    int g_ticks = 0;
+    double g_maxMs = 0, g_totalMs = 0;
     dungeon_map::V3 g_pawn;
 
     // Game thread → render thread.
@@ -54,6 +60,11 @@ namespace {
     }
 
     double Now() { return double(GetTickCount64()) / 1000.0; }
+    double Ms(LARGE_INTEGER a, LARGE_INTEGER b) {
+        LARGE_INTEGER f;
+        QueryPerformanceFrequency(&f);
+        return double(b.QuadPart - a.QuadPart) * 1000.0 / double(f.QuadPart);
+    }
     void ReplanIn(double s) { g_replanAt = std::min(g_replanAt, Now() + s); }
 
     // Entering or leaving a dungeon: the game state object changes (BP_GameState_Dungeon_C in a dungeon).
@@ -65,6 +76,7 @@ namespace {
         g_inDungeon = PtrOk(gs) && PtrOk(gs->Class) && gs->Class->GetName().find("Dungeon") != std::string::npos;
         g_plan = {};
         g_version++;
+        g_planning = false;
         g_replanAt = g_inDungeon ? Now() : INFINITY;
     }
 
@@ -76,11 +88,37 @@ namespace {
         if (!g_havePawn) return Publish({}, {});
         const FVector l = pc->Pawn->K2_GetActorLocation();
         g_pawn = {l.X, l.Y, l.Z};
+        // A plan spreads over world ticks: the dungeon read on the first, then one navmesh query per tick (a partial
+        // query searches the whole reachable navmesh: ms). The shown plan stays until the new one is complete.
+        static cost::Path tickCost{"dungeon plan tick"};
+        LARGE_INTEGER t0, t1;
         if (Now() >= g_replanAt) {
-            g_plan = dungeon_map::Compute(g_pawn);
-            g_version++;
-            g_replanAt = g_plan.ok ? INFINITY : Now() + kRetry;
-            logger::log("[dungeon-map] plan: " + g_plan.why);
+            g_replanAt = INFINITY;
+            QueryPerformanceCounter(&t0);
+            g_planning = dungeon_map::Begin(g_pawn, g_next);
+            QueryPerformanceCounter(&t1);
+            const double ms = Ms(t0, t1);
+            if (tickCost.Record(ms)) logger::log(tickCost.Line(ms));
+            g_ticks = 1, g_maxMs = g_totalMs = ms;
+            if (!g_planning) {
+                g_replanAt = Now() + kRetry;
+                logger::log("[dungeon-map] plan: " + g_next.plan.why);
+            }
+        } else if (g_planning) {
+            QueryPerformanceCounter(&t0);
+            const bool done = dungeon_map::Step(g_next);
+            QueryPerformanceCounter(&t1);
+            const double ms = Ms(t0, t1);
+            if (tickCost.Record(ms)) logger::log(tickCost.Line(ms));
+            g_ticks++, g_totalMs += ms, g_maxMs = std::max(g_maxMs, ms);
+            if (done) {
+                g_planning = false;
+                g_plan = std::move(g_next.plan);
+                g_version++;
+                char b[96];
+                std::snprintf(b, sizeof b, ", %d ticks, max tick %.2f ms, total %.2f ms", g_ticks, g_maxMs, g_totalMs);
+                logger::log("[dungeon-map] plan: " + g_plan.why + b);
+            }
         }
         Publish(g_pawn, g_plan.ok && g_plan.marks.locked ? g_plan.marks.levers : std::vector<dungeon_map::V3>{});
     }

@@ -29,55 +29,89 @@ namespace dungeon_map {
         std::function<bool(const Box& room, V3& out)> anchor;            // a navmesh point in the room, false = none
     };
     struct Route {
-        Path path;              // from → goal, always ends at the goal when there is one
-        std::vector<V3> stops;  // where a navmesh leg stopped short; the route jumps on from there
+        Path path;                  // from → goal, always ends at the goal when there is one
+        std::vector<V3> stops;      // where a navmesh leg stopped short; the route jumps on from there
+        std::vector<size_t> stopAt; // index of each stop in path
         int legs = 0;
     };
 
     inline void Append(Path& p, V3 v) { if (p.empty() || Dist(p.back(), v) > 1) p.push_back(v); }
 
-    inline Route PlanRoute(V3 from, V3 goal, const std::vector<Box>& rooms, const Nav& nav) {
+    // The route, one navmesh leg per Step, so a plan spreads over world ticks (a partial query can cost ms).
+    struct RouteJob {
         Route r;
-        auto add = [&](V3 v) { Append(r.path, v); };
-        V3 a = from;
-        int at = NearestRoom(rooms, from);  // never resume behind the player
-        for (size_t guard = 0; guard <= rooms.size(); guard++) {
+        bool done = false;
+        void Start(V3 from, V3 goal_, std::vector<Box> rooms_) {
+            *this = {};
+            goal = goal_, rooms = std::move(rooms_), a = from;
+            at = NearestRoom(rooms, from);  // never resume behind the start
+        }
+        bool Step(const Nav& nav) {  // true = done
+            if (done) return true;
             Path leg;
             bool partial = false;
             r.legs++;
             if (!nav.path(a, goal, leg, partial)) leg = {a}, partial = true;  // no navmesh at a
-            for (const V3& v : leg) add(v);
-            if (!partial) return r;
-            const V3 end = r.path.back();
-            r.stops.push_back(end);
-            int k = std::max(at, NearestRoom(rooms, end)) + 1;
+            for (const V3& v : leg) Append(r.path, v);
+            if (!partial) return done = true;
+            r.stops.push_back(r.path.back());
+            r.stopAt.push_back(r.path.size() - 1);
+            int k = std::max(at, NearestRoom(rooms, r.path.back())) + 1;
             V3 b;
             while (k < int(rooms.size()) && !nav.anchor(rooms[k], b)) k++;
-            if (k >= int(rooms.size())) break;
-            add(b);  // straight across what the navmesh does not connect
-            a = b;
-            at = k;
+            if (k >= int(rooms.size()) || ++guard > rooms.size()) {
+                Append(r.path, goal);  // ponytail: straight to the goal past the last room; a crumb graph would route generated floors
+                return done = true;
+            }
+            Append(r.path, b);  // straight across what the navmesh does not connect
+            a = b, at = k;
+            return false;
         }
-        add(goal);  // ponytail: straight to the goal past the last room; a crumb graph would route generated floors
-        return r;
+    private:
+        V3 goal, a;
+        std::vector<Box> rooms;
+        int at = -1;
+        size_t guard = 0;
+    };
+
+    inline Route PlanRoute(V3 from, V3 goal, const std::vector<Box>& rooms, const Nav& nav) {
+        RouteJob j;
+        j.Start(from, goal, rooms);
+        while (!j.Step(nav)) {}
+        return j.r;
     }
 
-    // Through the waypoints in order (levers that open the way, #93), then on to the goal. A waypoint the navmesh does
-    // not reach is joined straight.
-    inline Route PlanVia(V3 from, const std::vector<V3>& via, V3 goal, const std::vector<Box>& rooms, const Nav& nav) {
-        Route r;
-        V3 a = from;
-        for (const V3& w : via) {
+    // A detour from a stop through waypoints (levers that open the way, #93) and back to the stop, one leg per Step.
+    // A waypoint the navmesh does not reach is joined straight.
+    struct DetourJob {
+        Path path;
+        int legs = 0;
+        void Start(V3 stop, std::vector<V3> via) {
+            *this = {};
+            to = std::move(via), to.push_back(stop), a = stop;
+            Append(path, stop);
+        }
+        bool Done() const { return next >= to.size(); }
+        bool Step(const Nav& nav) {  // true = done
+            if (Done()) return true;
             Path leg;
             bool partial = false;
-            r.legs++;
-            if (nav.path(a, w, leg, partial)) for (const V3& v : leg) Append(r.path, v);
-            Append(r.path, a = w);
+            legs++;
+            if (nav.path(a, to[next], leg, partial)) for (const V3& v : leg) Append(path, v);
+            Append(path, a = to[next++]);
+            return Done();
         }
-        const Route rest = PlanRoute(a, goal, rooms, nav);
-        for (const V3& v : rest.path) Append(r.path, v);
-        r.stops = rest.stops;
-        r.legs += rest.legs;
-        return r;
+    private:
+        std::vector<V3> to;
+        size_t next = 0;
+        V3 a;
+    };
+
+    // p with the detour put in at index i (where it starts and ends).
+    inline Path Splice(const Path& p, size_t i, const Path& detour) {
+        Path out(p.begin(), p.begin() + std::min(i, p.size()));
+        for (const V3& v : detour) Append(out, v);
+        for (size_t j = i + 1; j < p.size(); j++) Append(out, p[j]);
+        return out;
     }
 }

@@ -4,7 +4,7 @@
 // SDK-free types and choices; facts: references/game-facts.md § Dungeon.
 #include <string>
 #include <vector>
-#include "path.hpp"
+#include "route.hpp"
 
 namespace dungeon_map {
     constexpr float kDoorNear = 1500;  // a navmesh leg that a door cuts ends this close to it
@@ -75,9 +75,23 @@ namespace dungeon_map {
         std::string why;           // log line: what was found or why there is no plan
     };
 
-    // Game thread, dungeon only. pawn decides the floor; the route starts at its entry. O(rooms + triggers of the dungeon)
-    // + O(rooms of the floor + levers) navmesh queries (one when nothing cuts the way).
-    Plan Compute(V3 pawn);
+    // A plan being made over several world ticks: plain data only (no engine pointers), one navmesh query per Step.
+    struct Planning {
+        Plan plan;
+        std::vector<Trigger> ts;
+        V3 goal;
+        bool exitVolume = false;
+        RouteJob route;
+        DetourJob detour;
+        size_t detourAt = 0;   // path index of the stop the detour starts from
+        int door = -1;         // index into ts of the door the route stops at
+        bool detouring = false;
+    };
+    // Game thread, dungeon only. Reads the dungeon, no navmesh query: pawn decides the floor; the route starts at its
+    // entry. O(rooms + triggers of the dungeon). false = no plan possible (out.plan.why says why).
+    bool Begin(V3 pawn, Planning& out);
+    // Game thread: one navmesh query (route leg, then lever detour legs). true = done, out.plan complete.
+    bool Step(Planning& p);
     // Game thread: the connector, navmesh path from → to, joined straight to `to` where the navmesh stops. One query.
     Path Connect(V3 from, V3 to);
 }
