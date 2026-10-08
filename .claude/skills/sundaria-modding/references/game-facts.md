@@ -44,6 +44,16 @@ last_hit:   # verified in game 2026-10-08 (host): plain memory read on the rende
   zero_damage: Magic_C records with ActualDamage 0 on the player (self-cast) happen
   consumer: core/combat.hpp ledger (records claim HP loss) → damage numbers per ability, coloured by element
 
+items:   # features/item-sort; read from headers, all UNVERIFIED at runtime (check the [item-sort] log lines)
+  inventory: local PC IsA ABP_PlayerControllerOnline_C → InventoryItemContainerComponent @0x6F0, InvManagerComponent @0x6F8
+  bank: UBP_InvManagerComponent_C::PlayerPersistentComponent @0x148 (UBP_ItemContainerStorage_C), else ItemStorage @0xC0 → PlayerComponent @0x238
+  container: UBP_ItemContainerComponent_C::Items @0x128 (FBP_ItemStruct: SpecID, ContainerSlot, ContainerType, grade, level); one component holds several EItemContainerType values
+  stats: same component ItemStatList @0x1D8, joined on (ItemSlot, ItemContainerType) → SingleStatList {EStatType, float}
+  spec: UArchonSpecManager::mLoadedSpecMap @0x28 (TMap<int32, UArchonSpec*>), every non-CDO manager; weapon spec WeaponAnimationType @0x158, WeaponDamageType @0x159; equipSlot @0x90
+  enum_names: BP enums are UUserDefinedEnum: Names (NewEnumeratorN) + DisplayNameMap @0x60 (FName → FText); EnumNames() in item-sort.cpp
+  ranged_melee: EWeaponDamageType display name (3 values, expected Melee/Range/Magic), fallback EWeaponType name; keyword rule AttackIn() in item-sort.hpp
+  sort: SortItemsInternalClient(EItemSort, IsStorage) → SlotsToMove (game's format) → permuted by profile → ReorderItems(SlotsToMove, IsStorage); format plain vs encoded decided per call, encoded decoded with FItemContainerFunctions_C::ConvertCompressedItemSlot
+
 combat_log (unused so far; crits + own-vs-party damage; whether its delegates pass ProcessEvent: UNVERIFIED):
   delegates: AArchonCharacter::OnCombatLogGeneratedDelegate_Offense / _Defense
   payload: FCombatDetailDamage {FinalDamage, BlockedDamage, CritLevel, ResistedDamage, MitigatedDamage_Armor, bIsHeal}
