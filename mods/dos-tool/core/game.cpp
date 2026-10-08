@@ -16,6 +16,8 @@
 #include "Archon_classes.hpp"          // UArchonSpringArmComponent
 #include "BP_PlayerCamera_classes.hpp" // ABP_PlayerCamera_C (kInitialOrbitDistance)
 #include "GameplayAbilities_classes.hpp" // UAbilitySystemComponent::SpawnedAttributes
+#include "GameplayAbilities_parameters.hpp"
+#include "Archon_parameters.hpp"
 
 using namespace SDK;
 
@@ -340,4 +342,73 @@ void game::ProbeFlush() {
                       PtrOk(f.fn) ? f.fn->GetFullName().c_str() : "?", PtrOk(f.cls) ? f.cls->GetName().c_str() : "?");
         logger::log(buf);
     }
+}
+
+namespace {
+    // Same call shape as Dumper-7's generated bodies (GameplayAbilities_functions.cpp isn't linked).
+    void CallFn(const UObject* obj, UFunction* fn, void* parms) {
+        const auto flags = fn->FunctionFlags;
+        fn->FunctionFlags |= 0x400;  // FUNC_Native
+        obj->ProcessEvent(fn, parms);
+        fn->FunctionFlags = flags;
+    }
+
+    // The game exe's own address range (vtables live there, heap objects don't).
+    bool InImage(uintptr_t p) {
+        static const uintptr_t base = InSDKUtils::GetImageBase();
+        static const uintptr_t size = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+            base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew)->OptionalHeader.SizeOfImage;
+        return p >= base && p < base + size;
+    }
+
+    // FGameplayEffectContextHandle is 0x18 here: a TSharedPtr<FGameplayEffectContext>, behind a vtable
+    // pointer if the first word points into the exe. Context: AbilityCDO @0x18, AbilityInstanceNotReplicated @0x20.
+    const uint8* EffectContext(const FGameplayEffectContextHandle& h) {
+        const uintptr_t* q = reinterpret_cast<const uintptr_t*>(&h);
+        const uintptr_t ctx = InImage(q[0]) ? q[1] : q[0];
+        return PtrOk(reinterpret_cast<void*>(ctx)) ? reinterpret_cast<const uint8*>(ctx) : nullptr;
+    }
+}
+
+int game::CooldownEffects(void* ascp, void* abp, EffectRef* out, int max) {
+    auto* asc = static_cast<UAbilitySystemComponent*>(ascp);
+    auto* ab = static_cast<UGameplayAbility*>(abp);
+    if (!PtrOk(asc) || !PtrOk(ab)) return 0;
+    UClass* cd = ab->CooldownGameplayEffectClass.Get();
+    if (ab->IsA(UArchonGameplayAbility::StaticClass())) {
+        static UFunction* fn = UArchonGameplayAbility::StaticClass()->GetFunction("ArchonGameplayAbility", "GetCooldownGEClass");
+        if (!fn) return 0;
+        Params::ArchonGameplayAbility_GetCooldownGEClass p{};
+        CallFn(ab, fn, &p);
+        cd = p.ReturnValue.Get();
+    }
+    if (!PtrOk(cd)) return 0;
+    const int32 cdoIdx = PtrOk(ab->Class->ClassDefaultObject) ? ab->Class->ClassDefaultObject->Index : -1;
+
+    int n = 0;
+    auto& effects = asc->ActiveGameplayEffects.GameplayEffects_Internal;
+    for (int i = 0; i < effects.Num() && n < max; i++) {
+        const FActiveGameplayEffect& e = effects[i];
+        if (!PtrOk(e.Spec.Def) || !e.Spec.Def->IsA(cd)) continue;
+        const uint8* ctx = EffectContext(e.Spec.EffectContext);
+        if (!ctx) continue;
+        const int32 byCdo = *reinterpret_cast<const int32*>(ctx + 0x18);
+        const int32 byInstance = *reinterpret_cast<const int32*>(ctx + 0x20);
+        if (byCdo != cdoIdx && byInstance != ab->Index) continue;
+        // FActiveGameplayEffect::Handle sits after the 12-byte FFastArraySerializerItem (Dumper-7 Pad_C).
+        const int32 h = *reinterpret_cast<const int32*>(reinterpret_cast<const uint8*>(&e) + 0x0C);
+        if (h > 0) out[n++] = {h, e.Spec.Duration};
+    }
+    return n;
+}
+
+bool game::RemoveEffect(void* ascp, int handle) {
+    auto* asc = static_cast<UAbilitySystemComponent*>(ascp);
+    static UFunction* fn = UAbilitySystemComponent::StaticClass()->GetFunction("AbilitySystemComponent", "RemoveActiveGameplayEffect");
+    if (!PtrOk(asc) || !fn || handle <= 0) return false;
+    Params::AbilitySystemComponent_RemoveActiveGameplayEffect p{};
+    *reinterpret_cast<int32*>(&p.Handle) = handle;
+    p.StacksToRemove = -1;
+    CallFn(asc, fn, &p);
+    return p.ReturnValue;
 }

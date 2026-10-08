@@ -62,6 +62,13 @@ namespace game {
     using EventListener = void (*)(void* obj, void* fn, void* parms);
     void SetEventListener(EventListener l, bool on);
 
+    // Gameplay effects (game thread only: these call UFunctions). asc = UAbilitySystemComponent*,
+    // ability = UGameplayAbility*. Cooldown effects of one ability: class IsA its cooldown GE (often one
+    // shared BP_GameplayEffect_Cooldown) AND the effect context names this ability, so other cooldowns stay.
+    struct EffectRef { int handle; float duration; };
+    int CooldownEffects(void* asc, void* ability, EffectRef* out, int max);
+    bool RemoveEffect(void* asc, int handle);
+
     float OriginalFOV();
     float OriginalDistance();
 

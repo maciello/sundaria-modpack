@@ -40,8 +40,6 @@ namespace {
     UFunction* g_fnRemoveLock = nullptr;   // UArchonAbilitySystemComponent::RemoveAnimLock
     UFunction* g_fnCancel = nullptr;       // UGameplayAbility::K2_CancelAbility
     UFunction* g_fnInputPressed = nullptr; // UArchonGameplayAbility::GetInputPressed
-    UFunction* g_fnCooldownClass = nullptr; // UArchonGameplayAbility::GetCooldownGEClass
-    UFunction* g_fnRemoveEffect = nullptr; // UAbilitySystemComponent::RemoveActiveGameplayEffect
     UFunction* g_fnAbilityInput[32] = {};  // ABP_PlayerControllerGame_C::InpActEvt_Ability<N>_* (press + release)
     int g_numAbilityInput = 0;
 
@@ -74,15 +72,13 @@ namespace {
         g_fnRemoveLock = asc->GetFunction("ArchonAbilitySystemComponent", "RemoveAnimLock");
         g_fnCancel = UGameplayAbility::StaticClass()->GetFunction("GameplayAbility", "K2_CancelAbility");
         g_fnInputPressed = UArchonGameplayAbility::StaticClass()->GetFunction("ArchonGameplayAbility", "GetInputPressed");
-        g_fnCooldownClass = UArchonGameplayAbility::StaticClass()->GetFunction("ArchonGameplayAbility", "GetCooldownGEClass");
-        g_fnRemoveEffect = UAbilitySystemComponent::StaticClass()->GetFunction("AbilitySystemComponent", "RemoveActiveGameplayEffect");
         g_numAbilityInput = 0;
         for (UField* f = pc->Children; PtrOk(f) && g_numAbilityInput < 32; f = f->Next)
             if (f->GetName().starts_with("InpActEvt_Ability") && !f->GetName().starts_with("InpActEvt_AbilityBar")
                 && !f->GetName().starts_with("InpActEvt_AbilityModifier"))
                 g_fnAbilityInput[g_numAbilityInput++] = static_cast<UFunction*>(f);
         return g_fnNotify && g_fnCheckLock && g_fnRemoveLock && g_fnCancel && g_fnInputPressed
-            && g_fnCooldownClass && g_fnRemoveEffect && g_numAbilityInput > 0;
+            && g_numAbilityInput > 0;
     }
 
     AArchonCharacter* LocalHero(APlayerController** outPc) {
@@ -96,55 +92,11 @@ namespace {
         return static_cast<AArchonCharacter*>(pc->Pawn);
     }
 
-    // The game exe's own address range (vtables live there, heap objects don't).
-    bool InImage(uintptr_t p) {
-        static const uintptr_t base = InSDKUtils::GetImageBase();
-        static const uintptr_t size = reinterpret_cast<const IMAGE_NT_HEADERS*>(
-            base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew)->OptionalHeader.SizeOfImage;
-        return p >= base && p < base + size;
-    }
-
-    // FGameplayEffectContextHandle is 0x18 here: a TSharedPtr<FGameplayEffectContext>, behind a vtable
-    // pointer if the first word points into the exe. Context: AbilityCDO @0x18, AbilityInstanceNotReplicated @0x20.
-    const uint8* EffectContext(const FGameplayEffectContextHandle& h) {
-        const uintptr_t* q = reinterpret_cast<const uintptr_t*>(&h);
-        const uintptr_t ctx = InImage(q[0]) ? q[1] : q[0];
-        return PtrOk(reinterpret_cast<void*>(ctx)) ? reinterpret_cast<const uint8*>(ctx) : nullptr;
-    }
-
-    // Removes the cooldown effect(s) this ability applied: class IsA its cooldown GE (often one shared
-    // BP_GameplayEffect_Cooldown) AND the effect context names this ability, so other cooldowns stay.
+    // Removes the cooldown effect(s) this ability applied (core finds them by class + effect context).
     void RefundCooldown(UAbilitySystemComponent* asc, UGameplayAbility* ab) {
-        UClass* cd = ab->CooldownGameplayEffectClass.Get();
-        if (ab->IsA(UArchonGameplayAbility::StaticClass())) {
-            Params::ArchonGameplayAbility_GetCooldownGEClass p{};
-            Call(ab, g_fnCooldownClass, &p);
-            cd = p.ReturnValue.Get();
-        }
-        if (!PtrOk(cd)) return;
-        const int32 cdoIdx = PtrOk(ab->Class->ClassDefaultObject) ? ab->Class->ClassDefaultObject->Index : -1;
-
-        int32 handles[8]; int n = 0;  // collect first: removing reshapes the array
-        auto& effects = asc->ActiveGameplayEffects.GameplayEffects_Internal;
-        for (int i = 0; i < effects.Num() && n < 8; i++) {
-            const FActiveGameplayEffect& e = effects[i];
-            if (!PtrOk(e.Spec.Def) || !e.Spec.Def->IsA(cd)) continue;
-            const uint8* ctx = EffectContext(e.Spec.EffectContext);
-            if (!ctx) continue;
-            const int32 byCdo = *reinterpret_cast<const int32*>(ctx + 0x18);
-            const int32 byInstance = *reinterpret_cast<const int32*>(ctx + 0x20);
-            if (byCdo != cdoIdx && byInstance != ab->Index) continue;
-            // FActiveGameplayEffect::Handle sits after the 12-byte FFastArraySerializerItem (Dumper-7 Pad_C).
-            const int32 h = *reinterpret_cast<const int32*>(reinterpret_cast<const uint8*>(&e) + 0x0C);
-            if (h > 0) handles[n++] = h;
-        }
-        for (int i = 0; i < n; i++) {
-            Params::AbilitySystemComponent_RemoveActiveGameplayEffect p{};
-            *reinterpret_cast<int32*>(&p.Handle) = handles[i];
-            p.StacksToRemove = -1;
-            Call(asc, g_fnRemoveEffect, &p);
-            if (p.ReturnValue) g_refunds++;
-        }
+        game::EffectRef fx[8];
+        const int n = game::CooldownEffects(asc, ab, fx, 8);  // collect first: removing reshapes the array
+        for (int i = 0; i < n; i++) if (game::RemoveEffect(asc, fx[i].handle)) g_refunds++;
     }
 
     bool IsAbilityInput(UFunction* fn) {
