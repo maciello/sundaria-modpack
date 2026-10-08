@@ -21,10 +21,9 @@
 #include "UMG_classes.hpp"
 #include "UMG_parameters.hpp"
 
-// Dungeon map (#40): the floor's main route, entry → stairs down (shared/planner.hpp), drawn in full on the game's minimap
-// with a flow along it and a blocked icon where a locked door cuts it (#66 #67 #68); the lever icons on it only while
-// Lever markers is on (#93, planner::Using). When the main route is out of
-// the minimap's view, a dashed connector leads from the player to it (#83), replanned on a room change or when the player
+// Dungeon map (#40): the floor's main route, entry → stairs down (shared/planner.hpp), drawn on the game's minimap from the
+// furthest point the player has reached, with a flow along it and a blocked icon where a locked door cuts it (#66 #67 #68);
+// the lever icons on it only while Lever markers is on (#93, planner::Using). When the main route is out of the minimap's view, a dashed connector leads from the player to it (#83), replanned on a room change or when the player
 // strays. Game thread only. Facts: references/game-facts.md § Dungeon, game-ui.md § Minimap. Dev probe: dungeon-map.probe.
 using namespace SDK;
 using umg::PtrOk;
@@ -86,7 +85,8 @@ namespace {
     }
 
     // The connector: only while no main-route point lies inside the minimap's view (radius of its inscribed circle).
-    dungeon_map::Path Connector(const dungeon_map::Plan& plan, dungeon_map::V3 pawn, UWidgetMiniMap_C* m) {
+    // ahead = the main route from the furthest point reached: what the map shows.
+    dungeon_map::Path Connector(const dungeon_map::Plan& plan, const dungeon_map::Path& ahead, dungeon_map::V3 pawn, UWidgetMiniMap_C* m) {
         if (g_mapPx <= 0) {
             const float px = ReadMapPx(m);
             g_mapPx = px > 0 ? px : kMapPxFallback;
@@ -94,7 +94,7 @@ namespace {
         }
         const float scale = std::max(m->CanvasPanel_Map->RenderTransform.Scale.X, 0.01f);
         const float radius = 0.5f * g_mapPx / scale * float(m->UnitToPixel);
-        const float off = dungeon_map::MapDist(plan.path, pawn);
+        const float off = dungeon_map::MapDist(ahead, pawn);
         g_linkWanted = off > radius * (g_linkWanted ? dungeon_map::kLinkHide : 1.f);
         if (!g_linkWanted) { g_link.clear(); return {}; }
         const int room = dungeon_map::RoomOf(plan.rooms, pawn);
@@ -134,10 +134,11 @@ namespace {
         auto* m = g_minimap.Get<UWidgetMiniMap_C>();
         if (!m || m->UnitToPixel <= 0 || !PtrOk(m->CanvasPanel_Map)) return;
         g_progress.Visit(plan.path, pawn);  // O(path points) per tick
-        const dungeon_map::Path link = Connector(plan, pawn, m);
+        const dungeon_map::Path ahead = dungeon_map::Suffix(plan.path, g_progress.S(plan.path));  // the walked part is gone
+        const dungeon_map::Path link = Connector(plan, ahead, pawn, m);
         dungeon_map::Marks marks = plan.marks;  // lever icons + halo belong to the Lever markers toggle (#93)
         if (!dungeon_map::planner::Using(dungeon_map::planner::kLevers)) marks.levers.clear();
-        const auto qs = dungeon_map::Scene(plan.path, link, marks, float(m->UnitToPixel), m->CanvasPanel_Map->RenderTransform.Angle, Now());
+        const auto qs = dungeon_map::Scene(ahead, link, marks, float(m->UnitToPixel), m->CanvasPanel_Map->RenderTransform.Angle, Now());
         dungeon_map::draw::Sync(m, qs);
         g_drawn = true;
     }

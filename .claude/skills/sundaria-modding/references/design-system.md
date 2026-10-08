@@ -142,7 +142,8 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 ### Dungeon map path (#40, inside the game's minimap)
 - Where: plain `UImage`s (no texture = solid tint) in `WidgetMiniMap_C::CanvasPanel_DynamicMinimp`, placed like the game's own icons
   (anchors (0,1), alignment 0.5, map pixel = (Y, −X) / UnitToPixel). They pan, rotate and clip with the minimap; nothing on the HUD outside it.
-- Main route: the floor's main line, entry → stairs down (exit volume on the last floor), always drawn in full, one bar per path
+- Main route: the floor's main line, entry → stairs down (exit volume on the last floor), drawn from the furthest point the player
+  has reached (within 6 m of it; the walked part disappears, never reappears on walking back) to the goal, one bar per path
   segment, 2 px thick, `kAccent` @.55. Goal cap: 7 px diamond, `kGameHighlight` @.9, at the end. Replans only on door, lever and floor events.
 - Connector (#83): only while no point of the main route lies inside the minimap's view (inscribed circle of the retainer, from its
   geometry × UnitToPixel; hides again once the route is within 90 % of that radius). Dashed: 6 px dashes, 5 px gaps (at most 64, spread
