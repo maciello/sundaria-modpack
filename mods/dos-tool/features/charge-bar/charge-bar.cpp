@@ -14,8 +14,7 @@
 #include "GameplayAbilities_classes.hpp"
 #include "BP_GameAbilityBase_classes.hpp"
 
-// Charge bar (#82): while the hero's animating ability counts down its cast time or climbs hold levels, a bar under
-// the character fills; full = armed. Game thread (ProcessEvent listener, ~60 Hz, O(1)) reads the ability's fields and
+// Charge bar (#82): while the hero's animating ability climbs hold levels, a bar under the character fills; full = armed. Game thread (ProcessEvent listener, ~60 Hz, O(1)) reads the ability's fields and
 // publishes plain numbers; the render thread only animates them.
 using namespace SDK;
 
@@ -38,24 +37,18 @@ namespace {
         if (!pc || !PtrOk(pc->Pawn) || !pc->Pawn->IsA(AArchonCharacter::StaticClass())) return;
         UAbilitySystemComponent* asc = static_cast<AArchonCharacter*>(pc->Pawn)->mAbilitySystemComponent;
         if (!PtrOk(asc)) return;
-        // ponytail: only the animating ability; a cast time without a cast animation shows nothing (scan
-        // ActivatableAbilities if the log shows such abilities)
         UGameplayAbility* ab = asc->LocalAnimMontageInfo.AnimatingAbility;
         if (!PtrOk(ab) || !ab->IsA(UArchonGameplayAbility::StaticClass())) ab = nullptr;
         if (!(ab ? g_lastAbility.Is(ab) : !g_lastAbility.ptr)) {
             g_lastAbility = ref::Ref(ab);
-            g_arm = {g_arm.id + 1, false, 0, 0, 0, 0, ab ? ab->Class->GetName() : std::string()};
+            g_arm = {g_arm.id + 1, false, 0, 0, 0, ab ? ab->Class->GetName() : std::string()};
         }
         g_arm.active = ab != nullptr;
-        if (ab) {
-            const auto* a = static_cast<const UArchonGameplayAbility*>(ab);
-            g_arm.remain = a->mStartedCast ? a->mLocalCastTimeRemaining : 0;
-            if (ab->IsA(UBP_GameAbilityBase_C::StaticClass())) {
-                const auto* b = static_cast<const UBP_GameAbilityBase_C*>(ab);
-                g_arm.level = b->mHoldLevel;
-                g_arm.maxLevel = b->kMaxHoldLevel;
-                g_arm.interval = b->mHoldInterval;
-            }
+        if (ab && ab->IsA(UBP_GameAbilityBase_C::StaticClass())) {
+            const auto* b = static_cast<const UBP_GameAbilityBase_C*>(ab);
+            g_arm.level = b->mHoldLevel;
+            g_arm.maxLevel = b->kMaxHoldLevel;
+            g_arm.interval = b->mHoldInterval;
         }
         AcquireSRWLockExclusive(&g_mu);
         g_pub = g_arm;
