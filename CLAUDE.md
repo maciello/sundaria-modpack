@@ -23,6 +23,21 @@ updater/                     launch-option updater (py + ps1), shared by all mod
 - Logic with branches/math lives in an SDK-free header with a test next to it.
 - Game patch → re-dump SDK (work item `just dump-install`, End in a dungeon, `just dump-collect`) → rebuild → release.
 
+## Working together (trunk-based)
+- One branch: `master`. Pull with rebase, commit small, push at least daily. No long-lived branches.
+- `git pull --rebase` before push. `git config pull.rebase true` once per clone.
+- `just test` must pass before push; CI (`.github/workflows/test.yml`) re-runs it on every push. Red master = fix or revert first.
+- Unfinished work ships dark: new feature constructed `Feature("Name (wip)", false)`. Drop `(wip)` and default `true` when done.
+- Two people on the same feature: one owns the folder, the other sends changes as small commits or a PR.
+- `core/` changes affect every feature: keep them small and push them on their own.
+- Claim work in a GitHub issue before starting, so nobody builds the same thing twice.
+
+## SDK and toolchain (not in repo)
+- Shared dump store: `/srv/dumps/<game>/<steam-buildid>/` on the dump host (ssh alias `dumps`). Sundaria: `/srv/dumps/sundaria/<buildid>/CppSDK`.
+- Steam build id: `steamapps/appmanifest_587520.acf` → `buildid`. SDK must match the game's build id.
+- `just sdk-pull` copies the matching SDK to `../sdk/CppSDK`. On the dump host itself: `SDK_DIR=/srv/dumps/sundaria/<buildid>/CppSDK`.
+- MSVC kit: `/srv/toolchains/xwin-msvc` on the dump host; `XWIN=` that path, or rsync it to `../tools/msvc`.
+
 ## Dev loop
 `just dev-install` once with the game closed, then `just dev` hot-reloads `DoS-Tool.dll` into the running game.
 `just test` before every commit. `just release vX.Y.Z` publishes; friends' updaters pick it up on next launch.
