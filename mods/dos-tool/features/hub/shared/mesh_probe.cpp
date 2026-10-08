@@ -1,4 +1,5 @@
 #include "mesh_probe.hpp"
+#include "ref.hpp"
 #include "logger.hpp"
 
 #include <Windows.h>
@@ -43,8 +44,7 @@ namespace {
         return terms;
     }
 
-    std::unordered_set<UObject*> g_logged;
-    // ponytail: keyed by pointer; a GC'd mesh's address reused by another is not logged again
+    std::unordered_set<ref::Ref, ref::Hash> g_logged;
 
     // The allowlisted GObjects walk (scripts/gobjects-check.sh): dev probe, file trigger, once per level load.
     void MeshReport(const std::vector<std::string>& terms, const std::string& world) {
@@ -61,7 +61,7 @@ namespace {
             for (const std::string& t : terms) match |= low.find(t) != std::string::npos;
             if (!match) continue;
             matches++;
-            if (!g_logged.insert(o).second) continue;
+            if (!g_logged.insert(ref::Ref(o)).second) continue;
             fresh++;
             int simple = -1, trace = -1;
             if (UBodySetup* bs = static_cast<UStaticMesh*>(o)->BodySetup; PtrOk(bs)) {
@@ -83,14 +83,14 @@ namespace {
 
 void mesh_probe::Tick() {
     static ULONGLONG next = 0;
-    static UWorld* seen = nullptr;
+    static ref::Ref seen;
     const ULONGLONG now = GetTickCount64();
     if (now < next) return;
     next = now + 2000;
     UWorld* w = UWorld::GetWorld();
-    if (!PtrOk(w) || w == seen) return;
+    if (!PtrOk(w) || seen.Is(w)) return;
     const std::vector<std::string> terms = ReadTerms();
     if (terms.empty()) return;
-    seen = w;
+    seen = ref::Ref(w);
     MeshReport(terms, w->GetName());
 }

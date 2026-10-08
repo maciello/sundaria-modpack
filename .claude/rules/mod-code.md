@@ -7,7 +7,7 @@ paths:
 - A feature talks to the game only through `core/game.hpp` or its own SDK-including `.cpp`. Only `.cpp` files include the SDK.
 - Features do not include each other. Shared needs move into their domain's `shared/`, or `core/` if domain-free.
 - Render thread (`OnFrame`, Present hook): memory reads/writes only. No `ProcessEvent` / UFunction calls.
-- Check every pointer (`PtrOk`) and `IsA` before casting.
+- Every engine pointer kept beyond the current call (UFunction, UClass, UObject, actor, widget …⊇) is stored only in `core/ref.hpp` (`ref::Ref` / `Cached` / `Fn`) and validated by GObjects index + name on each use (O(1)): map travel frees Blueprint classes and world objects and reuses their memory (#63). `PtrOk` is for null and garbage only, never for liveness. `IsA` before casting. `just test` enforces this (`scripts/ref-check.py`, allowlist by file:symbol).
 - Server-simulated changes (movement, stats) apply to every player character, not only the local one.
 - Every feature is toggleable (Insert menu); `Off()` restores the captured vanilla values.
 - Logic with branches/math lives in an SDK-free header with `test/*_test.cpp` next to it.

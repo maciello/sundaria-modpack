@@ -1,5 +1,6 @@
 #include "game.hpp"
 #include "logger.hpp"
+#include "ref.hpp"
 
 #include <Windows.h>
 #include <cstdint>
@@ -110,10 +111,11 @@ void game::SetCameraCollision(bool enabled) {
 namespace {
     // Damage-type class → element, by class name; resolved once per class (render thread only).
     combat::Element ElementOf(UClass* type) {
-        static std::unordered_map<UClass*, combat::Element> cache;
+        static std::unordered_map<ref::Ref, combat::Element, ref::Hash> cache;  // ponytail: entries of collected classes stay (a few)
         if (!type) return combat::Element::Physical;
-        auto it = cache.find(type);
-        if (it == cache.end()) it = cache.emplace(type, combat::Classify(type->GetName())).first;
+        const ref::Ref key(type);
+        auto it = cache.find(key);
+        if (it == cache.end()) it = cache.emplace(key, combat::Classify(type->GetName())).first;
         return it->second;
     }
 }
@@ -175,10 +177,10 @@ bool game::GetView(combat::View& v) {
 }
 
 namespace {
-    // ponytail: keyed by pointer, never pruned while on (a few entries per level); a reused address keeps the old original
-    std::unordered_map<UCharacterMovementComponent*, game::Movement> g_origMove;
+    // ponytail: never pruned while on (a few entries per level)
+    std::unordered_map<ref::Ref, game::Movement, ref::Hash> g_origMove;
     bool g_haveLocalMove = false; game::Movement g_localMove{};
-    std::unordered_map<UCharacterMovementComponent*, game::Ground> g_origGround;
+    std::unordered_map<ref::Ref, game::Ground, ref::Hash> g_origGround;
     bool g_haveLocalGround = false; game::Ground g_localGround{};
 
     template <class F> void ForEachPlayerMovement(F&& fn) {
@@ -204,7 +206,7 @@ void game::ApplyMovement(const Movement* m) {
     APawn* local = PtrOk(pc) ? pc->Pawn : nullptr;
     // Restore only components found in the live world: stale map keys may be freed.
     ForEachPlayerMovement([&](ACharacter* c, UCharacterMovementComponent* cm) {
-        auto it = g_origMove.find(cm);
+        auto it = g_origMove.find(ref::Ref(cm));
         if (!m) {
             if (it == g_origMove.end()) return;
             const Movement& o = it->second;
@@ -216,7 +218,7 @@ void game::ApplyMovement(const Movement* m) {
         if (it == g_origMove.end()) {
             const Movement o{cm->AirControl, cm->AirControlBoostMultiplier, cm->AirControlBoostVelocityThreshold,
                              cm->FallingLateralFriction, cm->BrakingDecelerationFalling};
-            g_origMove.emplace(cm, o);
+            g_origMove.emplace(ref::Ref(cm), o);
             if (c == local) { g_localMove = o; g_haveLocalMove = true; }
         }
         cm->AirControl = m->airControl; cm->AirControlBoostMultiplier = m->boostMultiplier;
@@ -238,7 +240,7 @@ void game::ApplyGround(GroundFn f, const void* ctx) {
     };
     // Restore only components found in the live world: stale map keys may be freed.
     ForEachPlayerMovement([&](ACharacter* c, UCharacterMovementComponent* cm) {
-        auto it = g_origGround.find(cm);
+        auto it = g_origGround.find(ref::Ref(cm));
         if (!f) {
             if (it != g_origGround.end()) write(cm, it->second);
             return;
@@ -246,7 +248,7 @@ void game::ApplyGround(GroundFn f, const void* ctx) {
         if (it == g_origGround.end()) {
             const Ground o{cm->MaxAcceleration, cm->BrakingDecelerationWalking, cm->GroundFriction,
                            cm->BrakingFrictionFactor, cm->JumpZVelocity};
-            it = g_origGround.emplace(cm, o).first;
+            it = g_origGround.emplace(ref::Ref(cm), o).first;
             if (c == local) { g_localGround = o; g_haveLocalGround = true; }
         }
         write(cm, f(it->second, ctx));
@@ -274,8 +276,8 @@ namespace {
     std::atomic<bool> g_probeOn{false};
     std::atomic<int> g_inPE{0};
     SRWLOCK g_probeMu = SRWLOCK_INIT;  // not std::mutex: newer STL's constexpr mutex null-derefs in Proton's older msvcp140 (crashed the game)
-    std::unordered_set<UFunction*> g_seen;
-    struct Fired { UFunction* fn; UClass* cls; ULONGLONG t; };
+    std::unordered_set<ref::Ref, ref::Hash> g_seen;
+    struct Fired { ref::Ref fn, cls; ULONGLONG t; };
     std::vector<Fired> g_fresh;
     std::atomic<game::EventListener> g_listeners[8] = {};  // 6 users today; full = logged, never silent
     std::atomic<game::EventFilter> g_filter{nullptr};  // ponytail: one slot (item-sort); a table when a second user comes
@@ -294,17 +296,13 @@ namespace {
     // calls BlueprintUpdateCamera, so the free camera moves the view-target actor itself (game thread only).
     uint32_t g_appliedSeq = 0;
     bool g_inCamMove = false;
-    ACameraActor* g_movedCam = nullptr;
+    ref::Ref g_movedCam;  // ACameraActor
     FVector g_camOrigLoc{};
     FRotator g_camOrigRot{};
 
-    bool Alive(const UObject* o) {
-        return PtrOk(o) && UObject::GObjects && UObject::GObjects->GetByIndex(o->Index) == o;
-    }
-
     void RestoreViewCam() {
-        if (Alive(g_movedCam)) g_movedCam->K2_SetActorLocationAndRotation(g_camOrigLoc, g_camOrigRot, false, nullptr, true);
-        g_movedCam = nullptr;
+        if (auto* cam = g_movedCam.Get<ACameraActor>()) cam->K2_SetActorLocationAndRotation(g_camOrigLoc, g_camOrigRot, false, nullptr, true);
+        g_movedCam = {};
         g_camMoved = false;
     }
 
@@ -313,9 +311,9 @@ namespace {
         if (!PtrOk(pc) || !PtrOk(pc->PlayerCameraManager)) return;
         AActor* t = pc->PlayerCameraManager->ViewTarget.Target;
         if (!PtrOk(t) || !t->IsA(ACameraActor::StaticClass())) return;
-        if (t != g_movedCam) {
+        if (!g_movedCam.Is(t)) {
             RestoreViewCam();  // the game switched views mid-flight: put the previous camera back
-            g_movedCam = static_cast<ACameraActor*>(t);
+            g_movedCam = ref::Ref(t);
             g_camOrigLoc = t->K2_GetActorLocation();
             g_camOrigRot = t->K2_GetActorRotation();
             g_camMoved = true;
@@ -323,7 +321,7 @@ namespace {
         AcquireSRWLockShared(&g_freeMu);
         const game::CamPose p = g_freePose;
         ReleaseSRWLockShared(&g_freeMu);
-        g_movedCam->K2_SetActorLocationAndRotation(FVector{p.x, p.y, p.z}, FRotator{p.pitch, p.yaw, 0.0f}, false, nullptr, true);
+        t->K2_SetActorLocationAndRotation(FVector{p.x, p.y, p.z}, FRotator{p.pitch, p.yaw, 0.0f}, false, nullptr, true);
         g_freeHits++;
     }
 
@@ -339,31 +337,38 @@ namespace {
     // Hub walk: the render thread finds the hero (memory reads) and posts input; the game thread possesses + drives it.
     std::atomic<bool> g_walkOn{false};
     std::atomic<bool> g_walkHeld{false};  // we possessed the hero and owe the controller its previous pawn
-    std::atomic<AActor*> g_heroPtr{nullptr};
-    SRWLOCK g_walkMu = SRWLOCK_INIT;
+    SRWLOCK g_walkMu = SRWLOCK_INIT;  // also guards g_hero
+    ref::Ref g_hero;  // hub hero (AActor): found by the render thread, driven by the game thread
     game::WalkInput g_walkIn{};
     std::atomic<uint32_t> g_walkSeq{0};
     uint32_t g_walkApplied = 0;
-    APawn* g_prevPawn = nullptr;
+    ref::Ref g_prevPawn;  // APawn; ptr null = the controller had none
     bool g_jumpWas = false;
     ULONGLONG g_lastPossess = 0;
     std::atomic<int> g_possessTries{0};
     std::atomic<int> g_modeFixes{0};  // times the movement mode was found None while walking and switched back on
     ULONGLONG g_lastModeFix = 0;
     // The hub parks its hero (no movement mode / no tick): switched on while walking, put back after.
-    ACharacter* g_heldHero = nullptr;
+    ref::Ref g_heldHero;  // ACharacter
     bool g_heroOrigOrient = false, g_heroOrigCtrlYaw = false;
     FRotator g_heroOrigRate{};
 
+    AActor* HeroActor() {
+        AcquireSRWLockShared(&g_walkMu);
+        const ref::Ref r = g_hero;
+        ReleaseSRWLockShared(&g_walkMu);
+        return r.Get<AActor>();
+    }
+
     void WalkTick() {
-        AActor* h = g_heroPtr.load();
+        AActor* h = HeroActor();
         APlayerController* pc = LocalPC();
-        if (!Alive(h) || !h->IsA(ACharacter::StaticClass()) || !PtrOk(pc)) return;
+        if (!h || !h->IsA(ACharacter::StaticClass()) || !PtrOk(pc)) return;
         auto* hero = static_cast<ACharacter*>(h);
-        if (!g_heldHero) {
-            g_heldHero = hero;
+        if (!g_heldHero.ptr) {
+            g_heldHero = ref::Ref(hero);
             g_walkHeld = true;
-            g_prevPawn = pc->Pawn;
+            g_prevPawn = ref::Ref(pc->Pawn);
             if (UCharacterMovementComponent* cm = hero->CharacterMovement; PtrOk(cm)) {
                 cm->bRunPhysicsWithNoController = 1;  // still moves if the hub refuses the possession
                 if (cm->MovementMode == EMovementMode::MOVE_None) cm->SetMovementMode(EMovementMode::MOVE_Walking, 0);
@@ -408,27 +413,28 @@ namespace {
 
     void WalkRelease() {
         APlayerController* pc = LocalPC();
-        if (PtrOk(pc) && Alive(g_heldHero) && pc->Pawn == g_heldHero) {
-            if (Alive(g_prevPawn) && g_prevPawn != g_heldHero) pc->Possess(g_prevPawn);
-            else if (!g_prevPawn) pc->UnPossess();
+        auto* held = g_heldHero.Get<ACharacter>();
+        if (PtrOk(pc) && held && pc->Pawn == held) {
+            if (auto* prev = g_prevPawn.Get<APawn>(); prev && prev != held) pc->Possess(prev);
+            else if (!g_prevPawn.ptr) pc->UnPossess();
         }
-        if (Alive(g_heldHero)) {  // settings back; the hero stays where it walked (e.g. in the tavern)
-            if (UCharacterMovementComponent* cm = g_heldHero->CharacterMovement; PtrOk(cm)) {
+        if (held) {  // settings back; the hero stays where it walked (e.g. in the tavern)
+            if (UCharacterMovementComponent* cm = held->CharacterMovement; PtrOk(cm)) {
                 cm->bRunPhysicsWithNoController = 0;
                 cm->bOrientRotationToMovement = g_heroOrigOrient ? 1 : 0;
                 cm->RotationRate = g_heroOrigRate;
             }
-            g_heldHero->bUseControllerRotationYaw = g_heroOrigCtrlYaw ? 1 : 0;
+            held->bUseControllerRotationYaw = g_heroOrigCtrlYaw ? 1 : 0;
         }
-        g_heldHero = nullptr;
+        g_heldHero = {};
         g_possessTries = 0;
-        g_prevPawn = nullptr;
+        g_prevPawn = {};
         g_jumpWas = false;
         g_walkHeld = false;
     }
 
     // NPC placement: queued by the render thread, applied on the game thread.
-    struct Placement { AActor* npc; AActor* button; FVector offset; FVector loc; float yaw; };
+    struct Placement { ref::Ref npc, button; FVector offset; FVector loc; float yaw; };  // AActor
     SRWLOCK g_placeMu = SRWLOCK_INIT;
     std::vector<Placement> g_placeQueue;
     std::atomic<bool> g_placePending{false};
@@ -438,12 +444,12 @@ namespace {
     SRWLOCK g_colMu = SRWLOCK_INIT;
     std::vector<CollisionReq> g_colQueue;
     std::atomic<bool> g_colPending{false};
-    std::unordered_set<UStaticMeshComponent*> g_colDone;  // ponytail: cleared on world change only
-    std::unordered_set<UStaticMesh*> g_colLogged;
-    UWorld* g_colWorld = nullptr;
+    std::unordered_set<ref::Ref, ref::Hash> g_colDone;  // UStaticMeshComponent. ponytail: cleared on world change only
+    std::unordered_set<ref::Ref, ref::Hash> g_colLogged;  // UStaticMesh
+    ref::Ref g_colWorld;
 
     // "<path>/x_HUB" → the same mesh without "_HUB" (the hub uses collision-less copies of world meshes), if it exists.
-    std::unordered_map<UStaticMesh*, UStaticMesh*> g_realMesh;
+    std::unordered_map<ref::Ref, ref::Ref, ref::Hash> g_realMesh;  // ptr null = no real version
 
     int SimpleShapes(UBodySetup* bs) {
         if (!PtrOk(bs)) return -1;
@@ -452,9 +458,10 @@ namespace {
     }
 
     UStaticMesh* RealMesh(UStaticMesh* hub) {
-        auto it = g_realMesh.find(hub);
-        if (it != g_realMesh.end()) return it->second;
-        g_realMesh[hub] = nullptr;
+        const ref::Ref key(hub);
+        auto it = g_realMesh.find(key);
+        if (it != g_realMesh.end() && (!it->second.ptr || it->second.Get())) return it->second.Get<UStaticMesh>();
+        g_realMesh[key] = {};
         // the package's raw FName is the full path (/Game/…/x_HUB); GetName()/GetFullName() drop the folders
         std::string pkg = "";
         for (UObject* p = hub->Outer; PtrOk(p); p = p->Outer) pkg = p->Name.GetRawString();
@@ -478,7 +485,7 @@ namespace {
             logger::log(buf);
             if (real) break;
         }
-        g_realMesh[hub] = real;
+        g_realMesh[key] = ref::Ref(real);
         return real;
     }
 
@@ -494,7 +501,7 @@ namespace {
         px->SetHiddenInGame(true, false);
         px->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
         px->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Block);
-        g_colDone.insert(px);
+        g_colDone.insert(ref::Ref(px));
         return true;
     }
 
@@ -504,10 +511,10 @@ namespace {
     std::vector<RoomReq> g_roomQueue;
     std::atomic<bool> g_roomPending{false};
     std::string g_roomMsg = "no room yet";
-    std::unordered_map<AActor*, std::vector<UBoxComponent*>> g_rooms;
+    std::unordered_map<ref::Ref, std::vector<ref::Ref>, ref::Hash> g_rooms;  // building actor -> its UBoxComponents
     std::atomic<bool> g_roomShow{false};  // draw the invisible boxes as outlines (debug)
     bool g_roomShown = false;
-    UWorld* g_roomWorld = nullptr;
+    ref::Ref g_roomWorld;
 
     void SetRoomMsg(const std::string& m) {
         AcquireSRWLockExclusive(&g_roomMu);
@@ -519,11 +526,11 @@ namespace {
     void BuildRoom(const RoomReq& r) {
         UWorld* w = UWorld::GetWorld();
         if (!PtrOk(w)) return;
-        if (w != g_roomWorld) { g_roomWorld = w; g_rooms.clear(); }
+        if (!g_roomWorld.Is(w)) { g_roomWorld = ref::Ref(w); g_rooms.clear(); }
         // feet = given, or character centre - capsule half height
         float halfHeight = 90.0f;
-        AActor* h = g_heroPtr.load();
-        if (Alive(h) && h->IsA(ACharacter::StaticClass())) {
+        AActor* h = HeroActor();
+        if (h && h->IsA(ACharacter::StaticClass())) {
             auto* c = static_cast<ACharacter*>(h);
             if (PtrOk(c->CapsuleComponent)) halfHeight = c->CapsuleComponent->CapsuleHalfHeight;
         }
@@ -558,12 +565,13 @@ namespace {
         }
         if (!best) { SetRoomMsg("no collision-less building around the hero"); return; }
         // A colliding twin of the building (HumanTown/Meshes) beats any box shell: real walls, floors and stairs.
-        if (w != g_colWorld) { g_colWorld = w; g_colDone.clear(); g_colLogged.clear(); }
+        if (!g_colWorld.Is(w)) { g_colWorld = ref::Ref(w); g_colDone.clear(); g_colLogged.clear(); }
         if (UStaticMesh* real = RealMesh(best->StaticMesh)) {
-            if (g_colDone.insert(best).second) AddCollisionProxy(bestActor, best, real);
-            for (UBoxComponent* old : g_rooms[bestActor]) if (Alive(old)) old->K2_DestroyComponent(bestActor);
-            g_rooms[bestActor].clear();
-            if (r.teleportHero && Alive(h))
+            if (g_colDone.insert(ref::Ref(best)).second) AddCollisionProxy(bestActor, best, real);
+            std::vector<ref::Ref>& room = g_rooms[ref::Ref(bestActor)];
+            for (const ref::Ref& old : room) if (auto* b = old.Get<UBoxComponent>()) b->K2_DestroyComponent(bestActor);
+            room.clear();
+            if (r.teleportHero && h)
                 h->K2_SetActorLocation(FVector{r.at.X, r.at.Y, feetZ + halfHeight + 5.0f}, false, nullptr, true);
             SetRoomMsg(best->StaticMesh->GetName() + ": real collision from its twin " + real->GetName());
             return;
@@ -578,8 +586,9 @@ namespace {
         std::vector<room::Box> boxes = room::Shell(bMin.X, bMin.Y, bMax.X, bMax.Y, lf.Z,
             {r.inset.minX / sx, r.inset.maxX / sx, r.inset.minY / sy, r.inset.maxY / sy}, 30.0f / s, r.wallHeight / sz);
         // replace this building's previous room
-        for (UBoxComponent* old : g_rooms[bestActor]) if (Alive(old)) old->K2_DestroyComponent(bestActor);
-        g_rooms[bestActor].clear();
+        std::vector<ref::Ref>& room = g_rooms[ref::Ref(bestActor)];
+        for (const ref::Ref& old : room) if (auto* b = old.Get<UBoxComponent>()) b->K2_DestroyComponent(bestActor);
+        room.clear();
         for (const room::Box& b : boxes) {
             const FVector c = UKismetMathLibrary::TransformLocation(t, FVector{b.cx, b.cy, b.cz});
             FTransform bt = t;
@@ -593,16 +602,16 @@ namespace {
             box->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
             box->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Block);
             box->SetHiddenInGame(!g_roomShow.load(), false);
-            g_rooms[bestActor].push_back(box);
+            room.push_back(ref::Ref(box));
             char bb[200];
             std::snprintf(bb, sizeof(bb), "[room] box at %.0f %.0f %.0f half %.0f %.0f %.0f", c.X, c.Y, c.Z, b.ex * sx, b.ey * sy, b.ez * sz);
             logger::log(bb);
         }
-        if (r.teleportHero && Alive(h))  // onto the new floor, where the request was made
+        if (r.teleportHero && h)  // onto the new floor, where the request was made
             h->K2_SetActorLocation(FVector{r.at.X, r.at.Y, feetZ + halfHeight + 5.0f}, false, nullptr, true);
         char buf[300];
         std::snprintf(buf, sizeof(buf), "%s: floor + %d walls at feet z %.0f (building %.0f x %.0f)",
-                      best->StaticMesh->GetName().c_str(), int(g_rooms[bestActor].size()) - 1, feetZ,
+                      best->StaticMesh->GetName().c_str(), int(room.size()) - 1, feetZ,
                       (bMax.X - bMin.X) * sx, (bMax.Y - bMin.Y) * sy);
         SetRoomMsg(buf);
     }
@@ -618,7 +627,7 @@ namespace {
         if (show != g_roomShown) {
             g_roomShown = show;
             for (auto& [owner, boxes] : g_rooms)
-                for (UBoxComponent* b : boxes) if (Alive(b)) b->SetHiddenInGame(!show, false);
+                for (const ref::Ref& r : boxes) if (auto* b = r.Get<UBoxComponent>()) b->SetHiddenInGame(!show, false);
         }
     }
 
@@ -630,7 +639,7 @@ namespace {
         ReleaseSRWLockExclusive(&g_colMu);
         UWorld* w = UWorld::GetWorld();
         if (!PtrOk(w)) return;
-        if (w != g_colWorld) { g_colWorld = w; g_colDone.clear(); g_colLogged.clear(); }
+        if (!g_colWorld.Is(w)) { g_colWorld = ref::Ref(w); g_colDone.clear(); g_colLogged.clear(); }
         UClass* smcCls = UStaticMeshComponent::StaticClass();
         for (const CollisionReq& r : batch) {
             int seen = 0, enabled = 0, complex = 0, proxies = 0;
@@ -646,14 +655,14 @@ namespace {
                     TArray<UActorComponent*> comps = a->K2_GetComponentsByClass(smcCls);
                     for (int ci = 0; ci < comps.Num(); ci++) {
                         auto* smc = static_cast<UStaticMeshComponent*>(comps[ci]);
-                        if (!PtrOk(smc) || g_colDone.count(smc)) continue;
+                        if (!PtrOk(smc) || g_colDone.count(ref::Ref(smc))) continue;
                         UStaticMesh* mesh = smc->StaticMesh;
                         if (!PtrOk(mesh)) continue;
                         seen++;
                         UBodySetup* bs = mesh->BodySetup;
                         const ECollisionEnabled ce = smc->BodyInstance.CollisionEnabled;
                         const int simple = SimpleShapes(bs);
-                        if (g_colLogged.insert(mesh).second) {
+                        if (g_colLogged.insert(ref::Ref(mesh)).second) {
                             char buf[400];
                             std::snprintf(buf, sizeof(buf), "[collision] %s on %s: enabled=%d simple=%d trace=%d",
                                           mesh->GetName().c_str(), a->GetName().c_str(), int(ce), simple,
@@ -661,7 +670,7 @@ namespace {
                             logger::log(buf);
                         }
                         if (!r.fix) continue;
-                        g_colDone.insert(smc);
+                        g_colDone.insert(ref::Ref(smc));
                         if (simple == 0) {
                             if (UStaticMesh* real = RealMesh(mesh)) {
                                 if (AddCollisionProxy(a, smc, real)) proxies++;
@@ -694,11 +703,12 @@ namespace {
         g_placePending = false;
         ReleaseSRWLockExclusive(&g_placeMu);
         for (const Placement& p : batch) {
-            if (!Alive(p.npc)) continue;
-            p.npc->K2_SetActorLocationAndRotation(p.loc, FRotator{0.0f, p.yaw, 0.0f}, false, nullptr, true);
-            if (Alive(p.button)) {
+            auto* npc = p.npc.Get<AActor>();
+            if (!npc) continue;
+            npc->K2_SetActorLocationAndRotation(p.loc, FRotator{0.0f, p.yaw, 0.0f}, false, nullptr, true);
+            if (auto* button = p.button.Get<AActor>()) {
                 const FVector b{p.loc.X + p.offset.X, p.loc.Y + p.offset.Y, p.loc.Z + p.offset.Z};
-                p.button->K2_SetActorLocationAndRotation(b, p.button->K2_GetActorRotation(), false, nullptr, true);
+                button->K2_SetActorLocationAndRotation(b, button->K2_GetActorRotation(), false, nullptr, true);
             }
         }
     }
@@ -707,8 +717,8 @@ namespace {
         g_inPE++;
         if (g_probeOn.load(std::memory_order_relaxed)) {
             AcquireSRWLockExclusive(&g_probeMu);
-            if (g_seen.insert(fn).second)
-                g_fresh.push_back({fn, PtrOk(obj) ? obj->Class : nullptr, GetTickCount64()});
+            if (const ref::Ref f(fn); g_seen.insert(f).second)
+                g_fresh.push_back({f, ref::Ref(PtrOk(obj) ? obj->Class : nullptr), GetTickCount64()});
             ReleaseSRWLockExclusive(&g_probeMu);
         }
         const game::EventFilter skip = g_filter.load(std::memory_order_relaxed);
@@ -842,14 +852,15 @@ int game::CamOwner() { return g_slotOn[1] ? 1 : g_slotOn[0] ? 0 : -1; }
 namespace {
     // Render-thread class-name cache: hub blueprints aren't in the SDK, so they are told apart by name.
     enum Kind { kOther, kNpc, kButton, kHero };
-    std::unordered_map<UClass*, Kind> g_kinds;
-    std::unordered_map<UClass*, std::string> g_npcNames;
-    struct Pair { AActor* button; FVector offset; };
-    std::unordered_map<AActor*, Pair> g_pairs;  // ponytail: never pruned (13 NPCs); a reused address keeps the old pair
+    std::unordered_map<ref::Ref, Kind, ref::Hash> g_kinds;  // by UClass
+    std::unordered_map<ref::Ref, std::string, ref::Hash> g_npcNames;
+    struct Pair { ref::Ref button; FVector offset; };  // AActor
+    std::unordered_map<ref::Ref, Pair, ref::Hash> g_pairs;  // by NPC actor. ponytail: never pruned (13 NPCs)
 
     Kind KindOf(AActor* a) {
         UClass* c = a->Class;
-        auto it = g_kinds.find(c);
+        const ref::Ref key(c);
+        auto it = g_kinds.find(key);
         if (it != g_kinds.end()) return it->second;
         const std::string n = c->GetName();
         const bool character = a->IsA(ACharacter::StaticClass());
@@ -858,10 +869,10 @@ namespace {
             k = kNpc;
             std::string s = n.substr(4);
             if (s.size() > 2 && s.compare(s.size() - 2, 2, "_C") == 0) s.resize(s.size() - 2);
-            g_npcNames[c] = s;
+            g_npcNames[key] = s;
         } else if (n == "BP_TriggerVolumeButton_Character_C") k = kButton;
         else if (character && n.find("_Player_C") != std::string::npos) k = kHero;
-        g_kinds[c] = k;
+        g_kinds[key] = k;
         return k;
     }
 
@@ -883,11 +894,13 @@ namespace {
 
 game::Hero game::HubHero() {
     Hero out;
-    AActor* hero = g_heroPtr.load();
-    if (!Alive(hero) || !PtrOk(hero->RootComponent)) {
+    AActor* hero = HeroActor();
+    if (!hero || !PtrOk(hero->RootComponent)) {
         hero = nullptr;
         ForEachActor([&](AActor* a) { if (!hero && KindOf(a) == kHero) hero = a; });
-        g_heroPtr = hero;
+        AcquireSRWLockExclusive(&g_walkMu);
+        g_hero = ref::Ref(hero);
+        ReleaseSRWLockExclusive(&g_walkMu);
     }
     if (!hero) return out;
     APlayerController* pc = LocalPC();
@@ -928,7 +941,8 @@ std::vector<game::Npc> game::ListNpcs() {
     std::vector<Npc> out;
     for (AActor* n : npcs) {
         const FVector p = Loc(n);
-        if (!g_pairs.count(n)) {  // first sight = vanilla spot: pair with the nearest click zone
+        const ref::Ref key(n);
+        if (!g_pairs.count(key)) {  // first sight = vanilla spot: pair with the nearest click zone
             AActor* best = nullptr;
             float bestD = 500.0f * 500.0f;
             for (AActor* b : buttons) {
@@ -936,10 +950,10 @@ std::vector<game::Npc> game::ListNpcs() {
                 const float d = (q.X - p.X) * (q.X - p.X) + (q.Y - p.Y) * (q.Y - p.Y) + (q.Z - p.Z) * (q.Z - p.Z);
                 if (d < bestD) { bestD = d; best = b; }
             }
-            g_pairs[n] = {best, best ? FVector{Loc(best).X - p.X, Loc(best).Y - p.Y, Loc(best).Z - p.Z} : FVector{}};
+            g_pairs[key] = {ref::Ref(best), best ? FVector{Loc(best).X - p.X, Loc(best).Y - p.Y, Loc(best).Z - p.Z} : FVector{}};
         }
-        out.push_back({reinterpret_cast<uintptr_t>(n), g_npcNames[n->Class], p.X, p.Y, p.Z,
-                       n->RootComponent->RelativeRotation.Yaw, g_pairs[n].button != nullptr});
+        out.push_back({reinterpret_cast<uintptr_t>(n), g_npcNames[ref::Ref(n->Class)], p.X, p.Y, p.Z,
+                       n->RootComponent->RelativeRotation.Yaw, g_pairs[key].button.ptr != nullptr});
     }
     if (!g_placePending.load() && !g_colPending.load() && !g_roomPending.load()) UpdatePEHook();  // drop the hook once queued work is done
     return out;
@@ -977,11 +991,11 @@ void game::FixCollision(float x, float y, float z, float radius, bool fix) {
 }
 
 void game::PlaceNpc(uintptr_t id, float x, float y, float z, float yaw) {
-    auto* npc = reinterpret_cast<AActor*>(id);
-    auto it = g_pairs.find(npc);
+    // id = the address ListNpcs handed out; never dereferenced here, the game thread checks the Ref
+    auto it = std::find_if(g_pairs.begin(), g_pairs.end(), [&](const auto& kv) { return reinterpret_cast<uintptr_t>(kv.first.ptr) == id; });
     if (it == g_pairs.end() || !EnsureGameTid()) return;
     AcquireSRWLockExclusive(&g_placeMu);
-    g_placeQueue.push_back({npc, it->second.button, it->second.offset, FVector{x, y, z}, yaw});
+    g_placeQueue.push_back({it->first, it->second.button, it->second.offset, FVector{x, y, z}, yaw});
     g_placePending = true;
     ReleaseSRWLockExclusive(&g_placeMu);
     UpdatePEHook();
@@ -1029,8 +1043,10 @@ void game::ProbeFlush() {
     }
     for (const Fired& f : batch) {
         char buf[512];
+        const UFunction* fn = f.fn.Get<UFunction>();
+        const UClass* cls = f.cls.Get<UClass>();
         std::snprintf(buf, sizeof(buf), "[probe] t=%llu fn=%s on=%s", f.t,
-                      PtrOk(f.fn) ? f.fn->GetFullName().c_str() : "?", PtrOk(f.cls) ? f.cls->GetName().c_str() : "?");
+                      fn ? fn->GetFullName().c_str() : "?", cls ? cls->GetName().c_str() : "?");
         logger::log(buf);
     }
 }
@@ -1067,7 +1083,8 @@ int game::CooldownEffects(void* ascp, void* abp, EffectRef* out, int max) {
     if (!PtrOk(asc) || !PtrOk(ab)) return 0;
     UClass* cd = ab->CooldownGameplayEffectClass.Get();
     if (ab->IsA(UArchonGameplayAbility::StaticClass())) {
-        static UFunction* fn = UArchonGameplayAbility::StaticClass()->GetFunction("ArchonGameplayAbility", "GetCooldownGEClass");
+        static ref::Fn getCd{UArchonGameplayAbility::StaticClass, "ArchonGameplayAbility", "GetCooldownGEClass"};
+        UFunction* fn = getCd.Get();
         if (!fn) return 0;
         Params::ArchonGameplayAbility_GetCooldownGEClass p{};
         CallFn(ab, fn, &p);
@@ -1095,7 +1112,8 @@ int game::CooldownEffects(void* ascp, void* abp, EffectRef* out, int max) {
 
 bool game::RemoveEffect(void* ascp, int handle) {
     auto* asc = static_cast<UAbilitySystemComponent*>(ascp);
-    static UFunction* fn = UAbilitySystemComponent::StaticClass()->GetFunction("AbilitySystemComponent", "RemoveActiveGameplayEffect");
+    static ref::Fn remove{UAbilitySystemComponent::StaticClass, "AbilitySystemComponent", "RemoveActiveGameplayEffect"};
+    UFunction* fn = remove.Get();
     if (!PtrOk(asc) || !fn || handle <= 0) return false;
     Params::AbilitySystemComponent_RemoveActiveGameplayEffect p{};
     *reinterpret_cast<int32*>(&p.Handle) = handle;

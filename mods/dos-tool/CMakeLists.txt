@@ -22,6 +22,7 @@ add_library(${PROJECT_NAME} SHARED
     core/dllmain.cpp
     core/game.cpp
     core/overlay.cpp
+    core/ref.cpp
     core/umg.cpp
     ${FEATURES}
 

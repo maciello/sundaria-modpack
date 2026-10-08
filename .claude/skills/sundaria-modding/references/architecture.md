@@ -10,6 +10,7 @@ core/:   # shared; features never include each other
   game.hpp/.cpp: the ONLY core SDK translation unit; add a small SDK-free function here for any new game read/write. Never includes a feature header (core → feature is the wrong direction)
   game::SetEventListener(fn, on): game-thread ProcessEvent listener for a feature with its own SDK .cpp (≤8, a full table is logged; hook installed while any is on). The only place UFunction calls are allowed
   game::SetEventFilter(fn, on): runs before the game's call; true skips it (one filter; item-sort replaces the game's Sort click)
+  ref.hpp: ref::Ref / Cached / Fn, the only place an engine pointer outlives a call (validated O(1) by GObjects index + name, re-resolved after map travel)
   style.hpp: design tokens (colours, sizes, easing) → design-system.md
   combat.hpp: health-diff → stacked hit events, typical hit, fight/DPS (Frame.combat)
   feature.hpp: Feature {name, stage (Alpha|Beta|Stable|Deprecated), enabled, OnFrame(Frame), Menu(), Off()}; on/off + font persist in dos-tool.ini (local); Frame {now, w, h, font, snap, combat, chars}
@@ -26,7 +27,7 @@ features/<domain>/:  # features of one domain + their shared code (new-feature.s
 ## Rules and why
 - Render thread (`OnFrame`) does memory reads/writes only, no `ProcessEvent`/UFunction calls: UE isn't thread-safe there and it crashes intermittently.
 - Game-thread hooks (ProcessEvent) record and return fast; hand data to the render thread under an `SRWLOCK` (never `std::mutex`, see gotchas).
-- Check every pointer (`PtrOk`) and `IsA` before casting: the same objects are different classes in menus/lobby, and actors die between frames.
+- Check every pointer (`PtrOk`) and `IsA` before casting: the same objects are different classes in menus/lobby. A pointer kept past the call goes into `core/ref.hpp`: actors die between frames and Blueprint classes with the map (#63).
 - Movement/stats are server-simulated: apply to every player character; co-op only works when the host runs the pack.
 - `Off()` restores captured originals, only on objects found in the live world (stale pointers may be freed).
 - Logic with branches/math goes into an SDK-free header with a test: the in-game loop can't be unit-tested.

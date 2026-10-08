@@ -1,4 +1,5 @@
 #include "sdk.hpp"
+#include "ref.hpp"
 #include "logger.hpp"
 #include <Windows.h>
 #include "BP_InvManagerComponent_classes.hpp"
@@ -25,8 +26,8 @@ namespace {
     bool g_bankSeen = false;
 
     UArchonAttributeSet_Secondary* AttrSet(UBP_ItemContainerComponent_C* c, const Item& it) {
-        static UFunction* fn = nullptr;
-        if (!fn) fn = c->Class->GetFunction("BP_ItemContainerComponent_C", "GetItemAttributeSet");
+        static ref::Fn attrs{UBP_ItemContainerComponent_C::StaticClass, "BP_ItemContainerComponent_C", "GetItemAttributeSet"};
+        UFunction* fn = attrs.Get();
         if (!fn) return nullptr;
         Params::BP_ItemContainerComponent_C_GetItemAttributeSet p{};
         p.ItemSlot = it.slot;

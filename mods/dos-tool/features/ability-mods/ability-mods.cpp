@@ -1,5 +1,6 @@
 #include "feature.hpp"
 #include "ecs.hpp"
+#include "ref.hpp"
 #include "script.hpp"
 #include "imgui.h"
 #include "imgui_internal.h"  // MarkIniSettingsDirty
@@ -39,19 +40,18 @@ namespace {
     }
 
     // Components.
-    struct Cast { UGameplayAbility* ability; UAnimMontage* montage; std::string cls; bool out = false; };
-    struct ProjectileSwap { UBP_GameAbilityBase_C* ability; UClass* original; };  // on the cast entity, undone at its end
-    struct CooldownWatch { UAbilitySystemComponent* asc; UGameplayAbility* ability; float scale; ULONGLONG until; std::vector<int> seen; };
-    struct CooldownTimer { UAbilitySystemComponent* asc; int handle; ULONGLONG at; };
+    struct Cast { ref::Ref ability, montage; std::string cls; bool out = false; };  // UGameplayAbility, UAnimMontage
+    struct ProjectileSwap { ref::Ref ability, original; };  // UBP_GameAbilityBase_C, UClass; on the cast entity, undone at its end
+    struct CooldownWatch { ref::Ref asc, ability; float scale; ULONGLONG until; std::vector<int> seen; };
+    struct CooldownTimer { ref::Ref asc; int handle; ULONGLONG at; };
 
     // Game thread state (Off() touches it only after the listener has drained).
     ecs::Registry g_reg;
     ability_script::Host g_host;
     std::string g_dir, g_stampMemo;
     std::vector<Command> g_cmds;
-    std::unordered_map<std::string, UClass*> g_effectClasses;  // name -> class (nullptr = not found), FindClassFast is slow
-    UGameplayAbility* g_lastAbility = nullptr;
-    UAnimMontage* g_lastMontage = nullptr;
+    std::unordered_map<std::string, ref::Ref> g_effectClasses;  // name -> UClass (ptr null = not found), FindClassFast is slow
+    ref::Ref g_lastAbility, g_lastMontage;
     ULONGLONG g_lastTick = 0, g_lastScan = 0;
     thread_local bool t_busy = false;  // our own UFunction calls re-enter ProcessEvent
 
@@ -59,11 +59,12 @@ namespace {
     std::atomic<int> g_casts{0}, g_outs{0}, g_cuts{0}, g_commands{0}, g_reloads{0};
     std::atomic<float> g_liveRate{0};
 
-    // Resolved on the render thread before the listener goes live.
-    UFunction* g_fnNotify = nullptr;       // UBP_GameplayAnimNotify_C::Received_Notify
-    UFunction* g_fnCancel = nullptr;       // UGameplayAbility::K2_CancelAbility
-    UFunction* g_fnMakeContext = nullptr;  // UAbilitySystemComponent::MakeEffectContext
-    UFunction* g_fnApplySelf = nullptr;    // UAbilitySystemComponent::BP_ApplyGameplayEffectToSelf
+    // Game thread. Blueprint classes come and go with the map (#63): ref::Fn re-resolves them.
+    ref::Fn g_fnNotify{UBP_GameplayAnimNotify_C::StaticClass, "BP_GameplayAnimNotify_C", "Received_Notify"};
+    ref::Fn g_fnCancel{UGameplayAbility::StaticClass, "GameplayAbility", "K2_CancelAbility"};
+    ref::Fn g_fnMakeContext{UAbilitySystemComponent::StaticClass, "AbilitySystemComponent", "MakeEffectContext"};
+    ref::Fn g_fnApplySelf{UAbilitySystemComponent::StaticClass, "AbilitySystemComponent", "BP_ApplyGameplayEffectToSelf"};
+    std::atomic<bool> g_ready{false};  // the notify class was found once (menu)
 
     // Menu snapshot, written on the game thread, read on the render thread.
     SRWLOCK g_mu = SRWLOCK_INIT;
@@ -77,20 +78,11 @@ namespace {
     std::vector<std::string> g_off;                            // saved in dos-tool.ini
 
     void Call(const UObject* obj, UFunction* fn, void* parms) {
+        if (!fn) return;
         auto flags = fn->FunctionFlags;
         fn->FunctionFlags |= 0x400;  // FUNC_Native
         obj->ProcessEvent(fn, parms);
         fn->FunctionFlags = flags;
-    }
-
-    bool Resolve() {
-        UClass* notify = UBP_GameplayAnimNotify_C::StaticClass();
-        if (!PtrOk(notify)) return false;
-        g_fnNotify = notify->GetFunction("BP_GameplayAnimNotify_C", "Received_Notify");
-        g_fnCancel = UGameplayAbility::StaticClass()->GetFunction("GameplayAbility", "K2_CancelAbility");
-        g_fnMakeContext = UAbilitySystemComponent::StaticClass()->GetFunction("AbilitySystemComponent", "MakeEffectContext");
-        g_fnApplySelf = UAbilitySystemComponent::StaticClass()->GetFunction("AbilitySystemComponent", "BP_ApplyGameplayEffectToSelf");
-        return g_fnNotify && g_fnCancel && g_fnMakeContext && g_fnApplySelf;
     }
 
     AArchonCharacter* LocalHero() {
@@ -185,27 +177,31 @@ namespace {
     }
 
     // Loaded classes only (FindClassFast walks GObjects: cached per name, misses too).
-    std::unordered_map<std::string, UClass*> g_projectileClasses;
+    std::unordered_map<std::string, ref::Ref> g_projectileClasses;
     UClass* ProjectileClass(const std::string& name) {
         auto it = g_projectileClasses.find(name);
-        if (it != g_projectileClasses.end()) return it->second;
+        if (it != g_projectileClasses.end() && (!it->second.ptr || it->second.Get())) return it->second.Get<UClass>();  // hit or known miss
         UClass* cls = UObject::FindClassFast(name);
         if (!PtrOk(cls) && !name.ends_with("_C")) cls = UObject::FindClassFast(name + "_C");
         if (PtrOk(cls) && !cls->IsSubclassOf(AActor::StaticClass())) cls = nullptr;
-        return g_projectileClasses[name] = PtrOk(cls) ? cls : nullptr;
+        g_projectileClasses[name] = ref::Ref(cls);
+        return PtrOk(cls) ? cls : nullptr;
     }
 
     void UndoSwap(ecs::Entity e) {
-        if (ProjectileSwap* s = g_reg.Get<ProjectileSwap>(e); s && PtrOk(s->ability)) s->ability->mProjectileClass = s->original;
+        // the original class may have been collected while swapped out (our write hid its reference): then none
+        if (ProjectileSwap* s = g_reg.Get<ProjectileSwap>(e))
+            if (auto* ab = s->ability.Get<UBP_GameAbilityBase_C>()) ab->mProjectileClass = s->original.Get<UClass>();
     }
 
     UClass* EffectClass(const std::string& name) {
         auto it = g_effectClasses.find(name);
-        if (it != g_effectClasses.end()) return it->second;
+        if (it != g_effectClasses.end() && (!it->second.ptr || it->second.Get())) return it->second.Get<UClass>();  // hit or known miss
         UClass* cls = UObject::FindClassFast(name);
         if (!PtrOk(cls) && !name.ends_with("_C")) cls = UObject::FindClassFast(name + "_C");
         if (PtrOk(cls) && !cls->IsSubclassOf(UGameplayEffect::StaticClass())) cls = nullptr;
-        return g_effectClasses[name] = PtrOk(cls) ? cls : nullptr;
+        g_effectClasses[name] = ref::Ref(cls);
+        return PtrOk(cls) ? cls : nullptr;
     }
 
     void Run(AArchonCharacter* hero, UAbilitySystemComponent* asc, const Cast* cast) {
@@ -220,21 +216,21 @@ namespace {
                     break;
                 }
                 case Command::Kind::PlayRate:
-                    if (cast) SetRate(hero, cast->montage, c.value);
+                    if (cast) SetRate(hero, cast->montage.Get<UAnimMontage>(), c.value);
                     break;
                 case Command::Kind::Cancel:
-                    if (cast && PtrOk(cast->ability)) Call(cast->ability, g_fnCancel, nullptr);
+                    if (auto* ab = cast ? cast->ability.Get<UGameplayAbility>() : nullptr) Call(ab, g_fnCancel.Get(), nullptr);
                     break;
                 case Command::Kind::ApplyEffect: {
                     UClass* cls = EffectClass(c.text);
                     if (!cls) { g_host.Report("apply_effect", "no GameplayEffect class '" + c.text + "'"); break; }
                     Params::AbilitySystemComponent_MakeEffectContext ctx{};
-                    Call(asc, g_fnMakeContext, &ctx);
+                    Call(asc, g_fnMakeContext.Get(), &ctx);
                     Params::AbilitySystemComponent_BP_ApplyGameplayEffectToSelf p{};
                     p.GameplayEffectClass = cls;
                     p.Level = 1.0f;
                     p.EffectContext = ctx.ReturnValue;
-                    Call(asc, g_fnApplySelf, &p);
+                    Call(asc, g_fnApplySelf.Get(), &p);
                     break;
                 }
             }
@@ -253,9 +249,10 @@ namespace {
         UAnimMontage* montage = asc->LocalAnimMontageInfo.AnimMontage;
         if (!PtrOk(ab)) ab = nullptr;
         if (!PtrOk(montage)) montage = nullptr;
-        if (ab == g_lastAbility && montage == g_lastMontage) return;
-        g_lastAbility = ab;
-        g_lastMontage = montage;
+        auto same = [](const ref::Ref& r, const void* o) { return o ? r.Is(o) : !r.ptr; };
+        if (same(g_lastAbility, ab) && same(g_lastMontage, montage)) return;
+        g_lastAbility = ref::Ref(ab);
+        g_lastMontage = ref::Ref(montage);
 
         ecs::Entity e;
         if (Cast* old = CurrentCast(&e)) {
@@ -266,15 +263,15 @@ namespace {
         if (!ab) return;
         g_casts++;
         e = g_reg.Create();
-        Cast& c = g_reg.Add(e, Cast{ab, montage, ab->Class->GetName()});
+        Cast& c = g_reg.Add(e, Cast{ref::Ref(ab), ref::Ref(montage), ab->Class->GetName()});
         const ability_script::Tweak t = g_host.TweakFor(c.cls);
         if (t.hasRate) SetRate(hero, montage, t.animRate);
-        if (t.hasCooldown) g_reg.Add(g_reg.Create(), CooldownWatch{asc, ab, t.cooldown, now + 3000});
+        if (t.hasCooldown) g_reg.Add(g_reg.Create(), CooldownWatch{ref::Ref(asc), ref::Ref(ab), t.cooldown, now + 3000});
         // Projectile swap: the ability shoots mProjectileClass (unverified that spawning reads it, #44).
         if (!t.projectile.empty() && ab->IsA(UBP_GameAbilityBase_C::StaticClass())) {
             auto* gab = static_cast<UBP_GameAbilityBase_C*>(ab);
             if (UClass* p = ProjectileClass(t.projectile)) {
-                g_reg.Add(e, ProjectileSwap{gab, gab->mProjectileClass});
+                g_reg.Add(e, ProjectileSwap{ref::Ref(gab), ref::Ref(gab->mProjectileClass)});
                 gab->mProjectileClass = p;
             } else g_host.Report("projectile", "no loaded actor class '" + t.projectile + "'");
         }
@@ -290,7 +287,7 @@ namespace {
         g_reg.Each<CooldownWatch>([&](ecs::Entity e, CooldownWatch& w) {
             if (now > w.until) { g_reg.Destroy(e); return; }
             game::EffectRef fx[8];
-            const int n = game::CooldownEffects(w.asc, w.ability, fx, 8);
+            const int n = game::CooldownEffects(w.asc.Get(), w.ability.Get(), fx, 8);  // 0 once either is gone
             for (int i = 0; i < n; i++) {
                 if (std::find(w.seen.begin(), w.seen.end(), fx[i].handle) != w.seen.end()) continue;
                 w.seen.push_back(fx[i].handle);
@@ -303,14 +300,17 @@ namespace {
         });
         g_reg.Each<CooldownTimer>([&](ecs::Entity e, CooldownTimer& t) {
             if (now < t.at) return;
-            if (game::RemoveEffect(t.asc, t.handle)) g_cuts++;
+            if (game::RemoveEffect(t.asc.Get(), t.handle)) g_cuts++;
             g_reg.Destroy(e);
         });
     }
 
     void OnEvent(void* objp, void* fnp, void* parms) {
-        if (t_busy || !g_on.load(std::memory_order_relaxed)) return;
-        const bool notify = fnp == g_fnNotify;
+        if (t_busy || !g_on.load(std::memory_order_relaxed) || !game::OnGameThread()) return;  // shared state, UFunction calls and ref resolution: game thread only
+        UFunction* notifyFn = g_fnNotify.Get();  // O(1); null until a world loads the class
+        if (!notifyFn) return;
+        g_ready = true;
+        const bool notify = fnp == notifyFn;
         const ULONGLONG now = GetTickCount64();
         if (!notify && now - g_lastTick < 15) return;  // systems tick ~60 Hz, notifies at once
 
@@ -325,14 +325,16 @@ namespace {
         AArchonCharacter* hero = LocalHero();
         UAbilitySystemComponent* asc = hero ? hero->mAbilitySystemComponent : nullptr;
         if (notify) {
-            // Received_Notify(MeshComp, Animation): the effect frame of the animating ability.
+            // Received_Notify(MeshComp, Animation): the effect frame of the animating ability. Trust boundary: the
+            // engine's call, so check what it passed (a stale function pointer once gave parms = null, #63).
             auto* n = static_cast<UBP_GameplayAnimNotify_C*>(objp);
-            auto* mesh = *static_cast<USkeletalMeshComponent**>(parms);
-            const auto t = n->mGameplayAnimNotifyType;
+            const bool ok = parms && PtrOk(n) && n->IsA(UBP_GameplayAnimNotify_C::StaticClass());
+            auto* mesh = ok ? *static_cast<USkeletalMeshComponent**>(parms) : nullptr;
+            const auto t = ok ? n->mGameplayAnimNotifyType : EGameplayAnimNotifyType{};
             Cast* c = CurrentCast();
-            if (PtrOk(asc) && c && !c->out && mesh == hero->Mesh
+            if (ok && PtrOk(asc) && c && !c->out && mesh == hero->Mesh
                 && (t == EGameplayAnimNotifyType::ApplyEffect || t == EGameplayAnimNotifyType::ShootProjectile)
-                && asc->LocalAnimMontageInfo.AnimatingAbility == c->ability) {
+                && c->ability.Is(asc->LocalAnimMontageInfo.AnimatingAbility)) {
                 c->out = true;
                 g_outs++;
                 g_host.Fire(c->cls, Event::Out, g_cmds);
@@ -352,12 +354,9 @@ namespace {
     }
 
     struct AbilityMods : feature::Feature {
-        bool resolved = false;
-
         AbilityMods() : Feature("Ability mods", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
 
         void OnFrame(const feature::Frame&) override {
-            if (!resolved && !(resolved = Resolve())) return;
             if (g_on) return;
             g_dir = ScriptDir();
             CreateDirectoryA((g_dir + "..").c_str(), nullptr);  // dos-mods (fails harmlessly if it exists)
@@ -378,8 +377,8 @@ namespace {
             g_host.Close();  // pending cooldown timers are dropped: those cooldowns run to their vanilla end
             g_reg.Clear();
             g_cmds.clear();
-            g_lastAbility = nullptr;
-            g_lastMontage = nullptr;
+            g_lastAbility = {};
+            g_lastMontage = {};
         }
 
         void Load(const char* key, const char* value) override {
@@ -400,7 +399,7 @@ namespace {
         }
 
         void Menu() override {
-            if (!resolved) { ImGui::TextDisabled("waiting for game classes"); return; }
+            if (!g_ready) { ImGui::TextDisabled("waiting for game classes"); return; }
             ImGui::TextDisabled("scripts: %s", g_dir.c_str());
             if (ImGui::Button("Reload now")) g_reload = true;
             ImGui::SameLine();

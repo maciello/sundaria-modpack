@@ -4,6 +4,7 @@
 #include "game.hpp"
 #include "logger.hpp"
 #include "umg.hpp"
+#include "ref.hpp"
 #include "cost.hpp"
 
 #include <Windows.h>
@@ -23,34 +24,35 @@
 // set dirty (O(1)); the next world tick diffs owned counts (inventory + equipped + bank) and toasts only what rose.
 // Spec: references/design-system.md § Pickup toast. Facts: references/game-ui.md § Loot toast.
 using namespace SDK;
-using umg::Alive;
 using umg::CallNative;
 using umg::PtrOk;
 using namespace pickup_toast;
 namespace io = items::io;
 
 namespace {
-    struct Fn {
-        UFunction* f = nullptr;
-        int32 idx = -1;
-        void Set(UClass* c, const char* cls, const char* name) {
-            f = PtrOk(c) ? c->GetFunction(cls, name) : nullptr;
-            idx = f ? f->Index : -1;
-        }
-        bool Ok() const { return Alive(f, idx); }
-    };
+    // Game thread. Blueprint classes come and go with the map (#63): ref::Fn / ref::Cached re-resolve them.
     struct Fns {
-        Fn create, toViewport, anchors, align, position, translate, opacity, remove, listSet, itemAdded;
-        bool Ok() const {
-            for (const Fn* f : {&create, &toViewport, &anchors, &align, &position, &translate, &opacity, &remove, &listSet, &itemAdded})
-                if (!f->Ok()) return false;
+        ref::Fn create{UWidgetBlueprintLibrary::StaticClass, "WidgetBlueprintLibrary", "Create"};
+        ref::Fn toViewport{UUserWidget::StaticClass, "UserWidget", "AddToViewport"};
+        ref::Fn anchors{UUserWidget::StaticClass, "UserWidget", "SetAnchorsInViewport"};
+        ref::Fn align{UUserWidget::StaticClass, "UserWidget", "SetAlignmentInViewport"};
+        ref::Fn position{UUserWidget::StaticClass, "UserWidget", "SetPositionInViewport"};
+        ref::Fn translate{UWidget::StaticClass, "Widget", "SetRenderTranslation"};
+        ref::Fn opacity{UWidget::StaticClass, "Widget", "SetRenderOpacity"};
+        ref::Fn remove{UWidget::StaticClass, "Widget", "RemoveFromParent"};
+        ref::Fn listSet{UWidgetLootToastEntry_C::StaticClass, "WidgetLootToastEntry_C", "OnListItemObjectSet"};
+        ref::Fn itemAdded{ABP_PlayerControllerGame_C::StaticClass, "BP_PlayerControllerGame_C", "OnItemAddedDispatcherEvent"};
+        bool Ok() {
+            for (ref::Fn* f : {&create, &toViewport, &anchors, &align, &position, &translate, &opacity, &remove, &listSet, &itemAdded})
+                if (!f->Get()) return false;
             return true;
         }
     } g_fn;
-    struct ClassRef { UClass* c = nullptr; int32 idx = -1; } g_entryCls, g_objCls;
+    ref::Cached<UClass> g_entryCls{[] { return UWidgetLootToastEntry_C::StaticClass(); }};
+    ref::Cached<UClass> g_objCls{[] { return UWidgetLootToastEntryObject_C::StaticClass(); }};
 
     struct Toast {
-        UUserWidget* w; int32 idx;
+        ref::Ref w;  // UUserWidget
         double born, end;      // seconds (QPC); end = fade-out done
         int row; float rowFrom; double rowAt;
         float x = -1, y = -1, o = -1;  // last values sent to the widget
@@ -58,7 +60,7 @@ namespace {
     std::vector<Toast> g_toasts;
     Owned g_owned;
     bool g_baseline = false, g_bankSeen = false, g_dirty = false;
-    std::atomic<bool> g_on{false}, g_resolved{false};  // resolved: render thread re-resolves (≤ 1/s) when false
+    std::atomic<bool> g_on{false};
     thread_local bool t_busy = false;
 
     double Now() {
@@ -66,26 +68,6 @@ namespace {
         QueryPerformanceCounter(&t);
         QueryPerformanceFrequency(&f);
         return double(t.QuadPart) / double(f.QuadPart);
-    }
-
-    bool Resolve() {
-        UClass* entry = UWidgetLootToastEntry_C::StaticClass();
-        UClass* obj = UWidgetLootToastEntryObject_C::StaticClass();
-        UClass* pc = ABP_PlayerControllerGame_C::StaticClass();
-        if (!PtrOk(entry) || !PtrOk(obj) || !PtrOk(pc)) return false;  // Blueprint classes load with a world (#54)
-        g_entryCls = {entry, entry->Index};
-        g_objCls = {obj, obj->Index};
-        g_fn.create.Set(UWidgetBlueprintLibrary::StaticClass(), "WidgetBlueprintLibrary", "Create");
-        g_fn.toViewport.Set(UUserWidget::StaticClass(), "UserWidget", "AddToViewport");
-        g_fn.anchors.Set(UUserWidget::StaticClass(), "UserWidget", "SetAnchorsInViewport");
-        g_fn.align.Set(UUserWidget::StaticClass(), "UserWidget", "SetAlignmentInViewport");
-        g_fn.position.Set(UUserWidget::StaticClass(), "UserWidget", "SetPositionInViewport");
-        g_fn.translate.Set(UWidget::StaticClass(), "Widget", "SetRenderTranslation");
-        g_fn.opacity.Set(UWidget::StaticClass(), "Widget", "SetRenderOpacity");
-        g_fn.remove.Set(UWidget::StaticClass(), "Widget", "RemoveFromParent");
-        g_fn.listSet.Set(entry, "WidgetLootToastEntry_C", "OnListItemObjectSet");
-        g_fn.itemAdded.Set(pc, "BP_PlayerControllerGame_C", "OnItemAddedDispatcherEvent");
-        return g_fn.Ok();
     }
 
     // Owned counts now. Empty bag = still loading: no answer.
@@ -107,31 +89,31 @@ namespace {
         if (!pc) return;
         Params::WidgetBlueprintLibrary_Create c{};
         c.WorldContextObject = pc;
-        c.WidgetType = g_entryCls.c;
+        c.WidgetType = g_entryCls.Get();
         c.OwningPlayer = pc;
-        CallNative(UWidgetBlueprintLibrary::GetDefaultObj(), g_fn.create.f, &c);
+        CallNative(UWidgetBlueprintLibrary::GetDefaultObj(), g_fn.create.Get(), &c);
         UUserWidget* w = c.ReturnValue;
         if (!PtrOk(w)) return;
-        auto* data = static_cast<UWidgetLootToastEntryObject_C*>(umg::Spawn(g_objCls.c, w));
+        auto* data = static_cast<UWidgetLootToastEntryObject_C*>(umg::Spawn(g_objCls.Get(), w));
         if (!data) return;
         data->DisplayName = umg::Text(it.name);  // takes over the reference umg::Text leaves unowned: one owner, no copy
         data->IconId = io::IconId(it.specId);
         data->Grade = uint8(it.grade);
 
         Params::UserWidget_AddToViewport v{10};
-        CallNative(w, g_fn.toViewport.f, &v);
+        CallNative(w, g_fn.toViewport.Get(), &v);
         Params::UserWidget_SetAnchorsInViewport a{};
         a.Anchors = {{kAnchorX, kAnchorY}, {kAnchorX, kAnchorY}};
-        CallNative(w, g_fn.anchors.f, &a);
+        CallNative(w, g_fn.anchors.Get(), &a);
         Params::UserWidget_SetAlignmentInViewport al{{0.f, 1.f}};  // bottom-left corner on the anchor
-        CallNative(w, g_fn.align.f, &al);
+        CallNative(w, g_fn.align.Get(), &al);
         Params::UserWidget_SetPositionInViewport p{};
         p.Position = {0.f, 0.f};
-        CallNative(w, g_fn.position.f, &p);
+        CallNative(w, g_fn.position.Get(), &p);
         Params::Widget_SetRenderOpacity o{0.f};
-        CallNative(w, g_fn.opacity.f, &o);
+        CallNative(w, g_fn.opacity.Get(), &o);
         Params::WidgetLootToastEntry_C_OnListItemObjectSet s{data};  // the game's own fill: icon, border, name colour
-        w->ProcessEvent(g_fn.listSet.f, &s);
+        if (UFunction* fn = g_fn.listSet.Get()) w->ProcessEvent(fn, &s);
 
         for (Toast& t : g_toasts) {  // older rows move up one
             t.rowFrom = -RowY(t.rowFrom, float(t.row), float(now - t.rowAt)) / kRowH;
@@ -139,23 +121,24 @@ namespace {
             t.rowAt = now;
             if (t.row >= kMaxRows) t.end = std::min(t.end, std::max(now, t.born + kIn.dur) + kOut.dur);
         }
-        g_toasts.push_back({w, w->Index, now, now + kHold + kOut.dur, 0, 0.f, now});
+        g_toasts.push_back({ref::Ref(w), now, now + kHold + kOut.dur, 0, 0.f, now});
     }
 
     void Animate(double now) {  // O(toasts on screen)
         std::erase_if(g_toasts, [&](Toast& t) {
-            if (!Alive(t.w, t.idx)) return true;  // the game cleared the viewport (travel)
-            if (now >= t.end) { CallNative(t.w, g_fn.remove.f, nullptr); return true; }
+            auto* w = t.w.Get<UUserWidget>();
+            if (!w) return true;  // the game cleared the viewport (travel)
+            if (now >= t.end) { CallNative(w, g_fn.remove.Get(), nullptr); return true; }
             const Pose pose = PoseAt(float(now - t.born), float(t.end - t.born));
             const float y = RowY(t.rowFrom, float(t.row), float(now - t.rowAt));
             if (pose.x != t.x || y != t.y) {
                 Params::Widget_SetRenderTranslation tr{{pose.x, y}};
-                CallNative(t.w, g_fn.translate.f, &tr);
+                CallNative(w, g_fn.translate.Get(), &tr);
                 t.x = pose.x, t.y = y;
             }
             if (pose.opacity != t.o) {
                 Params::Widget_SetRenderOpacity o{pose.opacity};
-                CallNative(t.w, g_fn.opacity.f, &o);
+                CallNative(w, g_fn.opacity.Get(), &o);
                 t.o = pose.opacity;
             }
             return false;
@@ -188,12 +171,10 @@ namespace {
 
     void OnEvent(void*, void* fnp, void*) {
         if (t_busy || !g_on.load(std::memory_order_relaxed)) return;
-        if (fnp == g_fn.itemAdded.f) { g_dirty = true; return; }  // per slot, also on every reorder: O(1)
+        if (g_fn.itemAdded.Is(fnp)) { g_dirty = true; return; }  // per slot, also on every reorder: O(1)
         if (!umg::IsWorldTick(fnp) || !game::OnGameThread()) return;  // widgets change on the world tick only (#50)
         t_busy = true;
-        if (!g_fn.Ok() || !Alive(g_entryCls.c, g_entryCls.idx) || !Alive(g_objCls.c, g_objCls.idx)) {
-            g_on = g_resolved = false;  // a Blueprint class was unloaded: OnFrame resolves again
-        } else {
+        if (g_fn.Ok() && g_entryCls.Get() && g_objCls.Get()) {  // O(1) each; Blueprint classes load with a world (#54)
             const double now = Now();
             if ((g_dirty || !g_baseline) && io::Ready()) {
                 g_dirty = false;
@@ -209,17 +190,10 @@ namespace {
     }
 
     struct PickupToast : feature::Feature {
-        ULONGLONG next = 0;
         PickupToast() : Feature("Pickup toast", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
         void OnFrame(const feature::Frame&) override {
             io::Tick();
             if (g_on.load()) return;
-            if (!g_resolved && GetTickCount64() >= next) {  // missing Blueprint class: StaticClass searches, so ≤ 1/s
-                next = GetTickCount64() + 1000;
-                g_resolved = Resolve();
-                if (g_resolved) logger::log("[pickup-toast] ready");
-            }
-            if (!g_resolved) return;
             g_on = true;
             game::SetEventListener(&OnEvent, true);
         }
@@ -230,7 +204,6 @@ namespace {
             g_toasts.clear();
             g_owned.clear();
             g_baseline = g_dirty = false;
-            g_resolved = false;
         }
     } g_feature;
 }

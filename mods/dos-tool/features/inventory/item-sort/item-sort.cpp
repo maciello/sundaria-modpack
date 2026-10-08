@@ -5,6 +5,7 @@
 #include "cost.hpp"
 #include "game.hpp"
 #include "umg.hpp"
+#include "ref.hpp"
 #include "imgui.h"
 #include "imgui_internal.h"  // MarkIniSettingsDirty
 
@@ -55,9 +56,14 @@ namespace {
     std::string g_status;
     std::atomic<unsigned> g_request{0};           // 1 inventory, 2 bank (API, dev files)
     std::atomic<bool> g_probe{false}, g_on{false}, g_verbose{false};  // verbose: per-item sort dump, set by item-sort.probe
-    std::unordered_map<UFunction*, std::string> g_triggers;  // read-only once g_on
+    // Functions that start the game's own sort, read from three Blueprint classes that come and go with the map (#63).
+    ref::Cached<UClass> g_trigCls[3] = {{[] { return UWidgetitemBagHeaderMenu_C::StaticClass(); }},
+                                        {[] { return UBP_HUDInventoryComponent_C::StaticClass(); }},
+                                        {[] { return UBP_InvManagerComponent_C::StaticClass(); }}};
+    ref::Ref g_trigFrom[3];  // the classes g_triggers was read from; their functions die with them
+    std::unordered_map<ref::Ref, std::string, ref::Hash> g_triggers;  // UFunction -> name
     unsigned g_pendingMask = 0;  // Sort pressed: 1 inventory, 2 bank
-    UFunction* g_button = nullptr;  // the header's Sort click: the game's own sort is replaced by ours
+    ref::Ref g_button;  // UFunction: the header's Sort click; the game's own sort is replaced by ours
 
     struct Where2 { UObject* pc; UBP_InvManagerComponent_C* inv; UBP_ItemContainerComponent_C* bag; UBP_ItemContainerComponent_C* bank; std::string how; };
     Where2 Locate() {
@@ -194,9 +200,33 @@ namespace {
         }
     }
 
+    // Game thread, per event: O(1) while the three classes live; re-read (O(their functions)) once per class load.
+    void Triggers() {
+        bool same = true;
+        for (int i = 0; i < 3; i++) { g_trigCls[i].Get(); same &= g_trigFrom[i] == g_trigCls[i].r; }
+        if (same) return;
+        g_triggers.clear();
+        g_button = {};
+        std::string names;
+        for (int i = 0; i < 3; i++) {
+            g_trigFrom[i] = g_trigCls[i].r;
+            UClass* c = g_trigCls[i].Get();
+            for (UField* f = c ? c->Children : nullptr; PtrOk(f); f = f->Next) {
+                const std::string n = f->GetName();
+                if (f->IsA(UFunction::StaticClass()) && SortTrigger(n)) {
+                    g_triggers[ref::Ref(f)] = n;
+                    names += " " + n;
+                    if (n.starts_with("BndEvt__Button_Sort")) g_button = ref::Ref(f);
+                }
+            }
+        }
+        if (!names.empty()) logger::log("[item-sort] sort triggers:" + names);
+    }
+
     void OnEvent(void* objp, void* fnp, void* parms) {
-        if (t_busy || !g_on.load(std::memory_order_relaxed)) return;
-        if (auto it = g_triggers.find(static_cast<UFunction*>(fnp)); it != g_triggers.end()) {
+        if (t_busy || !g_on.load(std::memory_order_relaxed) || !game::OnGameThread()) return;  // shared state, UFunction calls and ref resolution: game thread only
+        Triggers();
+        if (auto it = g_triggers.find(ref::Ref(fnp)); it != g_triggers.end()) {
             auto* obj = static_cast<UObject*>(objp);
             const int off = StorageParamOffset(it->second);
             bool storage = false;
@@ -218,30 +248,11 @@ namespace {
         t_busy = false;
     }
 
-    // Render thread, once: functions that start the game's own sort.
-    bool Resolve() {
-        UClass* classes[] = {UWidgetitemBagHeaderMenu_C::StaticClass(), UBP_HUDInventoryComponent_C::StaticClass(), UBP_InvManagerComponent_C::StaticClass()};
-        std::string names;
-        for (UClass* c : classes) {
-            if (!PtrOk(c)) return false;
-            for (UField* f = c->Children; PtrOk(f); f = f->Next) {
-                const std::string n = f->GetName();
-                if (f->IsA(UFunction::StaticClass()) && SortTrigger(n)) {
-                    g_triggers[static_cast<UFunction*>(f)] = n;
-                    names += " " + n;
-                    if (n.starts_with("BndEvt__Button_Sort")) g_button = static_cast<UFunction*>(f);
-                }
-            }
-        }
-        logger::log("[item-sort] sort triggers:" + names);
-        return !g_triggers.empty();
-    }
 
     // The header's Sort click: skip the game's sort (it re-adds every item, ~35 ms + a spread second pass), ours runs once.
-    bool SkipVanillaSort(void*, void* fn, void*) { return fn == g_button && g_on.load(std::memory_order_relaxed); }
+    bool SkipVanillaSort(void*, void* fn, void*) { return g_on.load(std::memory_order_relaxed) && g_button.Is(fn); }
 
     struct ItemSort : feature::Feature {
-        bool resolved = false;
         double nextScan = 0;
         int savedActive = -1;
         std::string exeDir;
@@ -299,8 +310,8 @@ namespace {
             }
             io::Tick();
             if (!io::Ready()) return;
-            if (!resolved && (resolved = Resolve())) { g_on = true; game::SetEventListener(&OnEvent, true); game::SetEventFilter(&SkipVanillaSort, true); }
-            if (resolved) item_sort::ui::Frame();  // game buttons in the inventory/bank header (inventory-ui.cpp)
+            if (!g_on) { g_on = true; game::SetEventListener(&OnEvent, true); game::SetEventFilter(&SkipVanillaSort, true); }
+            item_sort::ui::Frame();  // game buttons in the inventory/bank header (inventory-ui.cpp)
 
             if (TakeFile("item-sort.probe")) g_probe = g_verbose = true;
             for (int i = 0; i < 4; i++)

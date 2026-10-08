@@ -1,4 +1,5 @@
 #include "npc_audio.hpp"
+#include "ref.hpp"
 #include "game.hpp"
 #include "logger.hpp"
 
@@ -87,9 +88,9 @@ void npc_audio::Set(const char* who, const char* anim, float volume) {
 }
 
 void npc_audio::Tick() {
-    static UWorld* seen = nullptr;  // a new map (hub loaded again): apply again
-    UWorld* w = UWorld::GetWorld();
-    if (w != seen) { seen = w; g_dirty = true; }
+    static ref::Ref seen;  // a new map (hub loaded again): apply again
+    const ref::Ref w(UWorld::GetWorld());
+    if (!(w == seen)) { seen = w; g_dirty = true; }
     if (!g_dirty.load() && g_listening.load() && g_who.empty()) {  // restored: listener no longer needed
         g_listening = false;
         game::SetEventListener(OnEvent, false);

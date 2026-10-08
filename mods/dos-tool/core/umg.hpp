@@ -10,8 +10,6 @@ namespace umg {
     bool PtrOk(const void* p);
     // Native UFunctions whose bodies are not compiled in: same call shape as Dumper-7's native bodies.
     void CallNative(const SDK::UObject* obj, SDK::UFunction* fn, void* parms);
-    // Still the same object (not collected, slot not reused)?
-    bool Alive(const SDK::UObject* o, int32_t idx);
     // Live screen widget, not a class default or designer template (never modify those).
     bool Live(const SDK::UObject* o);
     SDK::APlayerController* LocalPC();
