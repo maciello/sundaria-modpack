@@ -45,7 +45,7 @@ namespace {
     dungeon_map::Planning g_next;  // being made, one navmesh query per world tick
     bool g_planning = false;
     int g_ticks = 0;
-    double g_maxMs = 0, g_totalMs = 0;
+    double g_maxMs = 0, g_totalMs = 0, g_beginMs = 0, g_maxStepMs = 0;
     dungeon_map::V3 g_pawn;
 
     // Game thread → render thread.
@@ -90,7 +90,7 @@ namespace {
         g_pawn = {l.X, l.Y, l.Z};
         // A plan spreads over world ticks: the dungeon read on the first, then one navmesh query per tick (a partial
         // query searches the whole reachable navmesh: ms). The shown plan stays until the new one is complete.
-        static cost::Path tickCost{"dungeon plan tick"};
+        static cost::Path beginCost{"dungeon plan begin (dungeon read)"}, stepCost{"dungeon plan step (one navmesh query)"};
         LARGE_INTEGER t0, t1;
         if (Now() >= g_replanAt) {
             g_replanAt = INFINITY;
@@ -98,8 +98,8 @@ namespace {
             g_planning = dungeon_map::Begin(g_pawn, g_next);
             QueryPerformanceCounter(&t1);
             const double ms = Ms(t0, t1);
-            if (tickCost.Record(ms)) logger::log(tickCost.Line(ms));
-            g_ticks = 1, g_maxMs = g_totalMs = ms;
+            if (beginCost.Record(ms)) logger::log(beginCost.Line(ms));
+            g_ticks = 1, g_maxStepMs = 0, g_maxMs = g_totalMs = g_beginMs = ms;
             if (!g_planning) {
                 g_replanAt = Now() + kRetry;
                 logger::log("[dungeon-map] plan: " + g_next.plan.why);
@@ -109,14 +109,15 @@ namespace {
             const bool done = dungeon_map::Step(g_next);
             QueryPerformanceCounter(&t1);
             const double ms = Ms(t0, t1);
-            if (tickCost.Record(ms)) logger::log(tickCost.Line(ms));
-            g_ticks++, g_totalMs += ms, g_maxMs = std::max(g_maxMs, ms);
+            if (stepCost.Record(ms)) logger::log(stepCost.Line(ms));
+            g_ticks++, g_totalMs += ms, g_maxMs = std::max(g_maxMs, ms), g_maxStepMs = std::max(g_maxStepMs, ms);
             if (done) {
                 g_planning = false;
                 g_plan = std::move(g_next.plan);
                 g_version++;
-                char b[96];
-                std::snprintf(b, sizeof b, ", %d ticks, max tick %.2f ms, total %.2f ms", g_ticks, g_maxMs, g_totalMs);
+                char b[160];
+                std::snprintf(b, sizeof b, ", %d ticks, max tick %.2f ms (begin %.2f, max step %.2f), total %.2f ms", g_ticks,
+                              g_maxMs, g_beginMs, g_maxStepMs, g_totalMs);
                 logger::log("[dungeon-map] plan: " + g_plan.why + b);
             }
         }
