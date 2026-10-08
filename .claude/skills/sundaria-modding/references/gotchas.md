@@ -18,3 +18,4 @@
 | bundled winmm.dll hash ≠ official | old/unknown ASI loader build | official Ultimate ASI Loader release, `dinput8.dll` renamed to `winmm.dll` |
 | game crash `EXCEPTION_ACCESS_VIOLATION reading 0x0` in `MSVCP140.dll` (minidump) | `std::mutex` from a newer MSVC STL (constexpr ctor) vs Proton's older msvcp140 `_Mtx_lock` | no `std::mutex`/`std::thread`/`condition_variable`: use `SRWLOCK`; check with `llvm-objdump -p DoS-Tool.dll \| grep _Mtx` → 0 |
 | crash diagnosis | UE writes `<prefix>/drive_c/users/steamuser/AppData/Local/Archon/Saved/Crashes/UE4CC-*/UE4Minidump.dmp` | `scripts/minidump.py <dmp>` → fault module+offset, stack return addresses into DoS-Tool/Archon |
+| command handed to the user fails in their terminal | user shell is fish: no heredocs (`<<EOF`), no `$(...)` bash-isms | put it in a `just` recipe (or a file + recipe) and hand over `just <recipe>` |
