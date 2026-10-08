@@ -269,6 +269,16 @@ namespace {
         return keys;
     }
 
+    // "slot=key" for every bag item, ascending slot: lets the log prove what a reorder call did.
+    std::string Layout(UBP_ItemContainerComponent_C* c, bool bank, const std::unordered_map<int, UArchonSpec*>& specs) {
+        std::vector<Item> items = Bag(ReadItems(c, bank, false, specs));
+        std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.slot < b.slot; });
+        std::string out;
+        char buf[48];
+        for (const Item& it : items) { std::snprintf(buf, sizeof buf, " %d=%llx", it.slot, static_cast<unsigned long long>(KeyOf(it))); out += buf; }
+        return out;
+    }
+
     void CallWithArray(UObject* obj, UFunction* fn, void* parms, TArray<int32>& field, const std::vector<int>& v) {
         RawArray arr{const_cast<int*>(v.data()), int32(v.size()), int32(v.size())};
         std::memcpy(&field, &arr, sizeof(arr));
@@ -356,6 +366,13 @@ namespace {
         tries.push_back({"Container.Request_ReorderItems(slots in new order)", bySlots, 1});
         tries.push_back({"Container.RemapItemSlots(slots in new order)", bySlots, 2});
         const std::vector<long long> before = CurrentOrder(c, bank, specs);
+        {
+            std::string keys;
+            char buf[24];
+            for (long long k : intended) { std::snprintf(buf, sizeof buf, " %llx", static_cast<unsigned long long>(k)); keys += buf; }
+            logger::log("[item-sort] intended keys:" + keys);
+            logger::log("[item-sort] layout before:" + Layout(c, bank, specs));
+        }
         for (const Try& t : tries) {
             if (t.how == 0) {
                 UFunction* fn = Fn(w.inv, "BP_InvManagerComponent_C", "ReorderItems");
@@ -378,6 +395,8 @@ namespace {
             }
             const std::vector<long long> after = CurrentOrder(c, bank, specs);
             const int ok = InOrder(intended, after), was = InOrder(intended, before);
+            logger::log("[item-sort] full list:" + Head(t.list, 1 << 20));
+            logger::log("[item-sort] layout after:" + Layout(c, bank, specs));
             logger::log(std::string("[item-sort] tried ") + t.name + ": list" + Head(t.list, 8) + " -> in intended order " + I(ok) + "/" +
                         I(intended.size()) + " (before " + I(was) + "), bag changed " + (after != before ? "yes" : "no"));
             if (ok == int(intended.size()))
@@ -402,6 +421,7 @@ namespace {
                         " MaxItemSlot " + I(c->MaxItemSlot));
             const auto specs = SpecMap();
             LogItems(c == w.bag ? "probe bag" : "probe bank", ReadItems(c, c == w.bank, true, specs));
+            logger::log("[item-sort] probe layout:" + Layout(c, c == w.bank, specs));
             logger::log("[item-sort] probe game sorter list:" + Head(GameSortList(c, w.inv ? static_cast<UObject*>(w.inv) : c), 24));
         }
     }
