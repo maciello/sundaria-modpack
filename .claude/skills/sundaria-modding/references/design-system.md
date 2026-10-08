@@ -120,6 +120,19 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Constants: `features/inventory/pickup-toast/pickup-toast.hpp`.
 - Don't: toast reorders, sorts, equips or bank moves (only items whose owned count rose); ImGui rows; own rarity palette.
 
+### Dungeon map path (#40, inside the game's minimap)
+- Where: plain `UImage`s (no texture = solid tint) in `WidgetMiniMap_C::CanvasPanel_DynamicMinimp`, placed like the game's own icons
+  (anchors (0,1), alignment 0.5, map pixel = (Y, −X) / UnitToPixel). They pan, rotate and clip with the minimap; nothing on the HUD outside it.
+- Line: the main path from the floor's entry to the frontier only (never ahead of where the player has been), one bar per path segment,
+  2 px thick, `kAccent` @.55. Frontier cap: 7 px diamond, `kGameHighlight` @.9.
+- Flow: 5 px diamonds `kGameHighlight` travelling start → frontier at 40 px/s, 36 px apart (at most 24; spacing grows on long lines);
+  each fades in over the first 16 px and out over the last 16 px before the frontier. Linear, no easing: it reads as current, not as bounce.
+- Blocked: where the path stops at a locked door: 16 px `kInk` diamond plate @.85 + red X (two 11×3 bars, `kTaken`).
+- Lever (heuristic: unpulled levers in the locked door's room): 14 px `kInk` plate @.85 + `kGameHighlight` handle bar 9×3 at −60°.
+- Icons stay upright on screen (counter-rotate with the map). The game's own icons (party, NPCs) stay above the line (z: line 0, icons 5).
+- Constants: `features/dungeon-map/path.hpp`.
+- Don't: show the path beyond the frontier; own fog; textures we ship; ImGui over the minimap.
+
 ### Suggested sell/salvage (#23, game screen)
 - Where: every item slot of the game's bags (`WidgetItemIconContainer_C` in `WidgetItemBag_C::ItemContainers`): inventory, bank, vendor.
 - Mark: the game's own action icon (`Tooltip_Sell` / `Tooltip_Salvage`, the icon its item tooltip shows) as a UImage 32×32 in the slot's
