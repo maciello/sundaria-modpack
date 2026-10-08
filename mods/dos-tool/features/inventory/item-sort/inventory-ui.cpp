@@ -16,6 +16,8 @@
 #include "WidgetButton01_classes.hpp"
 #include "WidgetButton01_parameters.hpp"
 #include "WidgetitemBagHeaderMenu_classes.hpp"
+#include "WidgetItemInventory_classes.hpp"
+#include "WidgetItemStorage_classes.hpp"
 
 // Item-sort controls inside the game's own inventory and bank: a game button (WidgetButton01_C, the game's
 // Button05 art, styled exactly like the header's Sort) placed right after Sort in the bag header row.
@@ -37,10 +39,12 @@ namespace {
     std::atomic<bool> g_on{false};
     thread_local bool t_busy = false;
     int g_shown = -1;  // profile index the labels show
-    UClass* g_headerCls = nullptr;
+    UClass *g_headerCls = nullptr, *g_invCls = nullptr, *g_storCls = nullptr;
 
     bool Resolve() {
         g_headerCls = UWidgetitemBagHeaderMenu_C::StaticClass();
+        g_invCls = UWidgetItemInventory_C::StaticClass();
+        g_storCls = UWidgetItemStorage_C::StaticClass();
         g_fn.create = UWidgetBlueprintLibrary::StaticClass()->GetFunction("WidgetBlueprintLibrary", "Create");
         g_fn.addChild = UPanelWidget::StaticClass()->GetFunction("PanelWidget", "AddChild");
         g_fn.removeChild = UPanelWidget::StaticClass()->GetFunction("PanelWidget", "RemoveChild");
@@ -137,24 +141,6 @@ namespace {
         return b != nullptr;
     }
 
-    // Once per enable (headers built before a hot reload): one GObjects walk, timed. Afterwards headers come from
-    // their own ProcessEvent calls (OnEvent), so nothing walks GObjects per tick.
-    bool ScanOnce(APlayerController* pc) {
-        LARGE_INTEGER t0, t1, f;
-        QueryPerformanceCounter(&t0);
-        bool added = false;
-        UClass* cls = UWidgetitemBagHeaderMenu_C::StaticClass();
-        for (int i = 0; PtrOk(cls) && i < UObject::GObjects->Num(); i++) {
-            UObject* o = UObject::GObjects->GetByIndex(i);
-            if (PtrOk(o) && o->IsA(cls)) added |= Consider(static_cast<UWidgetitemBagHeaderMenu_C*>(o), pc);
-        }
-        QueryPerformanceCounter(&t1);
-        QueryPerformanceFrequency(&f);
-        logger::log("[item-sort] header scan (once): " + std::to_string(UObject::GObjects->Num()) + " objects, " +
-                    std::to_string(double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart)).substr(0, 5) + " ms");
-        return added;
-    }
-    bool g_scanned = false;
     struct Pending { UWidgetitemBagHeaderMenu_C* h; int32 idx; };
     std::vector<Pending> g_pending;  // headers seen since the last world tick
 
@@ -170,18 +156,24 @@ namespace {
                     break;
                 }
         const int active = item_sort::api::ActiveProfile();
-        auto* obj = static_cast<UObject*>(objp);
-        if (PtrOk(obj) && obj->Class == g_headerCls &&  // one compare per event; placing waits for the world tick (#50)
-            std::none_of(g_pending.begin(), g_pending.end(), [&](const Pending& p) { return p.h == obj; }))
-            g_pending.push_back({static_cast<UWidgetitemBagHeaderMenu_C*>(obj), obj->Index});
-        if (umg::IsWorldTick(fnp) && (!g_scanned || !g_pending.empty())) {
+        // Headers come from events, never a GObjects walk: the header's own calls, or the bag screens that own one
+        // (WidgetItemInventory_C / WidgetItemStorage_C: Construct runs each time the screen opens). Three class
+        // compares per event; placing waits for the world tick (#50).
+        if (auto* obj = static_cast<UObject*>(objp); PtrOk(obj)) {
+            UObject* h = obj->Class == g_headerCls ? obj
+                       : obj->Class == g_invCls    ? static_cast<UWidgetItemInventory_C*>(obj)->WidgetitemBagHeaderMenu
+                       : obj->Class == g_storCls   ? static_cast<UWidgetItemStorage_C*>(obj)->WidgetitemBagHeaderMenu
+                                                   : nullptr;
+            if (PtrOk(h) && h->Class == g_headerCls && std::none_of(g_pending.begin(), g_pending.end(), [&](const Pending& p) { return p.h == h; }))
+                g_pending.push_back({static_cast<UWidgetitemBagHeaderMenu_C*>(h), h->Index});
+        }
+        if (umg::IsWorldTick(fnp) && !g_pending.empty()) {
             if (APlayerController* pc = umg::LocalPC()) {
                 std::erase_if(g_placed, [](const Placed& p) { return !Alive(p.header, p.headerIdx) || !Alive(p.button, p.buttonIdx); });
-                bool added = !g_scanned && ScanOnce(pc);
+                bool added = false;
                 for (const Pending& p : g_pending) if (Alive(p.h, p.idx)) added |= Consider(p.h, pc);
                 if (added) g_shown = -1;
                 g_pending.clear();
-                g_scanned = true;
             }
         }
         if (active != g_shown) {
@@ -210,7 +202,6 @@ namespace item_sort::ui {
         g_on = false;
         game::SetEventListener(&OnEvent, false);
         g_placed.clear();
-        g_scanned = false;
         g_pending.clear();
     }
 }
