@@ -20,7 +20,8 @@
 #include "UMG_parameters.hpp"
 
 // Dungeon map (#40): the floor's main route, entry → stairs down (shared/planner.hpp), drawn in full on the game's minimap
-// with a flow along it and blocked/lever icons where a locked door cuts it (#66 #67 #68 #93). When the main route is out of
+// with a flow along it and a blocked icon where a locked door cuts it (#66 #67 #68); the lever icons on it only while
+// Lever markers is on (#93, planner::Using). When the main route is out of
 // the minimap's view, a dashed connector leads from the player to it (#83), replanned on a room change or when the player
 // strays. Game thread only. Facts: references/game-facts.md § Dungeon, game-ui.md § Minimap. Dev probe: dungeon-map.probe.
 using namespace SDK;
@@ -128,7 +129,9 @@ namespace {
         if (!m || m->UnitToPixel <= 0 || !PtrOk(m->CanvasPanel_Map)) return;
         g_progress.Visit(plan.path, pawn);  // O(path points) per tick
         const dungeon_map::Path link = Connector(plan, pawn, m);
-        const auto qs = dungeon_map::Scene(plan.path, link, plan.marks, float(m->UnitToPixel), m->CanvasPanel_Map->RenderTransform.Angle, Now());
+        dungeon_map::Marks marks = plan.marks;  // lever icons + halo belong to the Lever markers toggle (#93)
+        if (!dungeon_map::planner::Using(dungeon_map::planner::kLevers)) marks.levers.clear();
+        const auto qs = dungeon_map::Scene(plan.path, link, marks, float(m->UnitToPixel), m->CanvasPanel_Map->RenderTransform.Angle, Now());
         dungeon_map::draw::Sync(m, qs);
         g_drawn = true;
     }

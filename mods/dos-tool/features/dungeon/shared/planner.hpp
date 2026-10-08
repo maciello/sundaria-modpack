@@ -8,6 +8,7 @@ namespace dungeon_map::planner {
     enum User : unsigned { kMap = 1, kLevers = 2 };
     // Any thread. The planner listens to game events while any user is on; with none it costs nothing.
     void Use(User u, bool on);
+    bool Using(User u);  // any thread: is that user on (e.g. dungeon-map asks whether Lever markers owns the lever visuals)
 
     // Game thread (a listener's world tick). Updated on the planner's own world tick.
     bool InDungeon();

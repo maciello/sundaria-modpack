@@ -110,6 +110,7 @@ namespace dungeon_map::planner {
         if (!before && after) { g_fresh = true; game::SetEventListener(&OnEvent, true); }
         if (before && !after) { game::SetEventListener(&OnEvent, false); Publish({}, {}); }
     }
+    bool Using(User u) { return (g_users.load() & u) != 0; }
     bool InDungeon() { return g_inDungeon; }
     const Plan& Current() { return g_plan; }
     int Version() { return g_version; }

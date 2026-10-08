@@ -160,7 +160,8 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
   World (ImGui background list, Layer::WorldBar, within 60 m, hidden at 2 m): 12·Ui `kGameHighlight` diamond with a `kInk` rim
   (`stroke::Outline(kSm·Ui)`) 1.2 m above the lever, distance `kSm` `kTextSoft` ("12 m", ink outline) below it. Off screen: the diamond on the
   edge (inset `space::k7`·Ui) + a chevron of two 9×3·Ui `kGameHighlight` bars pointing at the lever. In/out: `motion::kFadeIn` / `kFadeOut`.
-  Constants: `features/dungeon/lever-markers/` (world marker, own toggle "Lever markers"), `dungeon/dungeon-map/scene.hpp` (halo).
+  Toggle: "Lever markers" owns every lever visual (minimap lever icon + halo, world marker); dungeon-map draws the minimap layer
+  only while it is on (shared planner state). Constants: `features/dungeon/lever-markers/` (world marker), `dungeon/dungeon-map/scene.hpp` (halo).
 - Icons stay upright on screen (counter-rotate with the map). The game's own icons (party, NPCs) stay above the line (z: line 0, icons 5).
 - Constants: `features/dungeon/shared/path.hpp` (path, flow), `dungeon/dungeon-map/scene.hpp` (geometry, opacity, z).
 - Don't: own fog; textures we ship; ImGui over the minimap.
