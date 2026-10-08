@@ -43,6 +43,10 @@ static bool  g_ovrDist = false;  static float g_dist = 650.0f;
 static bool  g_noCamCollision = false;
 static bool  g_dmgNumbers = true;
 static bool  g_dpsPanel = true;
+static float g_height = 40.0f;  // cm above capsule center
+static float g_size = 1.0f;
+struct Preview { float sx, sy; dmgnum::Number n; };
+static std::vector<Preview> g_preview;
 static dmgnum::Tracker g_dmg;
 
 static LRESULT WINAPI hkWndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
@@ -121,6 +125,21 @@ static void DrawMenu(const game::Snapshot& snap) {
     ImGui::SeparatorText("Combat");
     ImGui::Checkbox("Damage numbers", &g_dmgNumbers);
     ImGui::Checkbox("DPS panel", &g_dpsPanel);
+    ImGui::SliderFloat("Number height", &g_height, -60.0f, 160.0f, "%.0f cm");
+    ImGui::SliderFloat("Number size", &g_size, 0.5f, 2.0f, "%.2fx");
+    if (ImGui::Button("Preview numbers")) {
+        const ImVec2 c(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.45f);
+        const double now = ImGui::GetTime();
+        const float amounts[] = {18, 24, 21, 95, 19, 260};
+        dmgnum::Tracker scratch;  // don't let fake hits move the real "typical hit"
+        scratch.typical = 20;
+        for (int i = 0; i < 6; i++) {
+            const float sc = scratch.Scale(amounts[i]);
+            g_preview.push_back({c.x + (i - 2.5f) * 50.0f, c.y, {0, 0, 0, amounts[i], dmgnum::Kind::Dealt, sc, (i % 3) - 1.0f, now + i * 0.18}});
+        }
+        g_preview.push_back({c.x - 220, c.y + 80, {0, 0, 0, 35, dmgnum::Kind::Taken, 0.9f, -1, now + 0.4}});
+        g_preview.push_back({c.x + 220, c.y + 80, {0, 0, 0, 50, dmgnum::Kind::Heal, 0.8f, 1, now + 0.7}});
+    }
 
     ImGui::Separator();
     ImGui::TextDisabled("[INSERT] toggle menu");
@@ -140,36 +159,46 @@ static void OutlinedText(ImDrawList* dl, ImFont* f, float size, ImVec2 p, ImU32 
     dl->AddText(f, size, p, col, s);
 }
 
+static void DrawNumber(ImDrawList* dl, ImFont* font, float base, float sx, float sy, const dmgnum::Number& n, double now) {
+    const double age = now - n.born;
+    if (age < 0) return;
+    const float big = std::clamp((n.scale - 1.0f) / 0.8f, 0.0f, 1.0f);
+    const dmgnum::Anim an = dmgnum::Animate(age, g_dmg.lifetime, n.drift, n.kind == dmgnum::Kind::Dealt ? big : 0.0f);
+    if (an.scale <= 0.01f || an.alpha <= 0.0f) return;
+    char buf[24];
+    FormatAmount(buf, sizeof(buf) - 1, n.amount);
+    float r, g, b;
+    switch (n.kind) {
+        case dmgnum::Kind::Heal:  r = 110; g = 255; b = 140; std::memmove(buf + 1, buf, strlen(buf) + 1); buf[0] = '+'; break;
+        case dmgnum::Kind::Taken: r = 255; g = 80;  b = 70;  break;
+        default:                  r = 255; g = 255 - 70 * big; b = 255 - 200 * big;  // white -> gold
+    }
+    r += (255 - r) * an.flash; g += (255 - g) * an.flash; b += (255 - b) * an.flash;  // impact flash
+    const int a = int(255 * an.alpha);
+    const float size = base * g_size * n.scale * an.scale;
+    const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, buf);
+    const float unit = base * g_size * n.scale;
+    const ImVec2 pos(sx + an.dx * unit - ts.x * 0.5f, sy + an.dy * unit - ts.y * 0.5f);
+    const float ow = std::max(1.5f, size / 16.0f);
+    if (an.flash > 0)  // soft glow while hot
+        OutlinedText(dl, font, size, pos, IM_COL32(0, 0, 0, 0), IM_COL32(int(r), int(g), int(b), int(90 * an.flash * an.alpha)), ow * 3.0f, buf);
+    OutlinedText(dl, font, size, pos, IM_COL32(int(r), int(g), int(b), a), IM_COL32(20, 12, 8, int(a * 0.85f)), ow, buf);
+}
+
 static void DrawDamageNumbers() {
     const double now = ImGui::GetTime();
-    dmgnum::View view;
-    if (g_dmg.live.empty() || !game::GetView(view)) return;
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
     const float base = screen.y / 30.0f;  // ~36 px at 1080p for a typical hit
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     ImFont* font = g_numFont ? g_numFont : ImGui::GetFont();
+    std::erase_if(g_preview, [&](const Preview& p) { return now - p.n.born > g_dmg.lifetime; });
+    for (const Preview& p : g_preview) DrawNumber(dl, font, base, p.sx, p.sy, p.n, now);
+    dmgnum::View view;
+    if (g_dmg.live.empty() || !game::GetView(view)) return;
     for (const dmgnum::Number& n : g_dmg.live) {
         float sx, sy;
-        if (!dmgnum::Project(view, n.x, n.y, n.z, screen.x, screen.y, sx, sy)) continue;
-        const double age = now - n.born;
-        const float t = float(age / g_dmg.lifetime);                         // 0..1
-        const float fade = t < 0.65f ? 1.0f : 1.0f - (t - 0.65f) / 0.35f;
-        const int a = int(255 * fade);
-        ImU32 col;
-        char buf[24];
-        FormatAmount(buf, sizeof(buf) - 1, n.amount);
-        switch (n.kind) {
-            case dmgnum::Kind::Heal:  col = IM_COL32(110, 255, 140, a); std::memmove(buf + 1, buf, strlen(buf) + 1); buf[0] = '+'; break;
-            case dmgnum::Kind::Taken: col = IM_COL32(255, 80, 70, a); break;
-            default: {  // white -> gold as the hit grows past your typical
-                const float g = std::clamp((n.scale - 1.0f) / 0.8f, 0.0f, 1.0f);
-                col = IM_COL32(255, int(255 - 70 * g), int(255 - 200 * g), a);
-            }
-        }
-        const float size = base * n.scale * dmgnum::PopScale(age) * (1.0f - 0.15f * t);
-        const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, buf);
-        const ImVec2 pos(sx - ts.x * 0.5f + n.drift * 40.0f * t, sy - ts.y * 0.5f - 60.0f * t);
-        OutlinedText(dl, font, size, pos, col, IM_COL32(20, 12, 8, int(a * 0.85f)), std::max(1.5f, size / 18.0f), buf);
+        if (dmgnum::Project(view, n.x, n.y, n.z + g_height, screen.x, screen.y, sx, sy))
+            DrawNumber(dl, font, base, sx, sy, n, now);
     }
 }
 

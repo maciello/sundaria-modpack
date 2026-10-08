@@ -2,6 +2,7 @@
 #include "dmgnum.hpp"
 #include <cassert>
 #include <cmath>
+#include <algorithm>
 #include <cstdio>
 
 using dmgnum::Kind;
@@ -68,7 +69,18 @@ int main() {
     dmgnum::View down{0, 0, 0, -45, 0, 0, 90};
     assert(dmgnum::Project(down, 100, 0, -100, 1920, 1080, sx, sy) && near(sx, 960) && near(sy, 540));
 
-    // pop animation
-    assert(dmgnum::PopScale(0.0) == 0.5f && near(dmgnum::PopScale(0.08), 1.25f) && dmgnum::PopScale(1.0) == 1.0f);
+    // animation curve
+    auto a0 = dmgnum::Animate(0.0, 1.4, 1, 0), a1 = dmgnum::Animate(0.12, 1.4, 1, 0);
+    auto a2 = dmgnum::Animate(0.5, 1.4, 1, 0), a3 = dmgnum::Animate(1.4, 1.4, 1, 0);
+    assert(a0.scale == 0 && a0.flash == 1 && a0.alpha == 1);           // starts from nothing, white-hot
+    assert(a1.scale > 1.0f);                                             // overshoot during pop
+    assert(near(a2.scale, 1.0f) && a2.alpha == 1 && a2.dy < -1.0f);      // settled, risen, opaque
+    assert(a3.alpha == 0 && a3.scale < 1.0f);                            // gone at end of life
+    float peakTypical = 0, peakBig = 0;
+    for (double t = 0; t < 0.25; t += 0.005) {
+        peakTypical = std::max(peakTypical, dmgnum::Animate(t, 1.4, 0, 0).scale);
+        peakBig = std::max(peakBig, dmgnum::Animate(t, 1.4, 0, 1).scale);
+    }
+    assert(peakBig > peakTypical);                                       // big hits punch harder
     std::puts("ok");
 }

@@ -116,8 +116,8 @@ std::vector<dmgnum::Sample> game::SampleHealth() {
             for (int si = 0; si < sets.Num(); si++) {
                 UAttributeSet* set = sets[si];
                 if (!PtrOk(set) || !set->IsA(statusCls)) continue;
-                const FVector& p = root->RelativeLocation;  // capsule root is unattached: relative == world
-                out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z + 110.0f,
+                const FVector& p = root->RelativeLocation;  // capsule center; unattached root: relative == world
+                out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z,
                                static_cast<UArchonAttributeSet_Status*>(set)->CurrentHealth,
                                PtrOk(c->PlayerState)});
                 break;

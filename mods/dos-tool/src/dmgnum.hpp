@@ -102,10 +102,28 @@ namespace dmgnum {
         return true;
     }
 
-    // Genshin-ish pop: overshoot to 1.25x, settle to 1.0 by 0.25 s, shrink a bit while fading.
-    inline float PopScale(double age) {
-        if (age < 0.08) return float(0.5 + (1.25 - 0.5) * age / 0.08);
-        if (age < 0.25) return float(1.25 - 0.25 * (age - 0.08) / 0.17);
-        return 1.0f;
+    // Motion-graphics curve for one number. Offsets are in units of the number's base size.
+    struct Anim { float dx, dy, scale, alpha, flash; };
+
+    inline float EaseOutCubic(float x) { const float u = 1 - x; return 1 - u * u * u; }
+    inline float EaseInQuad(float x) { return x * x; }
+    inline float EaseOutBack(float x, float k) {
+        const float c1 = k, c3 = c1 + 1, u = x - 1;
+        return 1 + c3 * u * u * u + c1 * u * u;
+    }
+
+    // big: 0 = typical hit, 1 = huge (more overshoot, longer flash)
+    inline Anim Animate(double age, double lifetime, float drift, float big) {
+        const float t = float(std::clamp(age / lifetime, 0.0, 1.0));
+        const float pop = std::min(float(age) / 0.22f, 1.0f);
+        const float rise = std::min(float(age) / 0.6f, 1.0f);
+        const float out = std::clamp((t - 0.7f) / 0.3f, 0.0f, 1.0f);
+        Anim a;
+        a.scale = EaseOutBack(pop, 1.7f + 1.6f * big) * (1.0f - 0.25f * EaseInQuad(out));
+        a.dx = drift * 0.9f * EaseOutCubic(rise);
+        a.dy = -1.6f * EaseOutCubic(rise) - 0.5f * EaseInQuad(out);
+        a.alpha = 1.0f - EaseInQuad(out);
+        a.flash = 1.0f - std::min(float(age) / (0.12f + 0.1f * big), 1.0f);
+        return a;
     }
 }
