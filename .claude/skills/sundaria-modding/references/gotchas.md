@@ -5,7 +5,7 @@
 | Dumper-7 loads but writes nothing | under Proton cwd ≠ exe dir → local Dumper-7.ini never read → dumps at startup before UWorld exists | global ini `<prefix>/drive_c/Dumper-7/Dumper-7.ini` (`just dump-install` writes it) |
 | Dumper-7 cmake: missing includes | Windows-only repo, wrong filename case | symlinks with the expected case (`upstream/Dumper-7`) |
 | clang: `-Winvalid-constexpr` errors in SDK/Dumper | MSVC-only leniency | `-Wno-invalid-constexpr` in the toolchain file — NOT on the cmake command line (CMAKE_CXX_FLAGS there wipes the toolchain's INIT /imsvc flags) |
-| `pgrep -f Archon…` says running when it isn't | matches your own shell's command line | `pgrep -f '[A]rchon-Win64-Shipping'` |
+| `pgrep -f Archon…` says running when it isn't | matches your own shell AND the Steam/Proton wrappers (exe path in their args, they outlive a crash) | `pgrep -x Archon-Win64-Sh` (process name, 15-char truncated) |
 | `just dist` exit 127 | `zip` not installed | `python3 -m zipfile -c` |
 | updater can't find game root | no root exe; Steam runs `Archon/Binaries/Win64/Archon-Win64-Shipping.exe` | root = exe path parents[3] |
 | update.ps1 fails on Linux pwsh | `$env:TEMP` unset; Get-Item on missing file | `[IO.Path]::GetTempPath()`; `Split-Path` |
