@@ -97,6 +97,14 @@ dungeon (#40 survey 2026-10-08; SDK unless marked "in game"):
     boss_gate: ABP_BossFight_ProgressionBlockingDoor_C: plain actor, collision box, no state fields
   co_op: ABP_Dungeon_C::PlayerFloors per player; minimap widget tracks PartyPawns; slice discovery is an overlap (any pawn?) — unverified
 
+boss_fights:   # features/boss-intro/signals.cpp; SDK only, UNVERIFIED at runtime until a `[boss-intro]` log line shows them
+  fight_actor: ABP_BossFight_C : AArchonBossFight (native, IsA-safe); one subclass per boss (BP_BossFight_SkeletonLord_C …⊇)
+  names: FightDisplayName @0x2E8, FightStartedMessage @0x300 (FText); BossActors @0x3D8 (TArray<AActor*>, Net)
+  signals_through_ProcessEvent: ReceiveBeginPlay (fight), BndEvt__ArenaTrigger_…_1_ComponentBeginOverlap / BndEvt__MasterSpawnTrigger_…_0_ComponentBeginOverlap (OtherActor @0x08),
+    MulticastNotifyCombatStart, MulticastNotifyFinished(bFailed) (NetMulticast: every client), UserWidget Construct on WidgetBossSplashScreen_C,
+    ReceiveBeginPlay on BP_LensEffect_bossAnnouncement_C (: AEmitterCameraLensEffectBase)
+  match_by: function FName ComparisonIndex (int, outlives map travel) + IsA / class-name index; no Blueprint pointer kept
+
 combat_log (unused so far; crits + own-vs-party damage; whether its delegates pass ProcessEvent: UNVERIFIED):
   delegates: AArchonCharacter::OnCombatLogGeneratedDelegate_Offense / _Defense
   payload: FCombatDetailDamage {FinalDamage, BlockedDamage, CritLevel, ResistedDamage, MitigatedDamage_Armor, bIsHeal}
