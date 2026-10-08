@@ -50,7 +50,8 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 
 # Ultimate ASI Loader loads *.asi; this one loads (and in dev mode hot-reloads) DoS-Tool.dll.
 add_library(DoS-Loader SHARED core/loader.cpp)
-set_target_properties(DoS-Loader PROPERTIES PREFIX "" OUTPUT_NAME "DoS-Tool" SUFFIX ".asi")
+set_target_properties(DoS-Loader PROPERTIES PREFIX "" OUTPUT_NAME "DoS-Tool" SUFFIX ".asi"
+    ARCHIVE_OUTPUT_NAME "DoS-Loader")  # own import lib; Ninja rejects two targets writing DoS-Tool.lib
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     core

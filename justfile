@@ -1,17 +1,35 @@
 # Dungeons of Sundaria modpack. Local build needs the game SDK + MSVC kit (not in this repo):
 #   SDK_DIR = Dumper-7 CppSDK of your game build, XWIN = `xwin splat` output
-buildid := `grep -Pos '"buildid"\s+"\K[0-9]+' "$HOME/.steam/steam/steamapps/appmanifest_587520.acf" || true`
+# Windows: needs Git for Windows (bash) + LLVM; put GAME_WIN64=<your>/steamapps/common/DungeonsofSundaria/Archon/Binaries/Win64 in .env
+set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-cu"]
+set dotenv-load
+
+steam := if os_family() == "windows" { "C:/Program Files (x86)/Steam" } else { env_var_or_default("HOME", "") / ".steam/steam" }
+win64 := env_var_or_default("GAME_WIN64", steam / "steamapps/common/DungeonsofSundaria/Archon/Binaries/Win64")
+# Win64 -> Binaries -> Archon -> DungeonsofSundaria -> common -> steamapps
+buildid := `grep -Pohs '"buildid"\s+"\K[0-9]+' "${GAME_WIN64:-x}/../../../../../appmanifest_587520.acf" "$HOME/.steam/steam/steamapps/appmanifest_587520.acf" "/c/Program Files (x86)/Steam/steamapps/appmanifest_587520.acf" 2>/dev/null | head -1 || true`
+root := replace(justfile_directory(), '\', '/')  # bash eats Windows backslashes
 store_sdk := "/srv/dumps/sundaria/" + buildid + "/CppSDK"
-sdk  := env_var_or_default("SDK_DIR", if path_exists(store_sdk) == "true" { store_sdk } else { justfile_directory() / "../sdk/CppSDK" })
-xwin := env_var_or_default("XWIN", if path_exists("/srv/toolchains/xwin-msvc") == "true" { "/srv/toolchains/xwin-msvc" } else { justfile_directory() / "../tools/msvc" })
+sdk  := env_var_or_default("SDK_DIR", if path_exists(store_sdk) == "true" { store_sdk } else { root / "../sdk/CppSDK" })
+xwin := env_var_or_default("XWIN", if path_exists("/srv/toolchains/xwin-msvc") == "true" { "/srv/toolchains/xwin-msvc" } else { root / "../tools/msvc" })
 repo := "maciello/sundaria-modpack"
-win64 := env_var_or_default("GAME_WIN64", env_var("HOME") / ".steam/steam/steamapps/common/DungeonsofSundaria/Archon/Binaries/Win64")
+python := if os_family() == "windows" { "python" } else { "python3" }
+# native tests: host c++ on Linux; on Windows clang++ against the MSVC kit (no Visual Studio needed)
+cxx := if os_family() == "windows" { "clang++ --target=x86_64-pc-windows-msvc -fuse-ld=lld -isystem " + xwin + "/crt/include -isystem " + xwin + "/sdk/include/ucrt -isystem " + xwin + "/sdk/include/um -isystem " + xwin + "/sdk/include/shared -L" + xwin + "/crt/lib/x86_64 -L" + xwin + "/sdk/lib/um/x86_64 -L" + xwin + "/sdk/lib/ucrt/x86_64" } else { "c++" }
+exe := if os_family() == "windows" { ".exe" } else { "" }
 
 # SDK for the installed game build + MSVC kit from the shared dump store (ssh alias `dumps`)
 sdk-pull host="dumps":
-    mkdir -p {{sdk}} {{xwin}}
-    rsync -a --delete {{host}}:/srv/dumps/sundaria/{{buildid}}/CppSDK/ {{sdk}}/
-    rsync -a --delete {{host}}:/srv/toolchains/xwin-msvc/ {{xwin}}/
+    [ -n "{{buildid}}" ] || { echo "!! no game build id: set GAME_WIN64 (see top of justfile)"; exit 1; }
+    mkdir -p "{{sdk}}" "{{xwin}}"
+    if command -v rsync >/dev/null; then \
+      rsync -a --delete {{host}}:/srv/dumps/sundaria/{{buildid}}/CppSDK/ "{{sdk}}/" && \
+      rsync -a --delete {{host}}:/srv/toolchains/xwin-msvc/ "{{xwin}}/"; \
+    else \
+      rm -rf "{{sdk}}"/* "{{xwin}}"/* && \
+      ssh {{host}} "tar -C /srv/dumps/sundaria/{{buildid}}/CppSDK -cf - ." | tar -C "{{sdk}}" -xf - && \
+      ssh {{host}} "cd /srv/toolchains/xwin-msvc && find . ! -type l ! -type d -print0 | tar --null --no-recursion -T - -cf -" | tar -C "{{xwin}}" -xf -; \
+    fi  # no rsync (Windows): tar, minus the kit's case-alias symlinks a case-insensitive fs doesn't need
 
 # once per clone: rebase on pull, run `just test` before every push
 setup:
@@ -40,19 +58,19 @@ protect:
     done
 
 test:
-    python3 updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
-    mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); c++ -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp) && build/$(basename $t .cpp) || exit 1; done
+    {{python}} updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
+    mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); {{cxx}} -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp){{exe}} && build/$(basename $t .cpp){{exe}} || exit 1; done
 
 # fetches SDK + MSVC kit first if this machine has none
 build:
     [ -d "{{sdk}}/SDK" ] && [ -d "{{xwin}}/crt" ] || just sdk-pull
-    SDK_DIR={{sdk}} XWIN={{xwin}} mods/dos-tool/build.sh
+    SDK_DIR="{{sdk}}" XWIN="{{xwin}}" mods/dos-tool/build.sh
 
 # release layout = paths relative to the game root
 dist: build
     rm -rf dist && mkdir -p dist/Archon/Binaries/Win64
     cp mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/build/DoS-Tool.dll dist/Archon/Binaries/Win64/
-    rm -f build/modpack.zip && cd dist && python3 -m zipfile -c ../build/modpack.zip Archon
+    rm -f build/modpack.zip && cd dist && {{python}} -m zipfile -c ../build/modpack.zip Archon
 
 release tag: test dist
     gh release create {{tag}} build/modpack.zip -R {{repo}} --title {{tag}} --generate-notes

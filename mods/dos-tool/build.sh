@@ -18,12 +18,17 @@ SDK_DIR="${SDK_DIR:-$HERE/../sdk/CppSDK}"
 }
 echo ">> Using SDK: $SDK_DIR"
 
-cmake -S "$HERE" -B "$BUILD" -G "Unix Makefiles" \
+# Ninja when present (Windows has no make); keep an existing build dir's generator.
+GEN="Unix Makefiles"
+if [[ -f "$BUILD/CMakeCache.txt" ]]; then GEN="$(sed -n 's/^CMAKE_GENERATOR:INTERNAL=//p' "$BUILD/CMakeCache.txt")"
+elif command -v ninja >/dev/null; then GEN=Ninja; fi
+
+cmake -S "$HERE" -B "$BUILD" -G "$GEN" \
   -DCMAKE_TOOLCHAIN_FILE="$HERE/msvc-clang-toolchain.cmake" \
   -DXWIN_SDK="$XWIN" \
   -DSDK_DIR="$SDK_DIR" \
   -DCMAKE_BUILD_TYPE=Release
 
-cmake --build "$BUILD" --config Release -j"$(nproc)"
+cmake --build "$BUILD" --config Release -j"$(nproc 2>/dev/null || echo "${NUMBER_OF_PROCESSORS:-4}")"
 
 echo ">> Built: $(find "$BUILD" -name 'DoS-Tool.*')"
