@@ -4,11 +4,20 @@
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
+#include "element.hpp"
 
 // SDK-free combat service: diff per-actor health between samples into stacked hit events,
 // learn the typical hit, keep fight stats. Consumed by features (damage numbers, DPS meter).
 namespace combat {
-    struct Sample { uintptr_t id; float x, y, z; float health; bool isPlayer; float maxHealth = 0; float level = 0; float seen = 0; };  // 0 = unknown; seen = game time the mesh was last on screen
+    // 0 = unknown; seen = game time the mesh was last on screen.
+    // hit* = the actor's last hit record (AArchonCharacter::LastTakeHitInfo): hitStamp changes per record,
+    // hitType = opaque id of damage-type class × instigator (the class is mostly one per ability: Range_AimedShot vs
+    // Range_C; DoTs have their own class), element from the class name,
+    // hitDamage = that record's damage (the game sums same-frame hits from one instigator into it, type = the last one).
+    struct Sample {
+        uintptr_t id; float x, y, z; float health; bool isPlayer; float maxHealth = 0; float level = 0; float seen = 0;
+        unsigned hitStamp = 0; uintptr_t hitType = 0; Element element = Element::Physical; float hitDamage = 0;
+    };
 
     enum class Kind { Dealt, Taken, Heal };
     struct Number {
@@ -21,6 +30,8 @@ namespace combat {
         uintptr_t id = 0;
         int hits = 1;
         double bump = born;  // last hit merged in
+        uintptr_t type = 0;  // damage-type class of the hits stacked here; 0 = untagged (HP drop without a recorded hit)
+        Element element = Element::Physical;
     };
 
     // Fight = damage dealt to non-players with no gap longer than `gap` seconds.
@@ -35,11 +46,19 @@ namespace combat {
         double lifetime = 1.4;   // seconds on screen after the last hit
         double grace = 1.5;      // ignore changes this long after first sight (spawn HP fill-up)
         double gap = 5.0;        // fight ends after this long without damage dealt
-        double stack = 1.0;      // hits on the same target+kind closer than this merge
+        double stack = 1.3;      // hits of the same damage type on the same target closer than this merge (DoT ticks ~1.0 s apart)
+        // HP loss is the amount; hit records say whose it is. A record claims up to its damage from loss not yet shown,
+        // or from loss arriving within `settle` after it (we sample from the render thread: record and HP drop land in
+        // either order, and one hit's drop can split over two frames). Loss no record claims shows untagged after `settle`.
+        double settle = 0.1;
         float typical = 0;       // EMA of single dealt hits, the "1.0" for scale
 
+        struct Owed { uintptr_t type; Element element; float left; double at; };
+        struct Ledger { Sample s; float unclaimed = 0; double at = 0; Owed owed{0, Element::Physical, 0, -1e9}; };
         std::unordered_map<uintptr_t, float> last;
         std::unordered_map<uintptr_t, double> firstSeen;
+        std::unordered_map<uintptr_t, unsigned> stamp;   // per actor: last hit-record stamp
+        std::unordered_map<uintptr_t, Ledger> ledger;    // per actor: loss/record not matched yet (outlives the actor: kills)
         std::vector<Number> live;
         Fight fight;
         bool inFight = false;
@@ -51,9 +70,10 @@ namespace combat {
         void Learn(float amount) { typical = typical <= 0 ? amount : typical + 0.08f * (amount - typical); }
         float Scale(float amount) { Learn(amount); return Rel(amount); }
 
-        void Add(const Sample& s, float amount, Kind kind, double now) {
+        // Stack key = target + kind + damage type (≈ ability). type 0 = no hit record: its own stack.
+        void Add(const Sample& s, float amount, Kind kind, double now, uintptr_t type = 0, Element el = Element::Physical) {
             for (Number& n : live)
-                if (n.id == s.id && n.kind == kind && now - n.bump <= stack) {
+                if (n.id == s.id && n.kind == kind && n.type == type && now - n.bump <= stack) {
                     n.amount += amount;
                     n.hits++;
                     n.bump = now;
@@ -63,44 +83,82 @@ namespace combat {
                 }
             const float drift = float((s.id >> 4) % 200) / 100.0f - 1.0f;
             const float scale = kind == Kind::Dealt ? Rel(amount) : kind == Kind::Taken ? 0.95f : 0.9f;
-            live.push_back({s.x, s.y, s.z, amount, kind, scale, drift, now, s.id, 1, now});
+            live.push_back({s.x, s.y, s.z, amount, kind, scale, drift, now, s.id, 1, now, type, el});
+        }
+
+        void Show(const Sample& s, float amount, double now, uintptr_t type, Element el) {
+            Add(s, amount, s.isPlayer ? Kind::Taken : Kind::Dealt, now, type, el);
+            if (!s.isPlayer) Learn(amount);
+        }
+
+        // Pay what the open record still claims out of the ledger's unshown loss.
+        void Pay(Ledger& l, double now) {
+            const float x = std::min(l.unclaimed, l.owed.left);
+            if (x <= 0) return;
+            l.unclaimed -= x; l.owed.left -= x;
+            Show(l.s, x, now, l.owed.type, l.owed.element);
+        }
+
+        // HP bouncing back (co-op correction, prediction rollback) first cancels unshown loss, then a live damage
+        // stack on this actor, so a dip-rebound-dip counts once: stacks show net HP lost.
+        void Rebound(const Sample& s, float heal, double now) {
+            if (auto l = ledger.find(s.id); l != ledger.end()) {
+                const float back = std::min(heal, l->second.unclaimed);
+                l->second.unclaimed -= back; heal -= back;
+                if (!s.isPlayer) fight.total -= back;
+            }
+            for (Number& n : live)
+                if (heal > 0 && n.id == s.id && n.kind != Kind::Heal && now - n.bump <= stack) {
+                    const float back = std::min(heal, n.amount);
+                    n.amount -= back; heal -= back;
+                    if (n.kind == Kind::Dealt) { fight.total -= back; n.scale = Rel(std::max(n.amount, 1.0f)); }
+                }
+            std::erase_if(live, [](const Number& n) { return n.amount <= 0; });
+            if (heal > 0) Add(s, heal, Kind::Heal, now);
+        }
+
+        void Loss(const Sample& s, float delta, double now) {
+            Ledger& l = ledger[s.id];
+            l.s = s; l.unclaimed += delta; l.at = now;
+            if (now - l.owed.at <= settle) Pay(l, now);  // its record came first
+            if (s.isPlayer) return;
+            // DPS counts HP lost when it happens, whatever the type
+            if (!inFight || now - fight.last > gap) { fight = {now, now, 0}; inFight = true; }
+            fight.total += delta;
+            fight.last = now;
+        }
+
+        void Record(const Sample& s, double now) {
+            Ledger& l = ledger[s.id];
+            l.s = s;
+            l.owed = {s.hitType, s.element, s.hitDamage, now};  // a newer record supersedes: it sums same-frame hits
+            Pay(l, now);
         }
 
         void Update(const std::vector<Sample>& samples, double now) {
             std::unordered_map<uintptr_t, float> seen;
             std::unordered_map<uintptr_t, double> first;
+            std::unordered_map<uintptr_t, unsigned> stamps;
             for (const Sample& s : samples) {
                 seen[s.id] = s.health;
+                stamps[s.id] = s.hitStamp;
                 auto fs = firstSeen.find(s.id);
                 first[s.id] = fs != firstSeen.end() ? fs->second : now;
                 auto it = last.find(s.id);
-                if (it == last.end() || s.health == it->second) continue;
-                if (now - first[s.id] < grace || it->second <= 0) continue;
-                const float delta = it->second - s.health;
-                if (delta < 0) {
-                    // HP bouncing back (co-op correction, prediction rollback) first cancels a live damage
-                    // stack on this actor, so a dip-rebound-dip counts once: stacks show net HP lost.
-                    float heal = -delta;
-                    for (Number& n : live)
-                        if (heal > 0 && n.id == s.id && n.kind != Kind::Heal && now - n.bump <= stack) {
-                            const float back = std::min(heal, n.amount);
-                            n.amount -= back; heal -= back;
-                            if (n.kind == Kind::Dealt) { fight.total -= back; n.scale = Rel(std::max(n.amount, 1.0f)); }
-                        }
-                    std::erase_if(live, [](const Number& n) { return n.amount <= 0; });
-                    if (heal > 0) Add(s, heal, Kind::Heal, now);
-                } else if (s.isPlayer) {
-                    Add(s, delta, Kind::Taken, now);
-                } else {
-                    Add(s, delta, Kind::Dealt, now);
-                    Learn(delta);
-                    if (!inFight || now - fight.last > gap) { fight = {now, now, 0}; inFight = true; }
-                    fight.total += delta;
-                    fight.last = now;
-                }
+                const bool settled = it != last.end() && now - first[s.id] >= grace;  // spawn HP fill-up is not a heal
+                if (settled && it->second > 0 && s.health < it->second) Loss(s, it->second - s.health, now);
+                else if (settled && it->second > 0 && s.health > it->second) Rebound(s, s.health - it->second, now);
+                auto st = stamp.find(s.id);
+                if (settled && st != stamp.end() && st->second != s.hitStamp) Record(s, now);  // also after death: lagging kill record
+            }
+            for (auto it = ledger.begin(); it != ledger.end();) {  // loss no record claimed in time: untagged
+                Ledger& l = it->second;
+                if (l.unclaimed > 0 && now - l.at >= settle) { Show(l.s, l.unclaimed, now, 0, Element::Physical); l.unclaimed = 0; }
+                if (l.unclaimed <= 0 && now - l.owed.at > settle) it = ledger.erase(it); else ++it;
             }
             last.swap(seen);  // actors that vanished are forgotten (no number on despawn)
             firstSeen.swap(first);
+            stamp.swap(stamps);
             std::erase_if(live, [&](const Number& n) { return now - n.bump > lifetime; });
         }
 

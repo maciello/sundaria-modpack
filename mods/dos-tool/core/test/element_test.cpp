@@ -1,9 +1,9 @@
 // just test
-#include "colors.hpp"
+#include "element.hpp"
 #include <cassert>
 #include <cstdio>
 
-using dmgnum::Classify; using dmgnum::Element;
+using combat::Classify; using combat::Element;
 
 int main() {
     assert(Classify("BP_DamageType_Magic_Ice_C") == Element::Ice);
@@ -18,6 +18,8 @@ int main() {
     assert(Classify("BP_DamageType_Magic_MagicMissile_C") == Element::Arcane);
     assert(Classify("BP_DamageType_Environment_Trap_C") == Element::Environment);
     assert(Classify("BP_DamageType_Melee_Backstab_C") == Element::Physical);
+    assert(Classify("BP_DamageType_Environment_Falling_C") == Element::Environment);  // seen in game
+    assert(Classify("BP_DamageDOT_Poison_C") == Element::Poison);
     assert(Classify("") == Element::Physical);
     std::puts("ok");
 }

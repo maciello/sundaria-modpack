@@ -9,6 +9,7 @@ using combat::Kind;
 
 int main() {
     combat::Tracker t;
+    t.settle = 0;  // show HP drops at once: these cases test stacking, not settling
     // spawn: 0 -> full HP inside the grace window is not a heal
     t.Update({{1, 0, 0, 0, 0, false}}, 0.0);
     t.Update({{1, 0, 0, 0, 100, false}}, 0.2);
@@ -39,6 +40,7 @@ int main() {
 
     // fights: total/DPS, new fight after the gap
     combat::Tracker f;
+    f.settle = 0;  // show HP drops at once: these cases test stacking, not settling
     f.Update({{9, 0, 0, 0, 1000, false}}, 0.0);
     f.Update({{9, 0, 0, 0, 900, false}}, 2.0);
     f.Update({{9, 0, 0, 0, 700, false}}, 4.0);
@@ -49,6 +51,7 @@ int main() {
 
     // despawn + id reuse: treated as new
     combat::Tracker r;
+    r.settle = 0;  // show HP drops at once: these cases test stacking, not settling
     r.Update({{1, 0, 0, 0, 100, false}}, 0.0);
     r.Update({}, 3.0);
     r.Update({{1, 0, 0, 0, 5, false}}, 3.1);
@@ -72,19 +75,21 @@ int main() {
 
     // stacking: same target within window merges, total grows, size grows
     combat::Tracker st;
+    st.settle = 0;  // show HP drops at once: these cases test stacking, not settling
     st.Update({{5, 0, 0, 0, 1000, false}, {6, 0, 0, 0, 1000, false}}, 0.0);
     st.Update({{5, 0, 0, 0, 980, false}, {6, 0, 0, 0, 1000, false}}, 2.0);
     const float s1 = st.live[0].scale;
     st.Update({{5, 0, 0, 0, 960, false}, {6, 0, 0, 0, 1000, false}}, 2.5);
     st.Update({{5, 0, 0, 0, 940, false}, {6, 0, 0, 0, 990, false}}, 3.0);   // other target: separate
     assert(st.live.size() == 2 && st.live[0].amount == 60 && st.live[0].hits == 3 && st.live[0].scale > s1);
-    assert(std::fabs(st.typical - 19.2f) < 0.01f && st.live[1].amount == 10); // typical learns single hits (20,20,20,10), not the 60 stack
-    st.Update({{5, 0, 0, 0, 920, false}, {6, 0, 0, 0, 990, false}}, 4.2);  // 1.2 s gap > stack window: new number, old still fading
+    assert(std::fabs(st.typical - 19.2f) < 0.1f && st.live[1].amount == 10);  // typical learns single hits (20,20,20,10; same-frame order free), not the 60 stack
+    st.Update({{5, 0, 0, 0, 920, false}, {6, 0, 0, 0, 990, false}}, 4.35);  // 1.35 s gap > stack window: new number, old still fading
     assert(st.live.size() == 3 && st.live[2].amount == 20);
-    st.Update({{5, 0, 0, 0, 920, false}, {6, 0, 0, 0, 990, false}}, 4.2 + 1.5);
+    st.Update({{5, 0, 0, 0, 920, false}, {6, 0, 0, 0, 990, false}}, 4.35 + 1.5);
     assert(st.live.empty());                                               // all expired after last bump
     {   // dip-rebound-dip (server correction) counts once
         combat::Tracker r;
+        r.settle = 0;  // show HP drops at once: these cases test stacking, not settling
         combat::Sample e{9, 0, 0, 0, 100, false};
         r.Update({e}, 0.0); r.Update({e}, 2.0);
         e.health = 70; r.Update({e}, 2.1);
@@ -94,6 +99,50 @@ int main() {
         assert(r.fight.total == 30.0);
         e.health = 60; r.Update({e}, 2.4);
         assert(r.live[0].amount == 40.0f);                       // a real second hit still stacks
+    }
+    {   // per-ability stacks; sequences as logged in game (HP drop vs LastTakeHitInfo record, render-thread sampling)
+        using combat::Element;
+        const uintptr_t aimed = 0xA, basic = 0xB, void_ = 0xD, poison = 0xC;
+        combat::Tracker a;
+        combat::Sample e{9, 0, 0, 0, 644, false};
+        a.Update({e}, 0.0); a.Update({e}, 2.0);
+        unsigned rep = 0;
+        auto frame = [&](double t, float hp, uintptr_t type = 0, float dmg = 0, Element el = Element::Physical) {
+            e.health = hp;
+            if (type) { e.hitStamp = ++rep; e.hitType = type; e.element = el; e.hitDamage = dmg; }
+            a.Update({e}, t);
+        };
+        auto near = [](float x, float y) { return std::fabs(x - y) < 0.01f; };
+        // aimed shot: HP drop split over two frames, its record arrives with the second part
+        frame(2.000, 623);
+        assert(a.live.empty());                                       // unclaimed loss waits for its record
+        frame(2.030, 493.1f, aimed, 150.9f);
+        assert(a.live.size() == 1 && a.live[0].type == aimed && near(a.live[0].amount, 150.9f));
+        // void proc + aimed shot in one game frame: void record (21.9) with the drop, aimed record (175 = both summed)
+        // a frame later → void 21.9 and aimed 153.1, two numbers
+        frame(2.500, 318.1f, void_, 21.9f, Element::Shadow);
+        frame(2.525, 318.1f, aimed, 175);
+        assert(a.live.size() == 2 && a.live[1].type == void_ && near(a.live[1].amount, 21.9f));
+        assert(a.live[0].hits == 2 && near(a.live[0].amount, 304));
+        // basic attack, record before its HP drop: own number
+        frame(2.900, 318.1f, basic, 80);
+        frame(2.920, 238.1f);
+        assert(a.live.size() == 3 && a.live[2].type == basic && near(a.live[2].amount, 80));
+        // HP drop no record claims (GAS effect): untagged, own stack, after `settle`
+        frame(3.100, 228.1f);
+        frame(3.150, 228.1f);
+        assert(a.live.size() == 3);
+        frame(3.250, 228.1f);
+        assert(a.live.size() == 4 && a.live[3].type == 0 && a.live[3].element == Element::Physical && near(a.live[3].amount, 10));
+        assert(near(float(a.fight.total), 644 - 228.1f));          // DPS = HP lost, attributed or not
+        // poison DoT ticks 1.0 s apart: one growing number
+        for (int i = 0; i < 4; i++) frame(5.0 + i, 218.1f - 10 * i, poison, 10, Element::Poison);
+        assert(a.live.size() == 1 && a.live[0].type == poison && near(a.live[0].amount, 40) && a.live[0].hits == 4);
+        // killing blow, record a frame late, then the actor despawns: still one aimed number
+        frame(9.0, 0);
+        frame(9.02, 0, aimed, 188.1f);
+        a.Update({}, 9.3);
+        assert(a.live.back().type == aimed && near(a.live.back().amount, 188.1f));
     }
     std::puts("ok");
 }

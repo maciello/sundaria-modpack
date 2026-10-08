@@ -100,6 +100,17 @@ void game::SetCameraCollision(bool enabled) {
     }
 }
 
+namespace {
+    // Damage-type class → element, by class name; resolved once per class (render thread only).
+    combat::Element ElementOf(UClass* type) {
+        static std::unordered_map<UClass*, combat::Element> cache;
+        if (!type) return combat::Element::Physical;
+        auto it = cache.find(type);
+        if (it == cache.end()) it = cache.emplace(type, combat::Classify(type->GetName())).first;
+        return it->second;
+    }
+}
+
 // Memory reads only (no ProcessEvent): this runs on the render thread.
 // ponytail: walks every actor of every loaded level each frame; cache the character list if it shows in frame time
 std::vector<combat::Sample> game::SampleHealth() {
@@ -134,8 +145,14 @@ std::vector<combat::Sample> game::SampleHealth() {
             static_assert(offsetof(UPrimitiveComponent, BoundsScale) == 0x284, "re-check LastRenderTimeOnScreen offset");
             const float seen = PtrOk(c->Mesh) ? *reinterpret_cast<const float*>(reinterpret_cast<const uint8*>(c->Mesh) + 0x290) : 0.0f;
             const FVector& p = root->RelativeLocation;  // capsule center; unattached root: relative == world
+            // Last hit as the game records it (replicated, so clients see it too): plain memory, no hook.
+            const FTakeHitInfo& hit = c->LastTakeHitInfo;
+            UClass* type = PtrOk(hit.DamageTypeClass) ? hit.DamageTypeClass : nullptr;
+            const uintptr_t by = reinterpret_cast<uintptr_t>(hit.PawnInstigator.Get());  // weak ptr: GObjects lookup, memory only
+            const uintptr_t source = type ? reinterpret_cast<uintptr_t>(type) * 31 + by : 0;  // damage type × who: one stack each
             out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z, status->CurrentHealth,
-                           PtrOk(c->PlayerState), secondary ? secondary->Health : 0.0f, status->CurrentLevel, seen});
+                           PtrOk(c->PlayerState), secondary ? secondary->Health : 0.0f, status->CurrentLevel, seen,
+                           hit.EnsureReplicationByte, source, ElementOf(type), hit.ActualDamage});
         }
     }
     return out;
