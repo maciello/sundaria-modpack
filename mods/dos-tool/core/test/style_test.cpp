@@ -53,6 +53,7 @@ int main() {
     assert(DeltaE(color::kTextSoft, element::Of(combat::Element::Holy)) >= 0.12);
     for (Rgba t : {color::kText, color::kTextSoft, color::kGold}) assert(Contrast(t, color::kInk) >= 7.0);
     assert(Contrast(color::kTextMuted, color::kPanel) >= 4.5);
+    for (Rgba badge : {color::kGood, color::kSell}) assert(Contrast(color::kInk, badge) >= 7.0);  // ink text on badge pills
 
     // Glowing rarity tiers: distinct from each other, visible on the ink edge (non-text 3:1).
     for (int i = rarity::kGlowFrom; i < rarity::kCount; i++) {
