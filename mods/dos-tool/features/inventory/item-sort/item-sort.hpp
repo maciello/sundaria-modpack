@@ -33,7 +33,15 @@ namespace item_sort {
         if (fn == "RequestSortItems") return 0x1;
         return -1;
     }
-    inline constexpr unsigned kSettleMs = 150;  // run after the vanilla sort's burst of calls
+    // ReorderItems(SlotsToMove) puts the listed items first, in list order, and keeps the rest in their order
+    // (verified in game). So only the prefix up to the last position that changes needs sending; 0 = in order.
+    // intended / now: item slots in the wanted order and in the current order.
+    inline size_t PrefixToMove(const std::vector<int>& intended, const std::vector<int>& now) {
+        size_t n = 0;
+        for (size_t i = 0; i < intended.size(); i++)
+            if (i >= now.size() || intended[i] != now[i]) n = i + 1;
+        return n;
+    }
 
     // Positions where the container's order after applying equals the intended order (item keys).
     inline int InOrder(const std::vector<long long>& intended, const std::vector<long long>& actual) {

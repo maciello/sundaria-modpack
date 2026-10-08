@@ -68,6 +68,8 @@ items:   # features/item-sort; VERIFIED in game 2026-10-08 unless marked
   inventory_ui: bag header UWidgetitemBagHeaderMenu_C (Button_Sort @0x278, IsStorage @0x2A8); only BndEvt__Button_Sort_* passes ProcessEvent (SortItem/RequestSortItems are BP-to-BP); X key path unknown
   widget_rect: game thread only: UWidget::GetCachedGeometry → SlateBlueprintLibrary GetLocalSize + LocalToViewport(0,0 / size) = viewport pixels
   sort_apply: InvManager.ReorderItems(SlotsToMove, IsStorage) with SlotsToMove[i] = current slot of the item that goes i-th → bag reads back in that order at once and still 5 s later (server-kept). FItemSortFunctions_C::SortItems and SortItemsInternalClient return 0 entries
+  sort_partial: a partial list puts the listed items first and keeps the rest in their order (slots compacted 0..n-1); cost ~0.33–0.6 ms per listed slot, moved or not (one OnItemAddedDispatcherEvent on the controller each; Server RPC flags 0x0c6000c0) → send only the prefix up to the last changed position
+  vanilla_sort: the header's Sort click returns in ~2 ms; the game's reorder follows in later ticks as 2 bursts of one OnItemAddedDispatcherEvent per item. InvManager.RequestSortItems via ProcessEvent applies a deferred sort too
 
 combat_log (unused so far; crits + own-vs-party damage; whether its delegates pass ProcessEvent: UNVERIFIED):
   delegates: AArchonCharacter::OnCombatLogGeneratedDelegate_Offense / _Defense

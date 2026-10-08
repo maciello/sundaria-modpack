@@ -3,6 +3,8 @@
 #include "inventory-ui.hpp"
 #include "logger.hpp"
 #include "cost.hpp"
+#include "game.hpp"
+#include "umg.hpp"
 #include "imgui.h"
 #include "imgui_internal.h"  // MarkIniSettingsDirty
 
@@ -54,8 +56,8 @@ namespace {
     std::atomic<unsigned> g_request{0};           // 1 inventory, 2 bank (API, dev files)
     std::atomic<bool> g_probe{false}, g_on{false}, g_verbose{false};  // verbose: per-item sort dump, set by item-sort.probe
     std::unordered_map<UFunction*, std::string> g_triggers;  // read-only once g_on
-    unsigned g_pendingMask = 0;  // vanilla sort seen: 1 inventory, 2 bank
-    ULONGLONG g_due = 0;
+    unsigned g_pendingMask = 0;  // Sort pressed: 1 inventory, 2 bank
+    UFunction* g_button = nullptr;  // the header's Sort click: the game's own sort is replaced by ours
 
     struct Where2 { UObject* pc; UBP_InvManagerComponent_C* inv; UBP_ItemContainerComponent_C* bag; UBP_ItemContainerComponent_C* bank; std::string how; };
     Where2 Locate() {
@@ -146,18 +148,23 @@ namespace {
         std::vector<float> score;
         const std::vector<int> idx = Order(items, prof, io::GetNames().stat, &score);
         std::vector<long long> intended;
-        std::vector<int> bySlots;
+        std::vector<int> bySlots, now;
         for (int i : idx) { intended.push_back(KeyOf(items[i])); bySlots.push_back(items[i].slot); }
+        for (const Item& it : items) now.push_back(it.slot);
+        std::sort(now.begin(), now.end());
+        bySlots.resize(PrefixToMove(bySlots, now));  // the game re-adds every listed item (~0.4 ms each): list only what moves
         const double orderMs = Ms(t);
 
-        Params::BP_InvManagerComponent_C_ReorderItems p{};
-        p.IsStorage = bank;
-        CallWithArray(w.inv, fn, &p, p.SlotsToMove, bySlots);
+        if (!bySlots.empty()) {
+            Params::BP_InvManagerComponent_C_ReorderItems p{};
+            p.IsStorage = bank;
+            CallWithArray(w.inv, fn, &p, p.SlotsToMove, bySlots);
+        }
         const double applyMs = Ms(t);
         const int ok = InOrder(intended, CurrentOrder(c, bank));
         const double checkMs = Ms(t);
         SetStatus(std::string(what) + (ok == int(intended.size()) ? ": sorted by '" : ": NOT in order after ReorderItems, profile '") + prof.name +
-                  "' " + I(ok) + "/" + I(intended.size()) + " | ms read " + Ms2(readMs) + " order " + Ms2(orderMs) + " apply " + Ms2(applyMs) +
+                  "' " + I(ok) + "/" + I(intended.size()) + ", " + I(bySlots.size()) + " sent | ms read " + Ms2(readMs) + " order " + Ms2(orderMs) + " apply " + Ms2(applyMs) +
                   " check " + Ms2(checkMs) + " total " + Ms2(readMs + orderMs + applyMs + checkMs));
         if (!g_verbose) return;
         LogItems(what, items);
@@ -189,7 +196,6 @@ namespace {
 
     void OnEvent(void* objp, void* fnp, void* parms) {
         if (t_busy || !g_on.load(std::memory_order_relaxed)) return;
-        const ULONGLONG now = GetTickCount64();
         if (auto it = g_triggers.find(static_cast<UFunction*>(fnp)); it != g_triggers.end()) {
             auto* obj = static_cast<UObject*>(objp);
             const int off = StorageParamOffset(it->second);
@@ -197,18 +203,18 @@ namespace {
             if (off >= 0 && parms) storage = static_cast<const bool*>(parms)[off];
             else if (PtrOk(obj) && obj->IsA(UWidgetitemBagHeaderMenu_C::StaticClass())) storage = static_cast<UWidgetitemBagHeaderMenu_C*>(obj)->IsStorage;
             g_pendingMask |= storage ? 2 : 1;
-            g_due = now + kSettleMs;
-            logger::log("[item-sort] vanilla sort seen: " + it->second + (storage ? " (bank)" : " (inventory)"));
+            logger::log("[item-sort] Sort pressed: " + it->second + (storage ? " (bank)" : " (inventory)"));
         }
+        if (!umg::IsWorldTick(fnp)) return;  // reorders refresh the bag's widgets: world tick only (#50)
         const bool probe = g_probe.exchange(false);
         const unsigned req = g_request.exchange(0);
-        const unsigned todo = req | (g_pendingMask && now >= g_due ? g_pendingMask : 0);
+        const unsigned todo = req | g_pendingMask;
         if (!probe && !todo) return;
         t_busy = true;
         if (probe) Probe();
         for (int b = 0; b < 2; b++)
             if (todo & (1u << b)) RunSort(b == 1);
-        if (todo & g_pendingMask) g_pendingMask = 0;
+        g_pendingMask = 0;
         t_busy = false;
     }
 
@@ -220,12 +226,19 @@ namespace {
             if (!PtrOk(c)) return false;
             for (UField* f = c->Children; PtrOk(f); f = f->Next) {
                 const std::string n = f->GetName();
-                if (f->IsA(UFunction::StaticClass()) && SortTrigger(n)) { g_triggers[static_cast<UFunction*>(f)] = n; names += " " + n; }
+                if (f->IsA(UFunction::StaticClass()) && SortTrigger(n)) {
+                    g_triggers[static_cast<UFunction*>(f)] = n;
+                    names += " " + n;
+                    if (n.starts_with("BndEvt__Button_Sort")) g_button = static_cast<UFunction*>(f);
+                }
             }
         }
         logger::log("[item-sort] sort triggers:" + names);
         return !g_triggers.empty();
     }
+
+    // The header's Sort click: skip the game's sort (it re-adds every item, ~35 ms + a spread second pass), ours runs once.
+    bool SkipVanillaSort(void*, void* fn, void*) { return fn == g_button && g_on.load(std::memory_order_relaxed); }
 
     struct ItemSort : feature::Feature {
         bool resolved = false;
@@ -237,6 +250,7 @@ namespace {
 
         void Off() override {
             g_on = false;
+            game::SetEventFilter(&SkipVanillaSort, false);
             game::SetEventListener(&OnEvent, false);
             item_sort::ui::Off();
         }
@@ -285,7 +299,7 @@ namespace {
             }
             io::Tick();
             if (!io::Ready()) return;
-            if (!resolved && (resolved = Resolve())) { g_on = true; game::SetEventListener(&OnEvent, true); }
+            if (!resolved && (resolved = Resolve())) { g_on = true; game::SetEventListener(&OnEvent, true); game::SetEventFilter(&SkipVanillaSort, true); }
             if (resolved) item_sort::ui::Frame();  // game buttons in the inventory/bank header (inventory-ui.cpp)
 
             if (TakeFile("item-sort.probe")) g_probe = g_verbose = true;

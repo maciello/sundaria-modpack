@@ -68,5 +68,8 @@ int main() {
     assert(!SortTrigger("SortItemsInternalClient") && !SortTrigger("ReorderItems") && !SortTrigger("Tick"));
     assert(StorageParamOffset("RequestSortItems") == 1 && StorageParamOffset("BndEvt__Button_Sort_x") == -1);
     assert(InOrder({1, 2, 3}, {1, 3, 2}) == 1 && InOrder({1, 2}, {1, 2}) == 2);
+    assert(PrefixToMove({0, 1, 2, 3}, {0, 1, 2, 3}) == 0);         // in order: no call
+    assert(PrefixToMove({5, 0, 1, 2, 3, 4, 6}, {0, 1, 2, 3, 4, 5, 6}) == 6);  // item 5 to the front: 6 entries
+    assert(PrefixToMove({0, 1, 3, 2}, {0, 1, 2, 3}) == 4);
     std::puts("ok");
 }
