@@ -232,6 +232,7 @@ namespace {
     std::unordered_set<UFunction*> g_seen;
     struct Fired { UFunction* fn; UClass* cls; ULONGLONG t; };
     std::vector<Fired> g_fresh;
+    std::atomic<game::EventListener> g_listeners[4] = {};
 
     void hkProcessEvent(const UObject* obj, UFunction* fn, void* parms) {
         g_inPE++;
@@ -242,28 +243,49 @@ namespace {
             ReleaseSRWLockExclusive(&g_probeMu);
         }
         g_oPE(obj, fn, parms);
+        for (auto& l : g_listeners)
+            if (game::EventListener f = l.load(std::memory_order_relaxed)) f(const_cast<UObject*>(obj), fn, parms);
         g_inPE--;
+    }
+
+    // Installed while the probe or any listener needs it.
+    void UpdateHook() {
+        bool need = g_probeOn.load();
+        for (auto& l : g_listeners) need |= l.load() != nullptr;
+        if (need && !g_peTarget) {
+            MH_Initialize();  // already initialised by kiero: harmless
+            void* target = reinterpret_cast<void*>(InSDKUtils::GetImageBase() + Offsets::ProcessEvent);
+            if (MH_CreateHook(target, (void*)hkProcessEvent, (void**)&g_oPE) != MH_OK || MH_EnableHook(target) != MH_OK) {
+                logger::log("[probe] ProcessEvent hook failed");
+                return;
+            }
+            g_peTarget = target;
+            logger::log("[probe] ProcessEvent hooked");
+        }
+        if (!need && g_peTarget) {
+            MH_DisableHook(g_peTarget);
+            MH_RemoveHook(g_peTarget);
+            g_peTarget = nullptr;
+            for (int i = 0; i < 200 && g_inPE.load() > 0; i++) Sleep(10);  // let in-flight calls leave our code before unload
+        }
     }
 }
 
 void game::SetEventProbe(bool on) {
-    if (on && !g_peTarget) {
-        MH_Initialize();  // already initialised by kiero: harmless
-        void* target = reinterpret_cast<void*>(InSDKUtils::GetImageBase() + Offsets::ProcessEvent);
-        if (MH_CreateHook(target, (void*)hkProcessEvent, (void**)&g_oPE) != MH_OK || MH_EnableHook(target) != MH_OK) {
-            logger::log("[probe] ProcessEvent hook failed");
-            return;
-        }
-        g_peTarget = target;
-        logger::log("[probe] ProcessEvent hooked");
-    }
     g_probeOn = on;
-    if (!on && g_peTarget) {
-        MH_DisableHook(g_peTarget);
-        MH_RemoveHook(g_peTarget);
-        g_peTarget = nullptr;
-        for (int i = 0; i < 200 && g_inPE.load() > 0; i++) Sleep(10);  // let in-flight calls leave our code before unload
+    UpdateHook();
+}
+
+void game::SetEventListener(EventListener l, bool on) {
+    bool have = false;
+    for (auto& s : g_listeners) {
+        if (s.load() != l) continue;
+        if (on) have = true; else s = nullptr;
     }
+    for (auto& s : g_listeners)
+        if (on && !have && !s.load()) { s = l; have = true; }
+    if (!on) for (int i = 0; i < 200 && g_inPE.load() > 0; i++) Sleep(10);  // in-flight calls may still be inside l
+    UpdateHook();
 }
 
 void game::ProbeFlush() {
