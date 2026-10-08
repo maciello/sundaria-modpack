@@ -4,6 +4,7 @@
 #include "logger.hpp"
 #include "umg.hpp"
 #include "ref.hpp"
+#include "drain.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -34,6 +35,7 @@ namespace {
     struct Fns {
         ref::Fn create{UWidgetBlueprintLibrary::StaticClass, "WidgetBlueprintLibrary", "Create"};
         ref::Fn addChild{UPanelWidget::StaticClass, "PanelWidget", "AddChild"};
+        ref::Fn remove{UWidget::StaticClass, "Widget", "RemoveFromParent"};
         ref::Fn removeChild{UPanelWidget::StaticClass, "PanelWidget", "RemoveChild"};
         ref::Fn setSize{UHorizontalBoxSlot::StaticClass, "HorizontalBoxSlot", "SetSize"};
         ref::Fn setPad{UHorizontalBoxSlot::StaticClass, "HorizontalBoxSlot", "SetPadding"};
@@ -46,6 +48,7 @@ namespace {
     } g_fn;
     struct Placed { ref::Ref header, button; };  // UWidgetitemBagHeaderMenu_C, UWidgetButton01_C
     std::vector<Placed> g_placed;
+    game::Drain g_drain;  // Off(): the game thread removes our buttons
     std::atomic<bool> g_on{false};
     thread_local bool t_busy = false;
     int g_shown = -1;  // profile index the labels show
@@ -144,9 +147,16 @@ namespace {
 
     std::vector<ref::Ref> g_pending;  // UWidgetitemBagHeaderMenu_C seen since the last world tick
 
+    void RemoveAll() {  // game thread (or Off() after its wait ran out)
+        for (const Placed& p : g_placed) if (UObject* b = p.button.Get()) CallNative(b, g_fn.remove.Get(), nullptr);
+        g_placed.clear();
+        g_pending.clear();
+    }
+
     void OnEvent(void* objp, void* fnp, void*) {
         if (t_busy || !g_on.load(std::memory_order_relaxed) || !game::OnGameThread()) return;  // shared state, UFunction calls and ref resolution: game thread only
         t_busy = true;
+        if (umg::IsWorldTick(fnp) && g_drain.Serve(RemoveAll)) { t_busy = false; return; }
         if (g_fn.clicked.Is(fnp))
             for (const Placed& p : g_placed)
                 if (auto* h = p.header.Get<UWidgetitemBagHeaderMenu_C>(); h && p.button.Is(objp)) {
@@ -192,8 +202,9 @@ namespace item_sort::ui {
         g_on = true;  // game functions resolve on use (ref::Fn)
         game::SetEventListener(&OnEvent, true);
     }
-    // ponytail: placed buttons stay (inert) until the game rebuilds its menus; hiding needs the game thread
+    // Runs with the ProcessEvent hook alive (#84): the next world tick removes the buttons.
     void Off() {
+        g_drain.Request(!g_placed.empty(), "item-sort", RemoveAll);
         g_on = false;
         game::SetEventListener(&OnEvent, false);
         g_placed.clear();
