@@ -158,7 +158,7 @@ namespace {
         UClass* cls = UWidgetitemBagHeaderMenu_C::StaticClass();
         for (int i = 0; PtrOk(cls) && i < UObject::GObjects->Num(); i++) {
             UObject* o = UObject::GObjects->GetByIndex(i);
-            if (!PtrOk(o) || !o->IsA(cls) || o->IsDefaultObject()) continue;
+            if (!PtrOk(o) || !o->IsA(cls) || (int(o->Flags) & 0x30)) continue;  // CDO / archetype (class templates): never touch
             auto* h = static_cast<UWidgetitemBagHeaderMenu_C*>(o);
             bool known = false;
             for (const Placed& p : g_placed) known |= p.header == h;

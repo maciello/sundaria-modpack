@@ -170,7 +170,7 @@ namespace {
             UObject* tree = o->Outer;  // nested in a matching user widget: printed under that one
             if (PtrOk(tree) && tree->IsA(UWidgetTree::StaticClass()) && Wanted(Cls(tree->Outer), filter)) continue;
             roots++;
-            out += F("- root: %s  # outer %s\n", cls.c_str(), Cls(o->Outer).c_str());
+            out += F("- root: %s  # outer %s%s\n", cls.c_str(), Cls(o->Outer).c_str(), (int(o->Flags) & 0x20) ? ", archetype (class template, not live)" : "");
             Walk(static_cast<UWidget*>(o), 1, out, budget);
         }
         if (!roots) return false;  // not open yet: keep the request, retry
