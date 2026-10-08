@@ -27,6 +27,7 @@ Maintenance contract:
 | extend a game screen (inventory, bank, menus): its UMG widgets, styles, how to add ours; `just ui <Class>` dumps live trees | `references/game-ui.md` |
 | any visual: colours, sizes, motion, icons, component specs (numbers, bars, loot, cards, menu) | `references/design-system.md` + tokens `core/style.hpp`; rule `.claude/rules/design.md`; reference images (local only, never commit) `../design-refs/<topic>/index.yaml` |
 | ability scripts: Lua host, ECS, new actions/events | `references/ability-mods.md` |
+| custom animations on the player (Paragon → skeleton copy → retarget → ~mods pak), skeleton facts | `references/animation-pipeline.md` |
 | new work, idea, bug: file / claim / close an issue | `.claude/rules/issues.md` |
 
 ## Tools
@@ -36,4 +37,5 @@ Maintenance contract:
 | `scripts/new-feature.sh` | scaffold `features/<kebab>/` (+ `--logic`: header + test) |
 | `scripts/dev-check.sh` | game alive? hot-swap happened? log tail |
 | `scripts/minidump.py` | crash dump → fault module+offset + stack, ours as function file:line (`--dll` for a rebuild) |
+| `scripts/skeleton_fbx.py`, `retarget.py`, `retarget_map.py`, `helper_model.py` | animation pipeline (Blender headless): bone dump → FBX parts, retarget, helper-bone rules |
 | `assets/feature.cpp.tmpl`, `logic.hpp.tmpl`, `logic_test.cpp.tmpl` | templates used by new-feature.sh |
