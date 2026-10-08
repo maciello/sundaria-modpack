@@ -52,6 +52,17 @@ namespace tavern_hub {
         return best;
     }
 
+    // Where the view ray from the camera meets the horizontal floor at floorZ (looking down at it, within maxDist).
+    inline bool RayToFloor(float cx, float cy, float cz, float pitch, float yaw, float floorZ, float maxDist, float& x, float& y) {
+        const float cp = std::cos(pitch * kD2R), dz = std::sin(pitch * kD2R);
+        if (dz > -0.02f || cz <= floorZ) return false;  // not looking down at that floor
+        const float t = (floorZ - cz) / dz;
+        if (t > maxDist) return false;
+        x = cx + t * cp * std::cos(yaw * kD2R);
+        y = cy + t * cp * std::sin(yaw * kD2R);
+        return true;
+    }
+
     struct Spot { std::string name; float x, y, z, yaw; };
 
     inline std::vector<Spot> ParseLayout(const std::string& text) {

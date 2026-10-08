@@ -17,12 +17,6 @@ namespace {
         return v > 0x10000 && v < 0x7FFFFFFFFFFFull;
     }
 
-    int SimpleShapes(UBodySetup* bs) {
-        if (!PtrOk(bs)) return 0;
-        const FKAggregateGeom& g = bs->AggGeom;
-        return g.SphereElems.Num() + g.BoxElems.Num() + g.SphylElems.Num() + g.ConvexElems.Num() + g.TaperedCapsuleElems.Num();
-    }
-
     // render thread → game thread (latest request per kind wins; moves are posted every frame while carrying)
     struct Req { std::string name; bool highlight; bool on; int stencil; FVector at; float yaw; bool carrying; };
     SRWLOCK g_mu = SRWLOCK_INIT;
@@ -109,7 +103,7 @@ std::vector<props::Prop> props::Near(float x, float y, float z, float radius) {
             const float dx = p.X - x, dy = p.Y - y, dz = p.Z - z;
             if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
             UStaticMeshComponent* c = static_cast<AStaticMeshActor*>(a)->StaticMeshComponent;
-            if (!PtrOk(c) || !PtrOk(c->StaticMesh) || SimpleShapes(c->StaticMesh->BodySetup) == 0) continue;
+            if (!PtrOk(c) || !PtrOk(c->StaticMesh)) continue;  // shapeless props too (the anvil has no collision)
             const FBoxSphereBounds& b = c->StaticMesh->ExtendedBounds;
             const FVector s = a->RootComponent->RelativeScale3D;
             const float scale = std::fmax(std::fabs(s.X), std::fmax(std::fabs(s.Y), std::fabs(s.Z)));

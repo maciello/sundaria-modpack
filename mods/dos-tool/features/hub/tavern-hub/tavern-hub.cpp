@@ -248,29 +248,60 @@ namespace {
         }
         float mapWidth = 250.0f;
 
-        // Build mode (B while walking): look at a prop (outlined like the NPCs), E picks it up, it rides in front of
-        // you on the floor, R turns it 15°, E puts it down; saved as PROP:<actor name>=x,y,z,yaw.
-        bool build = false, buildWas = false, rotWas = false;
+        // Build mode (B while walking, also flying with F6): look at a prop (outlined like the NPCs), left click (or E
+        // when not flying) picks it up; it rides in front of you - or where the free camera's view meets the floor -
+        // at the height it had above the floor; R turns it 15°, Page Up/Down lifts it 5 cm, left click (E) puts it
+        // down, right click (walking) / Backspace puts it back. Saved as PROP:<actor name>=x,y,z,yaw.
+        bool build = false, buildWas = false, rotWas = false, pickWas = false, cancelWas = false, liftWas = false;
         std::vector<props::Prop> nearProps;
         float scanX = 1e9f, scanY = 1e9f;
         std::string lookedProp, carried;
-        float carryYaw = 0, carryBase = 0, carryRadius = 0;
+        float carryYaw = 0, carryAbove = 0, carryRadius = 0;
+        tavern_hub::Spot carriedFrom{};                // where it stood: cancel puts it back
+        float lastX = 0, lastY = 0, lastZ = 0;         // where it rides now
         static constexpr float kCapsuleHalf = 90.0f;  // hub hero's capsule: centre → feet
 
-        void Build(const game::Hero& h, bool focusedNow, bool e, bool eWas) {
+        bool CarrySpot(const game::Hero& h, bool flying, float& x, float& y) {
+            const float feet = h.z - kCapsuleHalf;
+            if (flying) {  // where the free camera looks at the floor you stand on
+                combat::View v{};
+                return game::GetView(v) && tavern_hub::RayToFloor(v.x, v.y, v.z, v.pitch, v.yaw, feet, 3000.0f, x, y);
+            }
+            const float r = camYaw * tavern_hub::kD2R, ahead = 80.0f + carryRadius;
+            x = h.x + ahead * std::cos(r);
+            y = h.y + ahead * std::sin(r);
+            return true;
+        }
+
+        void Build(const game::Hero& h, bool keys, bool e, bool eWas) {
+            const bool flying = game::CamOwner() == 1;
+            const bool lmb = keys && Down(VK_LBUTTON), pick = (lmb && !pickWas) || (!flying && e && !eWas);
+            pickWas = lmb;
+            // right mouse turns the free camera's view: cancel there is Backspace only
+            const bool cancelKey = keys && ((!flying && Down(VK_RBUTTON)) || Down(VK_BACK)), cancel = cancelKey && !cancelWas;
+            cancelWas = cancelKey;
             const float dx = h.x - scanX, dy = h.y - scanY;
-            if (dx * dx + dy * dy > 200.0f * 200.0f) { nearProps = props::Near(h.x, h.y, h.z, 1500.0f); scanX = h.x; scanY = h.y; }
+            if (dx * dx + dy * dy > 200.0f * 200.0f) { nearProps = props::Near(h.x, h.y, h.z, 2000.0f); scanX = h.x; scanY = h.y; }
             if (!carried.empty()) {
-                const float r = camYaw * tavern_hub::kD2R, ahead = 80.0f + carryRadius;
-                props::Move(carried, h.x + ahead * std::cos(r), h.y + ahead * std::sin(r), h.z - kCapsuleHalf + carryBase, carryYaw, true);
-                const bool rot = focusedNow && Down('R');
+                const bool rot = keys && Down('R');
                 if (rot && !rotWas) carryYaw = std::fmod(carryYaw + 15.0f, 360.0f);
                 rotWas = rot;
-                if (e && !eWas) {  // put it down where it is, and remember
-                    const float x = h.x + ahead * std::cos(r), y = h.y + ahead * std::sin(r), z = h.z - kCapsuleHalf + carryBase;
-                    props::Move(carried, x, y, z, carryYaw, false);
+                const bool up = keys && Down(VK_PRIOR), dn = keys && Down(VK_NEXT);
+                if ((up || dn) && !liftWas) carryAbove += up ? 5.0f : -5.0f;
+                liftWas = up || dn;
+                float x = lastX, y = lastY;
+                if (CarrySpot(h, flying, x, y)) { lastX = x; lastY = y; lastZ = h.z - kCapsuleHalf + carryAbove; }
+                if (cancel) {
+                    props::Move(carried, carriedFrom.x, carriedFrom.y, carriedFrom.z, carriedFrom.yaw, false);
                     props::Highlight(carried, false, 0);
-                    tavern_hub::SetSpot(layout, {"PROP:" + carried, x, y, z, carryYaw});
+                    logger::log("[tavern] put back " + carried);
+                    carried.clear();
+                    return;
+                }
+                props::Move(carried, lastX, lastY, lastZ, carryYaw, !pick);
+                if (pick) {  // put it down where it rides, and remember
+                    props::Highlight(carried, false, 0);
+                    tavern_hub::SetSpot(layout, {"PROP:" + carried, lastX, lastY, lastZ, carryYaw});
                     Save();
                     logger::log("[tavern] put down " + carried);
                     carried.clear();
@@ -284,7 +315,7 @@ namespace {
             if (game::GetView(v)) {
                 std::vector<tavern_hub::Target> ts;
                 for (const props::Prop& p : nearProps) ts.push_back({p.x, p.y, p.cz});
-                const int i = tavern_hub::LookedAt(v.x, v.y, v.z, v.pitch, v.yaw, ts, 8.0f, 1500.0f, 0.0f);
+                const int i = tavern_hub::LookedAt(v.x, v.y, v.z, v.pitch, v.yaw, ts, 8.0f, 2000.0f, 0.0f);
                 if (i >= 0) { hp = &nearProps[i]; hit = hp->name; }
             }
             if (hit != lookedProp) {
@@ -292,11 +323,13 @@ namespace {
                 if (!hit.empty()) props::Highlight(hit, true, hub_ui::RimStencil());
                 lookedProp = hit;
             }
-            if (e && !eWas && hp) {
+            if (pick && hp) {
                 carried = hp->name;
+                carriedFrom = {"", hp->x, hp->y, hp->z, hp->yaw};
                 carryYaw = hp->yaw;
-                carryBase = hp->base;
+                carryAbove = hp->z - (h.z - kCapsuleHalf);  // its height above the floor you both stand on
                 carryRadius = hp->radius;
+                lastX = hp->x; lastY = hp->y; lastZ = hp->z;
                 lookedProp.clear();
                 logger::log("[tavern] picked up " + carried);
             }
@@ -346,7 +379,7 @@ namespace {
             if (k && !keyWas) walking ? StopWalk() : StartWalk();
             keyWas = k;
             const bool up = focused && !typing && Down(VK_PRIOR), dn = focused && !typing && Down(VK_NEXT);
-            if ((up && !nudgeWas) || (dn && !nudgeWas)) NudgeFloor(up ? 10.0f : -10.0f);
+            if (carried.empty() && ((up && !nudgeWas) || (dn && !nudgeWas))) NudgeFloor(up ? 10.0f : -10.0f);
             nudgeWas = up || dn;
             const bool rk = focused && !typing && Down(VK_F10);
             if (rk && !roomWas) CloseRoom();
@@ -354,6 +387,10 @@ namespace {
             const bool pk = focused && !typing && Down(VK_F9);
             if (pk && !placeWas) PlacePicked();
             placeWas = pk;
+            if (walking && !f.snap.worldName.empty() && f.snap.worldName != "Hub") {
+                logger::log("[tavern] left the hub (" + f.snap.worldName + "): walk off");
+                StopWalk();
+            }
             if (!walking) return;
 
             const game::Hero h = game::HubHero();

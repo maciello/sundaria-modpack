@@ -38,5 +38,12 @@ int main() {
     assert(LookedAt(0, 0, 0, 0, 90, ts, 10, 2000, 0) == -1);       // nothing to the right
     assert(LookedAt(0, 0, 0, 0, 0, {{5000, 0, 0}}, 10, 2000, 0) == -1);  // too far
     assert(LookedAt(0, 0, 300, -16.7f, 0, {{1000, 0, 0}}, 3, 2000, 0) == 0);  // looking down at it
+        // view ray to the floor: 45° down from 100 above → 100 ahead; level or upward view or too far → none
+    float fx, fy;
+    assert(RayToFloor(0, 0, 100, -45, 0, 0, 1000, fx, fy) && Near(fx, 100) && Near(fy, 0));
+    assert(RayToFloor(0, 0, 100, -45, 90, 0, 1000, fx, fy) && Near(fx, 0) && Near(fy, 100));
+    assert(!RayToFloor(0, 0, 100, 0, 0, 0, 1000, fx, fy) && !RayToFloor(0, 0, 100, 10, 0, 0, 1000, fx, fy));
+    assert(!RayToFloor(0, 0, 100, -1.5f, 0, 0, 1000, fx, fy));      // hits 3.8 km away
+    assert(!RayToFloor(0, 0, -5, -45, 0, 0, 1000, fx, fy));         // camera below that floor
         std::puts("ok");
 }
