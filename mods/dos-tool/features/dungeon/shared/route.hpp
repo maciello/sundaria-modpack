@@ -1,7 +1,8 @@
 #pragma once
-// SDK-free: the way from the player to the floor's goal (#83). Navmesh path from here; where it stops short (locked door,
-// navmesh island), resume at a navmesh point in the next room of the floor's room chain (ChunkActors order: entry …
-// stairs down; static floors have no other room graph, game-facts.md § Dungeon) and ask again. O(rooms) queries.
+// SDK-free: the way from the player to the floor's goal (#83). Navmesh path from here toward the goal; where it stops
+// short, aim at a navmesh point in the next room of the floor's room chain (ChunkActors order: entry … stairs down; static
+// floors have no other room graph, game-facts.md § Dungeon). Reached: on toward the goal (the long query ran out of search
+// nodes). Not reached (locked door, navmesh island): a stop, the route jumps straight to that point. O(rooms) queries.
 #include <algorithm>
 #include <functional>
 #include <vector>
@@ -51,27 +52,29 @@ namespace dungeon_map {
             Path leg;
             bool partial = false;
             r.legs++;
-            if (!nav.path(a, goal, leg, partial)) leg = {a}, partial = true;  // no navmesh at a
+            if (!nav.path(a, aiming ? b : goal, leg, partial)) leg = {a}, partial = true;  // no navmesh at a
             for (const V3& v : leg) Append(r.path, v);
-            if (!partial) return done = true;
-            r.stops.push_back(r.path.back());
-            r.stopAt.push_back(r.path.size() - 1);
+            if (!partial && !aiming) return done = true;
+            if (aiming) {  // toward the next room: reached, else a stop and straight across what the navmesh does not connect
+                if (partial) Stop(), Append(r.path, b);
+                a = b, aiming = false;
+                return false;
+            }
             int k = std::max(at, NearestRoom(rooms, r.path.back())) + 1;
-            V3 b;
             while (k < int(rooms.size()) && !nav.anchor(rooms[k], b)) k++;
-            if (k >= int(rooms.size()) || ++guard > rooms.size()) {
-                Append(r.path, goal);  // ponytail: straight to the goal past the last room; a crumb graph would route generated floors
+            if (k >= int(rooms.size())) {
+                Stop(), Append(r.path, goal);  // ponytail: straight to the goal past the last room; a crumb graph would route generated floors
                 return done = true;
             }
-            Append(r.path, b);  // straight across what the navmesh does not connect
-            a = b, at = k;
+            a = r.path.back(), at = k, aiming = true;
             return false;
         }
     private:
-        V3 goal, a;
+        void Stop() { r.stops.push_back(r.path.back()), r.stopAt.push_back(r.path.size() - 1); }
+        V3 goal, a, b;
         std::vector<Box> rooms;
         int at = -1;
-        size_t guard = 0;
+        bool aiming = false;  // the current leg goes to b (next room's navmesh point), not the goal
     };
 
     inline Route PlanRoute(V3 from, V3 goal, const std::vector<Box>& rooms, const Nav& nav) {

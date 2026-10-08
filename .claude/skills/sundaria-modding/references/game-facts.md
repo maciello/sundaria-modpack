@@ -96,8 +96,12 @@ dungeon (#40 survey 2026-10-08; SDK unless marked "in game"; probe: features/dun
     (the partial path ends at the next closed door, also unlocked ones: seen on floor 3; on Crypt floor 1 a closed unlocked cage door did NOT cut it); partial test: NavigationPath.IsPartial via umg::CallNative (unverified in game) or end > 300 from the goal; per-floor NavMeshVolume; BP_NavigationQueryFilter_Exclude_Door* filters exist (path queries can exclude doors); ABP_WayPoint_C chains are AI patrols
     navmesh_runtime: (in game, read-only memory read 2026-10-09) bGenerateNavigationOnlyAroundNavigationInvokers 0, one nav data, RuntimeGeneration
       DynamicModifiersOnly, TileSizeUU 1000: prebuilt for the whole floor, only modifiers (doors) change; the invoker component on BP_CharacterBase does nothing
-    partial_end: a partial path ends at the reachable point nearest the goal in a straight line, not at what cut it (Crypt floor 1: 24 m from an
-      open door, in a navmesh island; why it is cut off there unverified). Long routes: features/dungeon/shared/route.hpp (navmesh legs + room chain)
+    partial_end: a partial path ends at the explored point nearest the goal in a straight line, not at what cut it
+    search_budget: (in game) RecastNavMesh-Default DefaultMaxSearchNodes 2048, CellSize 19; ~490 NavModifierVolume (NavArea_Null, ~7×8 m clutter
+      cut-outs) per Crypt floor fragment the mesh. A long query runs out of nodes inside one connected area and comes back partial: Crypt
+      floor 3 entry → stairs stopped at (84265,87457,-15961) on two runs, no door within 111 m, while a query from the room's lower level
+      reached the closed cage door and the lower level connects to the upper one. Long routes: features/dungeon/shared/route.hpp (aims at
+      the next room's navmesh point when a leg stops short)
   doors_levers: both subclass ABP_TriggerBase_C (: AArchonTriggerBase, native, empty)
     state: mOpenCloseAnimState @0x248 (in game: 0 closed, 2 open/pulled; 1/3 unseen, likely transitions), LockStatus @0x288 (in game: 0 unlocked, 1 locked), CanBeOpened, bStartOpen
     locks: LockRules_OR[] {LockType (ELockType 0..6), Value, TargetTag}, LockTags[], ItemLockGroup[]; door I_DoorAddLockTag / I_DoorRemoveLockTag

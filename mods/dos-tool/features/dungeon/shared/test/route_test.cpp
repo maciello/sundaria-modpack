@@ -28,9 +28,9 @@ int main() {
     Route r = PlanRoute({2100, 0, 0}, goal, rooms, cut);
     assert(r.legs == 1 && r.stops.empty() && Near(r.path.back().x, 3800));
 
-    // Cut ahead: stop at 1650, resume in the next room after the stop (room 2 centre), on to the goal.
+    // Cut ahead: stop at 1650 (the next room's point is out of reach too), resume there (room 2 centre), on to the goal.
     r = PlanRoute({200, 0, 0}, goal, rooms, cut);
-    assert(r.legs == 2 && r.stops.size() == 1 && Near(r.stops[0].x, 1650));
+    assert(r.legs == 3 && r.stops.size() == 1 && Near(r.stops[0].x, 1650));
     assert(r.path.size() == 4 && Near(r.path[2].x, 2500) && Near(r.path.back().x, 3800));
 
     // Never resumes behind the player: a leg that ends in an earlier room resumes after the player's room.
@@ -43,9 +43,20 @@ int main() {
     queries = 0;
     Nav none{[&](V3, V3, Path&, bool&) { queries++; return false; }, [](const Box& r, V3& out) { out = r.c; return r.c.x > 3000; }};
     r = PlanRoute({200, 0, 0}, goal, rooms, none);
-    assert(queries == 2 && r.legs == 2 && Near(r.path[1].x, 3500) && Near(r.path.back().x, 3800));
+    assert(queries == 3 && r.legs == 3 && Near(r.path[1].x, 3500) && Near(r.path.back().x, 3800));
     Nav dead{[](V3, V3, Path&, bool&) { return false; }, [](const Box& r, V3& out) { out = r.c; return true; }};
     r = PlanRoute({200, 0, 0}, goal, rooms, dead);
-    assert(r.legs == 4 && Near(r.path.back().x, 3800));
+    assert(r.legs == 7 && Near(r.path.back().x, 3800));
+
+    // Connected, but a long query runs out of search nodes 1000 units in (the game's 2048-node budget): the legs via the
+    // next room's point reach it, so no stop and no straight jump.
+    Nav budget{[](V3 a, V3 b, Path& out, bool& partial) {
+                   partial = b.x - a.x > 1500;
+                   out = {a, {partial ? a.x + 1000 : b.x, 0, 0}};
+                   return true;
+               },
+               [](const Box& r, V3& out) { out = r.c; return true; }};
+    r = PlanRoute({200, 0, 0}, goal, rooms, budget);
+    assert(r.stops.empty() && r.path.size() == 4 && Near(r.path[1].x, 1200) && Near(r.path[2].x, 2500) && Near(r.path.back().x, 3800));
     std::puts("ok");
 }
