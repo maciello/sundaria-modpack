@@ -156,8 +156,30 @@ namespace boss_intro {
         // A blocked shot turns the orbit the other way, without a jump: yaw + dir * Orbit(t) is the same before and after.
         inline void Flip(float& yaw, float& dir, float t) { yaw += 2 * dir * Orbit(t); dir = -dir; }
 
-        // Direction from the live camera to the boss: the shot looks the way the player already does.
         inline float YawTo(float fromX, float fromY, float bx, float by) { return std::atan2(by - fromY, bx - fromX) / kD2R; }
+
+        // Face (#99): the camera stands in front of the boss, `side` degrees off its forward (actor yaw), never behind.
+        constexpr float kFaceArc = 60.0f;      // deg: widest side angle; the orbit adds at most Orbit(kTotal) (≈ 10°) after a flip
+        constexpr float kClearEnough = 0.9f;   // share of the framing distance: the player's side is kept when this clear
+        constexpr float kFaceTry[] = {0.0f, -30.0f, 30.0f, -kFaceArc, kFaceArc};  // fallbacks when the player's side is blocked
+        constexpr int kFaceCandidates = 1 + int(sizeof(kFaceTry) / sizeof(kFaceTry[0]));
+        // Preferred side: where the live camera stands around the boss, clamped into the front arc.
+        inline float FaceSide(float bossYaw, float fromX, float fromY, float bx, float by) {
+            return std::clamp(Wrap(YawTo(bx, by, fromX, fromY) - bossYaw), -kFaceArc, kFaceArc);
+        }
+        inline float Side(int i, float preferred) { return i == 0 ? preferred : kFaceTry[i - 1]; }
+        // Shot yaw (the view direction) for a camera standing `side` degrees off the boss's forward: looking back at it.
+        inline float FaceYaw(float bossYaw, float side) { return Wrap(bossYaw + side + 180.0f); }
+        // clear[i] = swept share of candidate Side(i): the preferred side if clear enough, else the clearest (earlier wins ties).
+        inline int Best(const float* clear, int n) {
+            if (clear[0] >= kClearEnough) return 0;
+            int b = 0;
+            for (int i = 1; i < n; i++)
+                if (clear[i] > clear[b]) b = i;
+            return b;
+        }
+        // The orbit turns towards the boss's front, so it never carries the camera further round its side.
+        inline float OrbitDir(float side) { return side > 0 ? -1.0f : 1.0f; }
     }
 
     // Boss title (#19, Genshin style): centred name + optional epithet over a thin divider, soft fade, during the hold.

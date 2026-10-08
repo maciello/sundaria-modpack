@@ -13,7 +13,8 @@ namespace boss_intro::game_side {
         std::string fightClass;   // BP_BossFight_<Boss>_C
         std::string name, subtitle;  // FightDisplayName, FightStartedMessage ("" if unset)
     };
-    struct Boss { float x, y, z, halfHeight; };  // capsule centre (cm), capsule half height
+    // capsule centre (cm), capsule half height; yaw = actor rotation (its forward, #99), meshYaw = the mesh's relative yaw
+    struct Boss { float x, y, z, halfHeight, yaw, meshYaw; };
     // The fight's first boss actor, if spawned: read on the game thread in each camera update while asked (#80); this
     // returns the last read (one frame behind). StopSweep ends the asking.
     bool BossOf(std::uintptr_t fight, Boss& out);
@@ -26,10 +27,13 @@ namespace boss_intro::game_side {
     int Pause(std::uintptr_t fight);
     // Restores all frozen actors still alive on the game thread (game::Drain: bounded wait, else here); returns how many.
     int Resume();
-    // #71: render thread asks for a sphere sweep (cam::kProbe, Camera channel) from `from` to `to`, run on the game thread
-    // in each camera update until StopSweep; the fight's bosses, partners and the local pawn are ignored.
-    void Sweep(std::uintptr_t fight, const float from[3], const float to[3]);
-    float Clear();  // share of from -> to that was clear in the last sweep (1 = nothing hit)
+    // #71: render thread asks for sphere sweeps (cam::kProbe, Camera channel) from `from` to each of `n` targets
+    // (n <= kMaxSweeps), run on the game thread in each camera update until StopSweep; the fight's bosses, partners and
+    // the local pawn are ignored.
+    constexpr int kMaxSweeps = 8;
+    void Sweep(std::uintptr_t fight, const float from[3], const float (*to)[3], int n = 1);
+    int Swept();  // targets in the last sweep done (0 = none since StopSweep)
+    float Clear(int i = 0);  // share of from -> to[i] that was clear in the last sweep (1 = nothing hit)
     void StopSweep();
     std::vector<Event> Take();  // render thread: events since the last call
 }

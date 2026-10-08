@@ -185,7 +185,7 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 
 ### Boss intro camera (#18)
 - Sequence ≈ 4.6 s, skippable: approach 1.2 s InOutCubic → hold `kCardHold` with a linear 4°/s orbit → return 0.8 s InOutCubic to the live gameplay pose (re-read every frame).
-- Framing: boss on the right third, eye level −10°, distance ≈ 2.5 × boss capsule height, FOV −10° vs gameplay. Letterbox + hidden HUD for the whole sequence.
+- Framing: boss on the right third, eye level −10°, distance ≈ 2.5 × boss capsule height, FOV −10° vs gameplay. Letterbox + hidden HUD for the whole sequence. Always the face: the camera stands within `cam::kFaceArc` (60°) of the boss's forward, on the player's side when that is in front, and the orbit turns towards the front (#99). A blocked front: the clearest angle of that arc, pulled in like a spring arm (#71); never the back.
 - Don't: cuts, zoom punches, shake, roll. Borderlands energy stays in the name card.
 
 ### Menu (Insert window) and HUD panels

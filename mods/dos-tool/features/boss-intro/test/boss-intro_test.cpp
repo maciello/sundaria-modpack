@@ -108,6 +108,38 @@ int main() {
         assert(std::sqrt(tiny.x * tiny.x + tiny.y * tiny.y) > kMinDist * 0.9f);
         assert(near(YawTo(0, 0, 0, 100), 90));
     }
+    {   // #99 face: the camera stands in front of the boss, on the player's side when that is in front, never behind
+        using namespace cam;
+        auto near = [](float a, float b) { return std::fabs(a - b) < 0.01f; };
+        // boss at origin facing +X (yaw 0); a camera standing at angle a around it, 1000 cm out
+        auto side = [](float bossYaw, float a) { return FaceSide(bossYaw, 1000 * std::cos(a * kD2R), 1000 * std::sin(a * kD2R), 0, 0); };
+        assert(near(side(0, 0), 0) && near(side(0, 40), 40) && near(side(0, -40), -40));  // in front: kept
+        assert(near(side(0, 180), kFaceArc) || near(side(0, 180), -kFaceArc));            // straight behind: an arc edge
+        assert(near(side(0, 150), kFaceArc) && near(side(0, -150), -kFaceArc));            // behind-left stays left
+        assert(near(side(90, 90 + 20), 20) && near(side(-170, 170), -20));                 // wraps
+        // the shot looks back at the boss: the camera position is on the `side` of its forward
+        for (float bossYaw : {0.0f, 90.0f, -135.0f})
+            for (float s : {-kFaceArc, 0.0f, 25.0f, kFaceArc}) {
+                const Pose p = Shot(0, 0, 0, 100, FaceYaw(bossYaw, s), 90);
+                assert(std::fabs(Wrap(YawTo(0, 0, p.x, p.y) - bossYaw - s)) < 0.5f);
+                // the boss's forward points at the camera: dot(forward, camera dir) > 0 = its face is seen
+                assert(std::cos(bossYaw * kD2R) * p.x + std::sin(bossYaw * kD2R) * p.y > 0);
+            }
+        // walls: the player's side when clear enough, else the clearest, the preferred one winning ties
+        const float open[kFaceCandidates] = {0.95f, 1, 1, 1, 1, 1};
+        const float walled[kFaceCandidates] = {0.3f, 0.5f, 0.8f, 0.8f, 0.2f, 1};
+        const float shut[kFaceCandidates] = {0.2f, 0.2f, 0.2f, 0.2f, 0.2f, 0.2f};
+        assert(Best(open, kFaceCandidates) == 0 && Best(walled, kFaceCandidates) == 5 && Best(shut, kFaceCandidates) == 0);
+        for (int i = 0; i < kFaceCandidates; i++) assert(std::fabs(Side(i, 33)) <= kFaceArc);
+        // the orbit turns towards the front; even after a flip the camera stays within kFaceArc + Orbit(kTotal) of it
+        assert(OrbitDir(40) < 0 && OrbitDir(-40) > 0);
+        for (float s : {-kFaceArc, kFaceArc}) {
+            float yaw = FaceYaw(0, s), dir = OrbitDir(s);
+            Flip(yaw, dir, kApproach);
+            assert(std::fabs(Wrap(yaw + dir * Orbit(kTotal) + 180)) <= kFaceArc + Orbit(kTotal) + 0.01f);
+            assert(kFaceArc + Orbit(kTotal) < 90);
+        }
+    }
     {   // title: hidden outside the hold, full in the middle, soft in and out; skip / game splash fades it
         using namespace title;
         assert(At(0).alpha == 0 && At(kIn - 0.01f).alpha == 0 && At(kOut).alpha == 0);

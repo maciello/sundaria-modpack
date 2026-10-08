@@ -33,9 +33,11 @@ namespace {
     std::atomic<int32> g_splashCls{-1}, g_lensCls{-1};  // FName index of the class names, once seen
     SRWLOCK g_mu = SRWLOCK_INIT;
     std::vector<boss_intro::game_side::Event> g_events;
-    struct SweepReq { float from[3], to[3]; std::uintptr_t fight; } g_sweep{};  // g_mu
+    using boss_intro::game_side::kMaxSweeps;
+    struct SweepReq { float from[3], to[kMaxSweeps][3]; int n; std::uintptr_t fight; } g_sweep{};  // g_mu
     std::atomic<bool> g_sweepOn{false};
-    std::atomic<float> g_clear{1.0f};
+    std::atomic<float> g_clear[kMaxSweeps];
+    std::atomic<int> g_swept{0};
     std::vector<ref::Ref> g_fights;  // ABP_BossFight_C seen by a signal, newest last
     std::vector<boss_intro::pause::Held<ref::Ref>> g_held;  // game thread (GameTick), or Resume's unload fallback
     // render thread → game thread (#80): the fight to frame and to freeze, a resume request, and the answers
@@ -71,12 +73,15 @@ namespace {
                     if (AActor* a = ref::Ref((*list)[i]).Get<AActor>()) ignore[n++] = a;
         if (const APlayerController* pc = umg::LocalPC(); pc && PtrOk(pc->Pawn)) ignore[n++] = pc->Pawn;
         const TArray<AActor*> ignored(ignore, n, n);  // non-owning view of the stack array
-        FHitResult hit{};
-        // TraceTypeQuery2 = the Camera channel in UE's default channel order (unverified for this game's config)
-        const bool blocked = UKismetSystemLibrary::SphereTraceSingle(cameraManager, FVector{s.from[0], s.from[1], s.from[2]},
-            FVector{s.to[0], s.to[1], s.to[2]}, boss_intro::cam::kProbe, ETraceTypeQuery::TraceTypeQuery2, false, ignored,
-            EDrawDebugTrace::None, &hit, true, FLinearColor{}, FLinearColor{}, 0.0f);
-        g_clear = blocked && !hit.bStartPenetrating ? std::clamp(hit.Time, 0.0f, 1.0f) : 1.0f;
+        for (int i = 0; i < s.n; i++) {
+            FHitResult hit{};
+            // TraceTypeQuery2 = the Camera channel in UE's default channel order (unverified for this game's config)
+            const bool blocked = UKismetSystemLibrary::SphereTraceSingle(cameraManager, FVector{s.from[0], s.from[1], s.from[2]},
+                FVector{s.to[i][0], s.to[i][1], s.to[i][2]}, boss_intro::cam::kProbe, ETraceTypeQuery::TraceTypeQuery2, false,
+                ignored, EDrawDebugTrace::None, &hit, true, FLinearColor{}, FLinearColor{}, 0.0f);
+            g_clear[i] = blocked && !hit.bStartPenetrating ? std::clamp(hit.Time, 0.0f, 1.0f) : 1.0f;
+        }
+        g_swept = s.n;
     }
 
     void Resolve(const UClass* c, int from, int to) {
@@ -213,7 +218,8 @@ namespace boss_intro::game_side {
         if (!boss || !boss->IsA(ACharacter::StaticClass()) || !PtrOk(boss->RootComponent) || !PtrOk(boss->CapsuleComponent)) return false;
         const FVector& p = boss->RootComponent->RelativeLocation;  // root unattached: relative == world (game-facts.md)
         const UCapsuleComponent* c = boss->CapsuleComponent;
-        out = {p.X, p.Y, p.Z, c->CapsuleHalfHeight * c->RelativeScale3D.Z};
+        const float meshYaw = PtrOk(boss->Mesh) ? boss->Mesh->RelativeRotation.Yaw : 0.0f;
+        out = {p.X, p.Y, p.Z, c->CapsuleHalfHeight * c->RelativeScale3D.Z, boss->RootComponent->RelativeRotation.Yaw, meshYaw};
         return out.halfHeight > 1.0f;
     }
 
@@ -238,14 +244,17 @@ namespace boss_intro::game_side {
         return n;
     }
 
-    void Sweep(std::uintptr_t fight, const float from[3], const float to[3]) {
+    void Sweep(std::uintptr_t fight, const float from[3], const float (*to)[3], int n) {
+        SweepReq r{{from[0], from[1], from[2]}, {}, std::clamp(n, 0, kMaxSweeps), fight};
+        for (int i = 0; i < r.n; i++) std::copy(to[i], to[i] + 3, r.to[i]);
         AcquireSRWLockExclusive(&g_mu);
-        g_sweep = {{from[0], from[1], from[2]}, {to[0], to[1], to[2]}, fight};
+        g_sweep = r;
         ReleaseSRWLockExclusive(&g_mu);
         g_sweepOn = true;
     }
-    float Clear() { return g_clear.load(); }
-    void StopSweep() { g_sweepOn = false; g_clear = 1.0f; g_bossWant = 0; }
+    int Swept() { return g_swept.load(); }
+    float Clear(int i) { return i >= 0 && i < kMaxSweeps && i < g_swept.load() ? g_clear[i].load() : 1.0f; }
+    void StopSweep() { g_sweepOn = false; g_swept = 0; g_bossWant = 0; }
 
     std::vector<Event> Take() {
         std::vector<Event> out;

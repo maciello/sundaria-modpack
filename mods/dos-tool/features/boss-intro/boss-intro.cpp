@@ -97,6 +97,37 @@ namespace {
             return run.liveAt >= 0;
         }
 
+        // #99: the camera stands in front of the boss, on the player's side if that is in front and clear; else the
+        // clearest angle of the front arc (one sphere sweep per candidate, once). false = sweeps not back yet.
+        bool Face(const cam::Pose& live) {
+            const game_side::Boss& b = run.boss;
+            const float pref = cam::FaceSide(b.yaw, live.x, live.y, b.x, b.y);
+            constexpr int n = cam::kFaceCandidates;
+            static_assert(n <= game_side::kMaxSweeps);
+            if (game_side::Swept() != n) {
+                const float eye[3] = {b.x, b.y, b.z + cam::kEye * b.halfHeight};
+                float to[n][3];
+                for (int i = 0; i < n; i++) {
+                    const cam::Pose p = cam::Shot(b.x, b.y, b.z, b.halfHeight, cam::FaceYaw(b.yaw, cam::Side(i, pref)), live.fov);
+                    to[i][0] = p.x, to[i][1] = p.y, to[i][2] = p.z;
+                }
+                game_side::Sweep(run.fight, eye, to, n);
+                return false;
+            }
+            float clear[n];
+            for (int i = 0; i < n; i++) clear[i] = game_side::Clear(i);
+            const int best = cam::Best(clear, n);
+            const float side = cam::Side(best, pref);
+            run.yaw = cam::FaceYaw(b.yaw, side);
+            run.dir = cam::OrbitDir(side);
+            run.haveYaw = true;
+            char buf[200];
+            std::snprintf(buf, sizeof(buf), "[boss-intro] facing: boss yaw %.0f (mesh relative yaw %.0f), camera %+.0f deg off its "
+                          "forward (player side %+.0f, clear %.2f)", b.yaw, b.meshYaw, side, pref, clear[best]);
+            logger::log(buf);
+            return true;
+        }
+
         const char* Interrupted(const feature::Frame& f) {
             const bool k = GameFocused() && (Down(kKeys[key].vk) || Down(VK_ESCAPE));
             const bool pressed = k && !keyWas;
@@ -123,8 +154,14 @@ namespace {
             if (t >= cam::kTotal) { End("done", f.now); return; }
             cam::Pose live;
             if (!Live(live, f.now)) { End("lost the game camera", f.now); return; }
-            if (!run.haveYaw) { run.yaw = cam::YawTo(live.x, live.y, run.boss.x, run.boss.y); run.haveYaw = true; run.prev = f.now; }
-            const float clear = game_side::Clear();  // last frame's sweep
+            if (!run.haveYaw) {
+                if (!Face(live)) {
+                    if (f.now - run.asked > kWaitForBoss) End("skipped (no wall sweep)", f.now);
+                    return;
+                }
+                run.prev = f.now;
+            }
+            const float clear = game_side::Swept() == 1 ? game_side::Clear() : 1.0f;  // last frame's orbit sweep
             if (clear < 1 && !run.flipped) {
                 cam::Flip(run.yaw, run.dir, t);
                 run.flipped = true;
@@ -134,7 +171,7 @@ namespace {
             run.prev = f.now;
             const float yaw = run.yaw + run.dir * cam::Orbit(t), hh = run.boss.halfHeight;
             const cam::Pose full = cam::Shot(run.boss.x, run.boss.y, run.boss.z, hh, yaw, live.fov);
-            const float eye[3] = {run.boss.x, run.boss.y, run.boss.z + cam::kEye * hh}, to[3] = {full.x, full.y, full.z};
+            const float eye[3] = {run.boss.x, run.boss.y, run.boss.z + cam::kEye * hh}, to[1][3] = {{full.x, full.y, full.z}};
             game_side::Sweep(run.fight, eye, to);
             const cam::Pose shot = cam::Shot(run.boss.x, run.boss.y, run.boss.z, hh, yaw, live.fov, run.reach);
             const cam::Pose p = cam::Blend(live, shot, cam::Weight(t));
