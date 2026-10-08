@@ -15,6 +15,7 @@ add_library(${PROJECT_NAME} SHARED
     # our code: core host + every features/<name>/<name>.cpp (each registers itself)
     core/dllmain.cpp
     core/game.cpp
+    core/items.cpp
     core/overlay.cpp
     ${FEATURES}
 
