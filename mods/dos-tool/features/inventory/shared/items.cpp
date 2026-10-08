@@ -1,5 +1,6 @@
 #include "items.hpp"
 #include "logger.hpp"
+#include "game.hpp"
 
 #include <Windows.h>
 #include <atomic>
@@ -114,34 +115,29 @@ namespace {
     std::vector<Item> g_bankCache;
     bool g_bankSeen = false;
 
-    double Ms(LARGE_INTEGER a) {
-        LARGE_INTEGER b, f;
-        QueryPerformanceCounter(&b);
-        QueryPerformanceFrequency(&f);
-        return double(b.QuadPart - a.QuadPart) * 1000.0 / double(f.QuadPart);
-    }
-
-    // Spec id → spec, built by one GObjects walk; rebuilt only when an id misses or a cached spec died (game thread).
+    // Spec id → spec from the item spec manager (BP_SpecManagerItem_C, found once by game::FindSingleton and cached).
+    // The id map is rebuilt from its mLoadedSpecMap (O(specs)) only when an id misses or a cached spec died.
     struct SpecRef { UArchonSpec* sp; int32 idx; };
     std::unordered_map<int, SpecRef> g_specs;
+    UArchonSpecManager* g_mgr = nullptr;
+    int32 g_mgrIdx = -1;
+    bool Live(const UObject* o, int32 idx) { return PtrOk(o) && UObject::GObjects->GetByIndex(idx) == o; }
     void BuildSpecs() {
-        LARGE_INTEGER t0;
-        QueryPerformanceCounter(&t0);
+        if (!Live(g_mgr, g_mgrIdx)) {
+            auto* m = static_cast<UObject*>(game::FindSingleton("BP_SpecManagerItem_C"));
+            g_mgr = PtrOk(m) && m->IsA(UArchonSpecManager::StaticClass()) ? static_cast<UArchonSpecManager*>(m) : nullptr;
+            g_mgrIdx = g_mgr ? g_mgr->Index : -1;
+        }
         g_specs.clear();
-        UClass* cls = UArchonSpecManager::StaticClass();
-        for (int i = 0; i < UObject::GObjects->Num(); i++) {
-            UObject* o = UObject::GObjects->GetByIndex(i);
-            if (!PtrOk(o) || !o->IsA(cls) || o->IsDefaultObject()) continue;
-            ForEach(static_cast<UArchonSpecManager*>(o)->mLoadedSpecMap, [&](int32 id, UArchonSpec* sp) {
+        if (g_mgr)
+            ForEach(g_mgr->mLoadedSpecMap, [&](int32 id, UArchonSpec* sp) {
                 if (PtrOk(sp)) g_specs[id] = {sp, sp->Index};
             });
-        }
-        logger::log("[items] spec map rebuilt: " + I(g_specs.size()) + " specs, " + std::to_string(Ms(t0)).substr(0, 5) + " ms");
+        logger::log("[items] spec map rebuilt: " + I(g_specs.size()) + " specs");
     }
     UArchonSpec* Spec(int id, bool& rebuilt) {
         auto it = g_specs.find(id);
-        const bool ok = it != g_specs.end() && UObject::GObjects->GetByIndex(it->second.idx) == it->second.sp;
-        if (ok) return it->second.sp;
+        if (it != g_specs.end() && Live(it->second.sp, it->second.idx)) return it->second.sp;
         if (rebuilt) return nullptr;  // one rebuild per read
         rebuilt = true;
         BuildSpecs();
