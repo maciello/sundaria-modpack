@@ -13,6 +13,8 @@ scripts/sdk.py chain AArchonCharacter      # → ACharacter → APawn → AActor
 scripts/sdk.py subs UDamageType            # what IsA() will catch
 ```
 Values (DataTables, curves, GE modifiers, Blueprint logic such as the damage formula): `just data …`, offline, see `game-data.md`.
+Runtime state (live values, actors, which UFunctions fire, what the screen shows): ask the live game first,
+`just game get|find|call|trace|shot|log` (`live-bridge.md`); write a file-trigger probe only when the bridge can't answer.
 Read `game-facts.md` first; add every newly confirmed path there.
 
 ## Dev loop
