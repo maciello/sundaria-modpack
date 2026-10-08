@@ -1,7 +1,9 @@
 #include "feature.hpp"
+#include "game.hpp"
 #include "logger.hpp"
 
 #include <Windows.h>
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <string>
@@ -12,7 +14,8 @@
 // paddings, slot layout) and the designer templates of loaded widget classes (+ property bindings, named slots) to dos-tool-ui.yaml next to the DLL. Agent tool: `just ui [class-substrings]` writes
 // dos-tool-ui.request (its text = space-separated root class substrings); the probe answers and deletes it once a
 // matching widget exists (open the screen in game), so a request may wait.
-// Render thread, plain memory reads of UPROPERTY fields only. Feeds references/game-ui.md.
+// Game thread (the GObjects walk races with the game freeing objects otherwise, #80), plain memory reads of
+// UPROPERTY fields only. Feeds references/game-ui.md.
 using namespace SDK;
 
 namespace {
@@ -184,21 +187,41 @@ namespace {
         return true;
     }
 
+    // render thread → game thread: 0 idle, 1 asked (g_filter), 2 dumped, 3 no matching root yet
+    std::atomic<int> g_state{0};
+    std::string g_filter;  // written before g_state = 1
+
+    void OnEvent(void*, void*, void*) {
+        if (game::OnGameThread() && g_state.load() == 1) g_state = Dump(g_filter) ? 2 : 3;
+    }
+
     struct UiProbe : feature::Feature {
         double next = 0;
+        bool listening = false;
         UiProbe() : Feature("UI probe", feature::Stage::Alpha) {}  // Alpha: dev installs only; idle until requested
+
+        void Listen(bool on) {
+            if (listening != on) game::SetEventListener(&OnEvent, listening = on);
+        }
 
         void OnFrame(const feature::Frame& f) override {
             if (f.now < next) return;
             next = f.now + 0.5;
+            const int st = g_state.load();
+            if (st == 1) return;
             const std::string req = Dir() + "dos-tool-ui.request";
+            if (st == 2) { DeleteFileA(req.c_str()); g_state = 0; Listen(false); return; }
             HANDLE h = CreateFileA(req.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
-            if (h == INVALID_HANDLE_VALUE) return;
+            if (h == INVALID_HANDLE_VALUE) { g_state = 0; Listen(false); return; }  // request withdrawn
             char buf[512] = {};
             DWORD n = 0;
             ReadFile(h, buf, sizeof(buf) - 1, &n, nullptr);
             CloseHandle(h);
-            if (Dump(std::string(buf, n))) DeleteFileA(req.c_str());
+            g_filter.assign(buf, n);
+            g_state = 1;  // retried every 0.5 s until the screen is open; the listener stays meanwhile
+            Listen(true);
         }
+
+        void Off() override { Listen(false); g_state = 0; }
     } g_ui_probe;
 }
