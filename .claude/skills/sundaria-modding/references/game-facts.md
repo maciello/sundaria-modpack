@@ -152,3 +152,11 @@ ability_hits (verified in game 2026-10-08, dump removed after: read the montage 
 - Ground movement (`features/ow-movement`, core `game::ApplyGround`): `UCharacterMovementComponent` MaxAcceleration @0x1A0, BrakingDecelerationWalking @0x1B4, GroundFriction @0x16C, BrakingFrictionFactor @0x1A8, JumpZVelocity @0x158, Velocity @0xC4 (UMovementComponent). Unverified whether sprint/abilities rewrite them.
 - Console variables (`features/graphics`): `UKismetSystemLibrary::ExecuteConsoleCommand` / `GetConsoleVariableFloatValue` (static UFunctions, game thread). Which cvars the shipping build accepts: unverified.
 - Movement during abilities (#36): `UArchonCharacterMovementComponent` adds only prone fields; no cast-slow attribute found. Suspects: anim-lock GE `BP_GameplayEffect_AnimLock` (+`_VeryLong`), root-motion montages, `IgnoreMoveAndAbilityInput`. Needs a debug-probe run.
+
+weapon_types (SDK only, values unread in game; probe: features/weapon-probe, `weapon-probe.probe` → `dos-tool-weapons.yaml`, issue #77):
+  per_type_stats: UBP_SpecItemWeapon_C::GetWeaponTypeStat → FSWeaponTypeStats {AnimationType FName, DamageModifier, EstimatedAnimationSpeed, AttackSpeed}; bow/crossbow numbers come from here
+  ability_gate: UBP_GameAbilityBase_C::WeaponTypesQualifier (TArray<EWeaponType> @0x5E0) + CheckWeaponTypeRequirement
+  hold: UBP_GameAbility_ShootArrow_C::CanHold @0x9E0, HoldAnimInfo/ReleaseAnimInfo; mHoldLevel/mHoldInterval/kMaxHoldLevel on GameAbilityBase
+  speed: ShootArrow/RapidShot WeaponTypePlayRate TMap<EWeaponType,float>; Salvo PlayRateScaleCrossbow @0x918
+  forum (steamcommunity.com/app/587520/discussions/0/4030223221276280137/, user posts, not verified): bow skill fires instantly, no draw; only a Ranger has an aim animation on one skill; Rogue can slot "shoot arrow"
+  forum (…/5946473955238289588/): two 1H crossbows give magic pen (user claim, unverified)
