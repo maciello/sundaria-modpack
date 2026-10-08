@@ -250,7 +250,11 @@ namespace item_sell::badges {
     void Frame() {
         if (g_on.load()) return;
         static bool resolved = false, failed = false;
-        if (!resolved && !failed) {
+        static ULONGLONG next = 0;
+        // Blueprint classes are null until a world loads them (main menu); GetFunction on null crashed (#54)
+        if (!resolved && !failed && GetTickCount64() >= next) {
+            next = GetTickCount64() + 1000;  // not loaded: StaticClass searches GObjects, so at most once a second
+            if (!PtrOk(UFItemContainerFunctions_C::StaticClass()) || !PtrOk(UWidgetItemDisplayDetail_C::StaticClass())) return;
             resolved = Resolve();
             failed = !resolved;
             logger::log(resolved ? "[item-sell] inventory badges ready" : "[item-sell] inventory badges: game functions not found");

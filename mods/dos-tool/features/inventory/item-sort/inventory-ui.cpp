@@ -42,6 +42,7 @@ namespace {
     UClass *g_headerCls = nullptr, *g_invCls = nullptr, *g_storCls = nullptr;
 
     bool Resolve() {
+        if (!PtrOk(UWidgetButton01_C::StaticClass())) return false;  // Blueprint class, null until loaded (#54)
         g_headerCls = UWidgetitemBagHeaderMenu_C::StaticClass();
         g_invCls = UWidgetItemInventory_C::StaticClass();
         g_storCls = UWidgetItemStorage_C::StaticClass();
