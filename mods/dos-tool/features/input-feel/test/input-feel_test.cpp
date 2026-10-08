@@ -40,5 +40,12 @@ int main() {
     a = Decide(Phase::Windup, true, false, noRefund);
     assert(a.cancelCurrent && !a.refundCooldown);
 
+    // Phase per montage play: a recast of the same instance (PlayBit flipped) is windup again.
+    int ab, mon;
+    const Play out{&ab, &mon, true};
+    assert(PhaseOf(out, out) == Phase::Out);
+    assert(PhaseOf({&ab, &mon, false}, out) == Phase::Windup);
+    assert(PhaseOf({}, out) == Phase::Idle);
+
     std::puts("ok");
 }

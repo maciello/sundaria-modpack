@@ -18,6 +18,21 @@ namespace input_feel {
         bool refundCooldown = false; // remove the cooldown the cancelled ability already started
     };
 
+    // One montage play of the animating ability (ASC LocalAnimMontageInfo). PlayBit flips per play, so a recast of the
+    // same ability instance (instanced per actor) is a new play and starts in windup again.
+    struct Play {
+        const void* ability = nullptr;
+        const void* montage = nullptr;
+        bool bit = false;
+        bool operator==(const Play&) const = default;
+    };
+
+    // out = the play whose effect notify fired last.
+    inline Phase PhaseOf(const Play& now, const Play& out) {
+        if (!now.ability) return Phase::Idle;
+        return now == out ? Phase::Out : Phase::Windup;
+    }
+
     // sameAbility: the press is for the ability that is currently animating (mashing, combos):
     // never cancel it, the game's own queue/combo handles that.
     inline Action Decide(Phase phase, bool locked, bool sameAbility, const Options& o) {
