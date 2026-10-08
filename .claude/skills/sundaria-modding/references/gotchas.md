@@ -33,3 +33,4 @@
 - Skill scripts run through the `~/.claude/skills` symlink: resolve their own path (`readlink -f "$0"`, Python `Path(__file__).resolve()`), else repo-relative paths land in `$HOME` (new-feature.sh once scaffolded into `~/mods/`).
 - Dumper-7 `TMap`/`TSet` range-for and `operator[]` do not compile (`SetElement::Value` is private): walk the sparse array (`ForEach` in `features/item-sort/item-sort.cpp`).
 - `UObject::FindObjectFast<T>(name)` with the default flag finds nothing (`HasTypeFlag(None)` is 0): pass the cast flag, e.g. `EClassCastFlags::Enum`. Symptom: item-sort stuck on "waiting for game data" in world.
+- A native test that `#include`s Lua's `lua_all.cpp` must do so after every std header: Lua's private headers `#define next` etc. and libstdc++ then fails with "macro next passed 2 arguments". `ImGui::MarkIniSettingsDirty` needs `imgui_internal.h`.

@@ -83,6 +83,7 @@ build:
 dist: build
     rm -rf dist && mkdir -p dist/Archon/Binaries/Win64
     cp mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/build/DoS-Tool.dll dist/Archon/Binaries/Win64/
+    mkdir -p dist/Archon/Binaries/Win64/dos-mods/abilities && cp mods/dos-tool/abilities/_*.lua dist/Archon/Binaries/Win64/dos-mods/abilities/
     rm -f build/modpack.zip && cd dist && {{python}} -m zipfile -c ../build/modpack.zip Archon
 
 # ship to friends: only from a clean tree that IS origin/master, tag = the built commit
@@ -99,6 +100,7 @@ release tag:
 dev-install: build
     install -m 644 mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"
     touch "{{win64}}/dos-tool.dev"
+    mkdir -p "{{win64}}/dos-mods/abilities" && install -m 644 mods/dos-tool/abilities/_*.lua "{{win64}}/dos-mods/abilities/"
 
 # game running (dev install): dump live UMG trees + styles (roots whose class contains any of the words) and print the YAML path
 ui *classes:
@@ -113,3 +115,4 @@ ui *classes:
 # game running: rebuild; the loader swaps DoS-Tool.dll in within ~1 s
 dev: build
     install -m 644 mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"
+    mkdir -p "{{win64}}/dos-mods/abilities" && install -m 644 mods/dos-tool/abilities/_*.lua "{{win64}}/dos-mods/abilities/"
