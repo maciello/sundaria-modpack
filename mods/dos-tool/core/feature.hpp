@@ -15,6 +15,7 @@ namespace feature {
         ImFont* font;                  // user-picked display font
         const game::Snapshot& snap;    // refreshed every 100 ms
         const combat::Tracker& combat; // updated every frame
+        const std::vector<combat::Sample>& chars; // every character with health, this frame
     };
 
     struct Feature {

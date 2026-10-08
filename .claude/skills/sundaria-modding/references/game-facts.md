@@ -15,7 +15,7 @@ read_paths:   # all plain memory reads, safe from the render thread
   characters: actor IsA AArchonCharacter (: ACharacter : APawn); 107 subclasses in dump, every enemy/boss/player
   is_player: APawn::PlayerState != null
   health: AArchonCharacter::mAbilitySystemComponent → SpawnedAttributes[] → IsA UArchonAttributeSet_Status → CurrentHealth (float)
-  max_health: UArchonAttributeSet_Secondary::Health @0x30   # status: unverified at runtime; fallback = peak CurrentHealth seen
+  max_health: UArchonAttributeSet_Secondary::Health @0x30 → Sample.maxHealth; health-bars uses max(it, peak HP seen)   # unverified at runtime; Health_Bonus @0x114 may be additive
   position: RootComponent->RelativeLocation = capsule center (root unattached ⇒ relative == world)
   camera: PlayerController → PlayerCameraManager → CameraCachePrivate.POV {Location, Rotation, FOV(horizontal)}
   gameplay_camera: PlayerCameraManager IsA ABP_PlayerCamera_C (only in gameplay; menus use another class → check IsA first)

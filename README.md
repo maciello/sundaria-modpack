@@ -4,7 +4,7 @@ Mods for Dungeons of Sundaria (Steam 587520, UE 4.27.2). Install once; every gam
 
 | mod | what | source |
 |---|---|---|
-| dos-tool | damage numbers (stacking multi-hits/DoTs, size relative to your typical hit, 5 fonts), DPS panel, camera FOV / distance / collision, air control (host decides in co-op); menu: **Insert** | `mods/dos-tool` (fork of [RobUnderscore/sundaria-camera-fov](https://github.com/RobUnderscore/sundaria-camera-fov), MIT) |
+| dos-tool | damage numbers (stacking multi-hits/DoTs, size relative to your typical hit, 5 fonts), DPS panel, camera FOV / distance / collision, air control (host decides in co-op), enemy health bars; menu: **Insert** | `mods/dos-tool` (fork of [RobUnderscore/sundaria-camera-fov](https://github.com/RobUnderscore/sundaria-camera-fov), MIT) |
 
 ## Install (once)
 

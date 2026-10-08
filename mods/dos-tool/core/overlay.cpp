@@ -126,8 +126,9 @@ static void DrawMenu(const game::Snapshot& snap) {
 static void RunFeatures(const game::Snapshot& snap) {
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
     const double now = ImGui::GetTime();
-    g_combat.Update(game::SampleHealth(), now);
-    const feature::Frame fr{now, screen.x, screen.y, g_fonts[g_font] ? g_fonts[g_font] : ImGui::GetFont(), snap, g_combat};
+    const std::vector<combat::Sample> chars = game::SampleHealth();
+    g_combat.Update(chars, now);
+    const feature::Frame fr{now, screen.x, screen.y, g_fonts[g_font] ? g_fonts[g_font] : ImGui::GetFont(), snap, g_combat, chars};
     for (feature::Feature* f : feature::Feature::All()) {
         if (f->wasEnabled && !f->enabled) f->Off();
         f->wasEnabled = f->enabled;

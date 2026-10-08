@@ -103,6 +103,7 @@ std::vector<combat::Sample> game::SampleHealth() {
     if (!PtrOk(w)) return out;
     UClass* charCls = AArchonCharacter::StaticClass();
     UClass* statusCls = UArchonAttributeSet_Status::StaticClass();
+    UClass* secondaryCls = UArchonAttributeSet_Secondary::StaticClass();
     for (int li = 0; li < w->Levels.Num(); li++) {
         ULevel* lvl = w->Levels[li];
         if (!PtrOk(lvl)) continue;
@@ -113,16 +114,19 @@ std::vector<combat::Sample> game::SampleHealth() {
             UArchonAbilitySystemComponent* asc = c->mAbilitySystemComponent;
             USceneComponent* root = c->RootComponent;
             if (!PtrOk(asc) || !PtrOk(root)) continue;
+            const UArchonAttributeSet_Status* status = nullptr;
+            const UArchonAttributeSet_Secondary* secondary = nullptr;
             auto& sets = asc->SpawnedAttributes;
             for (int si = 0; si < sets.Num(); si++) {
                 UAttributeSet* set = sets[si];
-                if (!PtrOk(set) || !set->IsA(statusCls)) continue;
-                const FVector& p = root->RelativeLocation;  // capsule center; unattached root: relative == world
-                out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z,
-                               static_cast<UArchonAttributeSet_Status*>(set)->CurrentHealth,
-                               PtrOk(c->PlayerState)});
-                break;
+                if (!PtrOk(set)) continue;
+                if (set->IsA(statusCls)) status = static_cast<UArchonAttributeSet_Status*>(set);
+                else if (set->IsA(secondaryCls)) secondary = static_cast<UArchonAttributeSet_Secondary*>(set);
             }
+            if (!status) continue;
+            const FVector& p = root->RelativeLocation;  // capsule center; unattached root: relative == world
+            out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z, status->CurrentHealth,
+                           PtrOk(c->PlayerState), secondary ? secondary->Health : 0.0f});
         }
     }
     return out;
