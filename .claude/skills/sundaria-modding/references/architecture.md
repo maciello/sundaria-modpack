@@ -14,9 +14,12 @@ core/:   # shared; features never include each other
   feature.hpp: Feature {name, stage (Alpha|Beta|Stable|Deprecated), enabled, OnFrame(Frame), Menu(), Off()}; on/off + font persist in dos-tool.ini (local); Frame {now, w, h, font, snap, combat, chars}
   overlay.cpp: D3D11 Present hook, ImGui, Insert menu, runs every feature, calls Off() on toggle-off and unload
   draw.hpp: FormatAmount, OutlinedText
-features/<kebab>/:   # one player-facing feature per folder; CMake globs features/*/*.cpp
+features/<kebab>/:   # one player-facing feature per folder; CMake globs features/*/*.cpp and features/*/*/*.cpp (not test/)
   <kebab>.cpp: one static Feature object; registers itself
   <kebab>.hpp + test/<kebab>_test.cpp: SDK-free logic + assert test (picked up by `just test`)
+features/<domain>/:  # features of one domain + their shared code (new-feature.sh <domain>/<kebab>)
+  shared/: domain code, one responsibility per file (inventory/shared/items.*: item model, profiles, reads); test/ picked up by `just test`
+  <kebab>/: one feature as above; includes "../shared/…", never a sibling feature
 ```
 
 ## Rules and why

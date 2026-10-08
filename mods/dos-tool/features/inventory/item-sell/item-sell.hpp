@@ -17,8 +17,8 @@ namespace item_sell::api {
     std::vector<Suggestion> Suggested();
 }
 
-// ---- SDK-free logic (#23); item model: core/items.hpp ----
-#include "items.hpp"
+// ---- SDK-free logic (#23); item model: ../shared/items.hpp ----
+#include "../shared/items.hpp"
 
 namespace item_sell {
     using namespace items;

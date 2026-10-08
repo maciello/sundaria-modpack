@@ -1,6 +1,6 @@
 #pragma once
 // SDK-free item model shared by item features (#16): item record, stats, kind/slot, profile weights,
-// comparison buckets. Game reads: items::io (core/items.cpp, the only SDK unit for items).
+// comparison buckets. Game reads: items::io (items.cpp, the only SDK unit for items).
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -162,7 +162,7 @@ namespace items {
     inline long long KeyOf(const Item& it) { return (static_cast<long long>(it.specId) << 32) | static_cast<unsigned>(it.level); }
 }
 
-// Profiles shared by item features (core/items.cpp); any thread. item-sort persists them in dos-tool.ini.
+// Profiles shared by item features (items.cpp); any thread. item-sort persists them in dos-tool.ini.
 namespace items::profiles {
     std::vector<Profile> All();
     void SetAll(std::vector<Profile> all);
@@ -171,7 +171,7 @@ namespace items::profiles {
     Profile Active();
 }
 
-// Game reads (core/items.cpp). Handles are SDK pointers as void* (core/game.hpp convention).
+// Game reads (items.cpp). Handles are SDK pointers as void* (core/game.hpp convention).
 namespace items::io {
     struct Names {
         std::vector<std::string> container, weaponType, equipSlot;  // enum value → name

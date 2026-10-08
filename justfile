@@ -57,7 +57,7 @@ labels:
     mk type:bug D73A4A "something behaves wrong"
     for p in 0 1 2 3; do mk prio:P$p FBCA04 "priority $p (0 = now)"; done
     mk mod:core 5319E7 "mods/dos-tool/core"
-    for d in $(find mods/dos-tool/features -name '*.cpp' -not -path '*/test/*' -exec dirname {} \; | sort -u); do mk "mod:$(basename $d)" 5319E7 "${d#mods/dos-tool/}"; done
+    for d in $(find mods/dos-tool/features -name '*.cpp' -not -path '*/test/*' -not -path '*/shared/*' -exec dirname {} \; | sort -u); do mk "mod:$(basename $d)" 5319E7 "${d#mods/dos-tool/}"; done
 
 # repo admin, once: apply .github/rulesets/*.json to GitHub (skips names that already exist)
 protect:
@@ -73,7 +73,7 @@ protect:
 test:
     sh scripts/version.sh check
     {{python}} updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
-    mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); {{cxx}} -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp){{exe}} && build/$(basename $t .cpp){{exe}} || exit 1; done
+    mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp mods/*/features/*/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); {{cxx}} -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp){{exe}} && build/$(basename $t .cpp){{exe}} || exit 1; done
 
 # fetches SDK + MSVC kit first if this machine has none
 build:

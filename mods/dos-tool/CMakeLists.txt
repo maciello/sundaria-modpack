@@ -9,13 +9,13 @@ set(SDK_DIR ""
 set(TP "${CMAKE_SOURCE_DIR}/third_party")
 set(IMGUI "${TP}/imgui")
 
-file(GLOB FEATURES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/features/*/*.cpp")
+file(GLOB FEATURES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/features/*/*.cpp" "${CMAKE_SOURCE_DIR}/features/*/*/*.cpp")
+list(FILTER FEATURES EXCLUDE REGEX "/test/")  # native tests have main()
 
 add_library(${PROJECT_NAME} SHARED
-    # our code: core host + every features/<name>/<name>.cpp (each registers itself)
+    # our code: core host + every features/[<domain>/]<name>/*.cpp (each feature registers itself) + domain shared/*.cpp
     core/dllmain.cpp
     core/game.cpp
-    core/items.cpp
     core/overlay.cpp
     core/umg.cpp
     ${FEATURES}

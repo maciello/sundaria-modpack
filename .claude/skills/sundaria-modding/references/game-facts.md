@@ -56,13 +56,13 @@ last_hit:   # verified in game 2026-10-08 (host): plain memory read on the rende
 
 items:   # features/item-sort; VERIFIED in game 2026-10-08 unless marked
   inventory: local PC IsA ABP_PlayerControllerOnline_C → InventoryItemContainerComponent @0x6F0, InvManagerComponent @0x6F8
-  bank: ABP_PlayerControllerOnline_C::ItemContainerStorage @0x6E8 (UBP_ItemContainerStorage_C); Items 0 until the bank is opened (in town); core/items.cpp keeps the last live read
+  bank: ABP_PlayerControllerOnline_C::ItemContainerStorage @0x6E8 (UBP_ItemContainerStorage_C); Items 0 until the bank is opened (in town); features/inventory/shared/items.cpp keeps the last live read
   container: UBP_ItemContainerComponent_C::Items @0x128 (FBP_ItemStruct: SpecID, ContainerSlot, ContainerType, grade, level, ChangedID @0x14); one component holds several EItemContainerType values (bag 0, equip 1, temp loot 8)
   identity: ChangedID is rewritten for every item on each reorder; SpecID repeats (122 distinct over 145 bag items) → key = (SpecID, level)
   stats: ItemStatList is sparse; use GetItemAttributeSet(slot, type, false) (game thread) → UArchonAttributeSet_Secondary, 128 float props read by reflection (FProperty::Offset); weapon attack stat names Map / RAP / SP
   spec: UArchonSpecManager::mLoadedSpecMap @0x28 (TMap<int32, UArchonSpec*>), every non-CDO manager; equipSlot @0x90
   enum_names: BP enums are UUserDefinedEnum: Names (NewEnumeratorN) + DisplayNameMap @0x60 (FName → FText); EnumNames() in item-sort.cpp
-  ranged_melee: EWeaponDamageType names are Slash/Crush/Pierce; WeaponAnimationType is the animation (a Wand is Club); use FBP_WeaponItemSpecStruct::mWeaponType (FName: Wand, GreatBow, HeavyCrossbow, Orb …) → AttackOfWeapon() in core/items.hpp
+  ranged_melee: EWeaponDamageType names are Slash/Crush/Pierce; WeaponAnimationType is the animation (a Wand is Club); use FBP_WeaponItemSpecStruct::mWeaponType (FName: Wand, GreatBow, HeavyCrossbow, Orb …) → AttackOfWeapon() in features/inventory/shared/items.hpp
   display_name: spec ItemSpecCommonData / ItemArmorSpecData / WeaponItemSpecData .mDisplayName @0x0 (FText)
   sell_salvage: sell = BP_InvManagerComponent_C::Request_SellItems(InventorySlots); salvage = BP_TradeskillsComponent_C::RequestSalvageFromInventorySlot(SlotId); per spec: BP_SpecItemBase_C::I_CanSalvage / I_IsItemSellable (UNVERIFIED in game)
   inventory_ui: bag header UWidgetitemBagHeaderMenu_C (Button_Sort @0x278, IsStorage @0x2A8); only BndEvt__Button_Sort_* passes ProcessEvent (SortItem/RequestSortItems are BP-to-BP); X key path unknown

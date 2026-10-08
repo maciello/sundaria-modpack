@@ -1,10 +1,10 @@
 #pragma once
-// SDK-free item order/filter + vanilla-sort hook logic (#21). Item model: core/items.hpp.
+// SDK-free item order/filter + vanilla-sort hook logic (#21). Item model: ../shared/items.hpp.
 #include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
-#include "items.hpp"
+#include "../shared/items.hpp"
 
 namespace item_sort {
     using namespace items;
