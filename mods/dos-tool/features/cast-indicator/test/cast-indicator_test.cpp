@@ -62,6 +62,18 @@ int main() {
     assert(rec.New(w, 9) == 0);  // someone else's hit
     assert(rec.New({}, 9) == 0 && rec.stamp.empty());
 
+    // pip weight: final shot does double → capped 1.4, others 1; unseen key or index → 1
+    Weights wt;
+    for (int i = 0; i < 4; i++) wt.Learn("A", 4, i, i == 3 ? 200.0f : 100.0f);
+    assert(Near(wt.Of("A", 0), 1) && Near(wt.Of("A", 3), kWeightMax) && Near(wt.Of("B", 0), 1));
+    wt.Learn("A", 4, 3, 100.0f);  // EMA: 200 + 0.3 × (100 - 200) = 170 → 1.7× median, still capped
+    assert(Near(wt.dmg["A"][3], 170) && Near(wt.Of("A", 3), kWeightMax));
+    std::vector<float> dmg;
+    w[0].hitStamp = 9; w[0].hitBy = 9; w[0].hitDamage = 42;
+    assert(rec.New(w, 9, nullptr, &dmg) == 0);  // rec was emptied above: first sight again
+    w[0].hitStamp = 10;
+    assert(rec.New(w, 9, nullptr, &dmg) == 1 && dmg.size() == 1 && dmg[0] == 42);
+
     // render: fill animation, punch, hold, fade
     Pips p;
     p.Update({1, 8, 0, false}, 0.0);
