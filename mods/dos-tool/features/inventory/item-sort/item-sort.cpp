@@ -259,7 +259,7 @@ namespace {
         int savedActive = -1;
         std::string exeDir;
 
-        ItemSort() : Feature("Item sort", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
+        ItemSort() : Feature("Item sort", feature::Stage::Beta) {}
 
         void Off() override {
             g_on = false;

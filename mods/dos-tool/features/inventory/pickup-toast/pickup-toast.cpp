@@ -208,7 +208,7 @@ namespace {
     }
 
     struct PickupToast : feature::Feature {
-        PickupToast() : Feature("Pickup toast", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
+        PickupToast() : Feature("Pickup toast", feature::Stage::Beta) {}
         void OnFrame(const feature::Frame&) override {
             io::Tick();
             if (g_on.load()) return;
