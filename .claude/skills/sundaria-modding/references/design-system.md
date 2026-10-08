@@ -100,7 +100,7 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Ring: Ellipse radii (18, 6)·Ui·depth, stroke 2·Ui in tier colour @.8, filled @.18.
 - Glow: 3 concentric CircleFilled r = (10, 16, 24)·Ui·depth, alpha .30/.15/.07, tier colour.
 - Beam: RectFilledMultiColor, width 6·Ui·depth, height 90·Ui·depth up from the ring centre, bottom tier @.55 → top tier @0.
-- Idle shimmer (unlooted only): white sparkle (Arcane glyph geometry, r = 7·Ui·depth) once per `kShimmerPeriod` at an offset inside the ring, scale 0 → 1 → 0 over 0.5 s InOutCubic; glow breathes alpha ×(0.75..1.0) sine at `kPulsePeriod`. Phase = hash(actor id) so markers never sync.
+- Idle shimmer (unlooted only, #27 built: `features/loot/idle-loot`, constants in `idle-loot.hpp`): 2 glints per `kShimmerPeriod`, evenly staggered, each at a fresh hashed spot in a box ±18 wide, 26 up / 4 down (units) around a point lifted 15 cm (item) / 45 cm (chest) above the root; glint = halo disc r 0.9·R tier @`kGlowAlpha` + Arcane star R = 7·Ui·depth·scale in the tier colour + white star 0.5 R (hot core); scale 0 → 1 → 0 over 0.5 s InOutCubic. Glow (3 discs above) breathes alpha ×(0.75..1.0) sine at `kPulsePeriod`, tier ≥ `kGlowFrom` and chests. Phase = hash(actor id) so markers never sync. Colour = the game's `GetItemColorForGrade` (sRGB, `game-facts.md` § loot); chest contents are unknown until opened → `kTextSoft`. Fade in `kFadeIn`, out `kFadeOut` on loot or occlusion.
 - Drop: ring + glow scale in with `kPop`; beam height 0 → full over 0.45 s OutCubic; burst = 8 radial lines, length 0 → 28·Ui, alpha 1 → 0 over 0.5 s, tier colour.
 - Looted / emptied: everything fades `kFadeOut` (≤ 1 s).
 - Don't: pulse scale (only alpha), draw through walls without fade, use element colours.

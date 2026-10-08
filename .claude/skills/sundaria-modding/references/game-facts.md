@@ -111,6 +111,16 @@ boss_fights:   # features/boss-intro/signals.cpp; SDK only, UNVERIFIED at runtim
     ReceiveBeginPlay on BP_LensEffect_bossAnnouncement_C (: AEmitterCameraLensEffectBase)
   match_by: function FName ComparisonIndex (int, outlives map travel) + IsA / class-name index; no Blueprint pointer kept
 
+loot:   # features/loot/shared (track.cpp); seen in game 2026-10-08 (Crypt of Horrors) unless marked
+  classes: ABP_WorldSingleItemtLoot_C (floor items, weapon racks *_SwitchableMesh_COH_WeaponRacks_C, destructible bags) and ABP_WorldLootBase_C (chests, boss chests, tombs BP_dun_hcr_tombA_COH_C); both : ABP_TriggerBase_C
+  finding: World → Levels[] → Actors[] lists only the streamed-in part of a dungeon (1 to 7 loot actors at a time); streamed-in levels fire each actor's ReceiveBeginPlay through ProcessEvent (overrides are distinct UFunctions: match by FName, not pointer)
+  item_unlooted: LootIsReady @0x484 && !AActor::bHidden; grade guess ItemGradeModifier @0x510 (weapon racks read 1; whether it is the item's real grade: unverified)
+  chest_unlooted: mOpenCloseAnimState @0x248 == 0 (an opened boss chest reads 2) && ItemFactoryComponent @0x418 → UBP_AffixItemFactory_C::IsLootReady @0x109 (opened chest: 0)
+  chest_items: ItemContainerComponent @0x410 → Items (a closed tomb read 2 items, max grade 3; opened boss chest 0)
+  vanilla_cues: no idle effect on chests (LootParticleSystem null on boss chest, tomb); weapon racks carry LootParticleSystem template P_ky_trail_ice, inactive; rim shader UseRimShader 1, Visualize 0 at rest (the component re-decides Visualize on its own tick)
+  grade_colours: GetItemColorForGrade (linear) → sRGB: 0 188,188,188 · 1 white · 2 0,255,0 · 3 0,89,255 · 4 220,37,245 · 5 255,237,0 · 6 255,16,0 · 7 0,255,255
+  occlusion: LastRenderTimeOnScreen @+0x290 of the rim component's RenderComponents (UBP_RimShaderComponent_C @0xD8: the loot's visible meshes, 1 each seen), compared with the newest character render time. CachedPrimitiveComp @0x3E8 is never rendered (reads -1000)
+
 combat_log (unused so far; crits + own-vs-party damage; whether its delegates pass ProcessEvent: UNVERIFIED):
   delegates: AArchonCharacter::OnCombatLogGeneratedDelegate_Offense / _Defense
   payload: FCombatDetailDamage {FinalDamage, BlockedDamage, CritLevel, ResistedDamage, MitigatedDamage_Armor, bIsHeal}
