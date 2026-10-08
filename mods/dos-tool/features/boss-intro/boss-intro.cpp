@@ -172,7 +172,10 @@ namespace {
                               e.fightClass.empty() ? "-" : e.fightClass.c_str(), e.name.c_str(), e.subtitle.c_str(), Name(v.kind));
                 logger::log(buf);
                 last = buf + 13;
-                if (!e.fightClass.empty()) names[e.fight] = {e.name.empty() ? title::FromClass(e.fightClass) : e.name, e.subtitle};
+                if (!e.fightClass.empty()) {
+                    const std::string n = e.name.empty() ? title::FromClass(e.fightClass) : e.name;
+                    names[e.fight] = {n, title::Epithet(e.subtitle, n)};
+                }
                 if (v.kind == Verdict::Start && !run.on) {
                     run = {true, false, false, 0, f.now, -1, v.fight};
                     if (auto it = names.find(v.fight); it != names.end()) run.name = it->second.name, run.epithet = it->second.epithet;

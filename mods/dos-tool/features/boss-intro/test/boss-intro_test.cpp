@@ -97,6 +97,8 @@ int main() {
         assert(FromClass("BP_BossFight_SkeletonLord_C") == "Skeleton Lord");
         assert(FromClass("BP_FinalBossFight_C") == "Final Boss Fight");
         assert(FromClass("") == "");
+        assert(Epithet("Started combat with {FightName}!", "Lady Everleen") == "Started combat with Lady Everleen!");  // #73
+        assert(Epithet("{Other} awakens", "X") == "" && Epithet("", "X") == "" && Epithet("The Unbroken", "X") == "The Unbroken");
     }
     std::puts("boss-intro: ok");
 }

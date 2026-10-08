@@ -156,6 +156,14 @@ namespace boss_intro {
         // 1 → 0 over kSkip after `since` seconds (skip pressed, game splash shown); 1 while since < 0 (not happened).
         inline float Fade(float since) { return since < 0 ? 1.0f : std::max(0.0f, 1 - since / kSkip); }
 
+        // Epithet from the fight's FightStartedMessage, a format template (#73): {FightName} becomes the name; any
+        // other {...} left means no epithet (never show a raw template).
+        inline std::string Epithet(std::string t, const std::string& name) {
+            const std::string key = "{FightName}";
+            for (size_t i; (i = t.find(key)) != std::string::npos;) t.replace(i, key.size(), name);
+            return t.find('{') == std::string::npos ? t : "";
+        }
+
         // Fallback name from the fight class: BP_BossFight_CricTheThief_2nd_C -> "Cric The Thief 2nd".
         inline std::string FromClass(std::string s) {
             const std::string pre = "BP_BossFight_", suf = "_C";
