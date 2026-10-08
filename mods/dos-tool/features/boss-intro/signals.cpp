@@ -4,6 +4,7 @@
 #include "umg.hpp"
 
 #include <Windows.h>
+#include <algorithm>
 #include <atomic>
 #include "Engine_classes.hpp"
 #include "UMG_classes.hpp"
@@ -30,6 +31,7 @@ namespace {
     std::atomic<int32> g_splashCls{-1}, g_lensCls{-1};  // FName index of the class names, once seen
     SRWLOCK g_mu = SRWLOCK_INIT;
     std::vector<boss_intro::game_side::Event> g_events;
+    std::vector<ref::Ref> g_fights;  // ABP_BossFight_C seen by a signal, newest last
 
     void Resolve(const UClass* c, int from, int to) {
         if (!PtrOk(c)) return;
@@ -48,9 +50,15 @@ namespace {
                 auto* bf = static_cast<const ABP_BossFight_C*>(fight);
                 e.name = Text(bf->FightDisplayName);
                 e.subtitle = Text(bf->FightStartedMessage);
+            } else {
+                fight = nullptr;  // no BossActors to frame
             }
         }
         AcquireSRWLockExclusive(&g_mu);
+        if (fight && std::find(g_fights.begin(), g_fights.end(), ref::Ref(fight)) == g_fights.end()) {
+            if (g_fights.size() >= 8) g_fights.erase(g_fights.begin());  // a dungeon has a handful of fights
+            g_fights.push_back(ref::Ref(fight));
+        }
         if (g_events.size() < 64) g_events.push_back(std::move(e));
         ReleaseSRWLockExclusive(&g_mu);
     }
@@ -112,6 +120,22 @@ namespace boss_intro::game_side {
         g_on = on;
         g_tryClass = on;  // after a hot reload inside a dungeon the fights' BeginPlay is long past
         game::SetEventListener(&OnEvent, on);
+    }
+
+    bool BossOf(std::uintptr_t fight, Boss& out) {
+        ref::Ref r;
+        AcquireSRWLockShared(&g_mu);
+        for (const ref::Ref& f : g_fights)
+            if (reinterpret_cast<std::uintptr_t>(f.ptr) == fight) r = f;
+        ReleaseSRWLockShared(&g_mu);
+        const auto* bf = r.Get<ABP_BossFight_C>();
+        if (!bf || bf->BossActors.Num() < 1) return false;
+        const auto* boss = ref::Ref(bf->BossActors[0]).Get<ACharacter>();
+        if (!boss || !boss->IsA(ACharacter::StaticClass()) || !PtrOk(boss->RootComponent) || !PtrOk(boss->CapsuleComponent)) return false;
+        const FVector& p = boss->RootComponent->RelativeLocation;  // root unattached: relative == world (game-facts.md)
+        const UCapsuleComponent* c = boss->CapsuleComponent;
+        out = {p.X, p.Y, p.Z, c->CapsuleHalfHeight * c->RelativeScale3D.Z};
+        return out.halfHeight > 1.0f;
     }
 
     std::vector<Event> Take() {

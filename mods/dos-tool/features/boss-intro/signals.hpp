@@ -13,6 +13,9 @@ namespace boss_intro::game_side {
         std::string fightClass;   // BP_BossFight_<Boss>_C
         std::string name, subtitle;  // FightDisplayName, FightStartedMessage ("" if unset)
     };
+    struct Boss { float x, y, z, halfHeight; };  // capsule centre (cm), capsule half height
+    // The fight's first boss actor, if spawned (render thread: memory reads only).
+    bool BossOf(std::uintptr_t fight, Boss& out);
     void Listen(bool on);
     std::vector<Event> Take();  // render thread: events since the last call
 }

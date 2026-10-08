@@ -1,7 +1,9 @@
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
+#include "style.hpp"
 
 // SDK-free logic for the boss intro (#13). Spec: references/design-system.md § Boss intro camera, § Boss name card.
 namespace boss_intro {
@@ -60,4 +62,60 @@ namespace boss_intro {
             return {Verdict::Start, fight};
         }
     };
+
+    // Camera move (#18): live camera -> framing shot -> slow orbit -> back to the live camera, re-read every frame.
+    namespace cam {
+        constexpr float kApproach = 1.2f, kReturn = 0.8f;   // s, InOutCubic
+        constexpr float kHold = style::motion::kCardHold;  // the title plays meanwhile
+        constexpr float kOrbitDegPerSec = 4.0f;            // linear, during the hold
+        constexpr float kLookUp = 10.0f;                   // camera 10° below the boss's eyes, looking up
+        constexpr float kDistPerHeight = 2.5f;             // × capsule height
+        constexpr float kMinDist = 300.0f, kMaxDist = 3000.0f;  // cm
+        constexpr float kEye = 0.8f;                       // eye height above the capsule centre, × half height
+        constexpr float kFovDelta = -10.0f;                // vs gameplay
+        constexpr float kLetterbox = 0.1f, kLetterboxIn = 0.4f;  // × screen height, s
+        constexpr float kTotal = kApproach + kHold + kReturn;
+        constexpr float kD2R = 3.14159265f / 180.0f;
+
+        struct Pose { float x, y, z, pitch, yaw, fov; };  // fov horizontal, degrees
+
+        // Shot share of the pose at t seconds into the sequence: 0 = live camera, 1 = framing shot.
+        inline float Weight(float t) {
+            using style::ease::Apply; using C = style::ease::Curve;
+            if (t < kApproach) return Apply(C::InOutCubic, t / kApproach);
+            if (t < kApproach + kHold) return 1.0f;
+            return 1.0f - Apply(C::InOutCubic, (t - kApproach - kHold) / kReturn);
+        }
+        inline float Orbit(float t) { return kOrbitDegPerSec * std::clamp(t - kApproach, 0.0f, kHold); }
+        inline float Letterbox(float t) {  // bar height, × screen height
+            using style::ease::Apply; using C = style::ease::Curve;
+            return kLetterbox * Apply(C::InOutCubic, std::min(t, kTotal - t) / kLetterboxIn);
+        }
+
+        inline float Wrap(float deg) { return std::remainder(deg, 360.0f); }  // -180..180
+        inline float LerpAngle(float a, float b, float w) { return a + Wrap(b - a) * w; }
+        inline float Lerp(float a, float b, float w) { return a + (b - a) * w; }
+
+        // Framing shot of a boss (capsule centre bx,by,bz, half height hh) seen along `yaw` (degrees, + orbit):
+        // eyes on the right third, camera below eye level looking up kLookUp, FOV = live + kFovDelta.
+        inline Pose Shot(float bx, float by, float bz, float hh, float yaw, float liveFov) {
+            const float d = std::clamp(kDistPerHeight * 2.0f * hh, kMinDist, kMaxDist);
+            const float ez = bz + kEye * hh;
+            const float p = kLookUp * kD2R, y = yaw * kD2R;
+            const float fov = std::clamp(liveFov + kFovDelta, 20.0f, 170.0f);
+            // camera-space direction to the eyes = (fwd 1, right r, up 0), r = screen x at 2/3 w; solve the camera's
+            // pitch/yaw so that direction has elevation kLookUp along `yaw` in the world.
+            const float r = std::tan(fov * 0.5f * kD2R) / 3.0f;
+            const float pitch = std::asin(std::sin(p) * std::sqrt(1 + r * r));
+            const float camYaw = yaw - std::atan2(r, std::cos(pitch)) / kD2R;
+            return {bx - d * std::cos(p) * std::cos(y), by - d * std::cos(p) * std::sin(y), ez - d * std::sin(p),
+                    pitch / kD2R, Wrap(camYaw), fov};
+        }
+        inline Pose Blend(const Pose& live, const Pose& shot, float w) {
+            return {Lerp(live.x, shot.x, w), Lerp(live.y, shot.y, w), Lerp(live.z, shot.z, w),
+                    LerpAngle(live.pitch, shot.pitch, w), Wrap(LerpAngle(live.yaw, shot.yaw, w)), Lerp(live.fov, shot.fov, w)};
+        }
+        // Direction from the live camera to the boss: the shot looks the way the player already does.
+        inline float YawTo(float fromX, float fromY, float bx, float by) { return std::atan2(by - fromY, bx - fromX) / kD2R; }
+    }
 }
