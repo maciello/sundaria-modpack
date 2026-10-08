@@ -1,4 +1,5 @@
 #include "inventory-ui.hpp"
+#include "item-sort.hpp"
 #include "game.hpp"
 #include "logger.hpp"
 
@@ -19,13 +20,6 @@
 // Click = next sort profile + re-sort that bag. Spec: references/design-system.md § Inventory sort profile.
 // Game thread only (ProcessEvent listener). Facts: references/game-ui.md.
 using namespace SDK;
-
-namespace item_sort::api {  // item-sort.cpp
-    std::vector<std::string> ProfileNames();
-    int ActiveProfile();
-    void SetActiveProfile(int i);
-    void RequestSort(bool bank);
-}
 
 namespace {
     bool PtrOk(const void* p) {

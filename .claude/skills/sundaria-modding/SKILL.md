@@ -24,6 +24,7 @@ Maintenance contract:
 | build/compile errors, hot-reload internals, SDK re-dump, updater | `references/toolchain.md` |
 | something fails or crashed | `references/gotchas.md` |
 | new machine (SDK, MSVC kit), working together, trunk/flags | repo `CLAUDE.md` → `just sdk-pull` |
+| extend a game screen (inventory, bank, menus): its UMG widgets, styles, how to add ours; `just ui <Class>` dumps live trees | `references/game-ui.md` |
 | any visual: colours, sizes, motion, icons, component specs (numbers, bars, loot, cards, menu) | `references/design-system.md` + tokens `core/style.hpp`; rule `.claude/rules/design.md`; reference images (local only, never commit) `../design-refs/<topic>/index.yaml` |
 | new work, idea, bug: file / claim / close an issue | `.claude/rules/issues.md` |
 

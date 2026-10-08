@@ -1,9 +1,16 @@
 # Design system
 
-Tokens live in `mods/dos-tool/core/style.hpp` (SDK- and ImGui-free, asserted by `core/test/style_test.cpp`).
 This file is the language and the component specs. Rule: `.claude/rules/design.md`. Missing a spec → label `design` on the issue.
 
-Renderer: Dear ImGui 1.90.9 draw lists on the D3D11 overlay. No textures. Text = embedded display fonts
+## Two surfaces
+| surface | what | build with | look |
+|---|---|---|---|
+| game screens | anything inside inventory, bank, character, merchant, options …⊇ | the game's own UMG widgets and styles, added on the game thread: `references/game-ui.md` | the game's: Narkisim text, Button05/Button04 art, stone frames, accent orange, yellow highlights. No `style.hpp` colours |
+| our overlays | HUD drawn over the world: damage numbers, health bars, cast pips, loot markers, boss card, DPS meter; the Insert menu (feature flags only) | ImGui draw lists, tokens in `mods/dos-tool/core/style.hpp` (asserted by `core/test/style_test.cpp`) | Genshin-inspired language below; chrome (`kAccent`, `kPanel`) pulled towards the game's palette so overlays next to game UI match |
+
+Start from the game's base UI (`game-ui.md`); reference images from other games (`../design-refs/<topic>/index.yaml`, local only) come after, as inspiration.
+
+Overlay renderer: Dear ImGui 1.90.9 draw lists on the D3D11 overlay. No textures. Text = embedded display fonts
 (`mods/dos-tool/assets`, Titan One default) baked at `type::kAtlasPx` 64 px: bigger text is upscaled and soft.
 Colour to ImGui: `style::Pack(token, alpha)` == `IM_COL32`.
 
@@ -14,7 +21,7 @@ Borderlands only for the boss name card (skewed slab, hard shadow, bold title).
 | principle | rule |
 |---|---|
 | readable on anything | every glyph/text = fill + `color::kInk` outline at `stroke::kOutlineAlpha`; fills ≥ 4.5:1 on ink (tested) |
-| one hue, one meaning | element colours only for elements, rarity only for loot, `kHpFill`/`kTaken` only for HP loss, `kGold` only for chrome (trim, menu, HUD accent). Never colour by size |
+| one hue, one meaning | element colours only for elements, rarity only for loot, `kHpFill`/`kTaken` only for HP loss, `kAccent` only for chrome (trim, menu, HUD accent). Never colour by size |
 | size = magnitude | log scale, clamped (`type::kNumberMin..kNumberMax`), stacks capped at `kStackCap` |
 | restrained motion | one primary motion per element; 0.12–0.6 s; overshoot (OutBack) only at birth; no looping motion except idle loot cues |
 | soft glow | glow = same hue as the fill, wide, low alpha (`stroke::kGlowWidth`, `kGlowAlpha`); white only as an impact flash ≤ `motion::kFlash` |
@@ -24,8 +31,8 @@ Borderlands only for the boss name card (skewed slab, hard shadow, bold title).
 
 ## Tokens (`style::`)
 ```yaml
-color:   {kInk: ink outline 20,12,8, kShadow: drop shadow, kText: 255 white, kTextSoft: 235,225,205, kTextMuted, kGold: chrome accent,
-          kPanel: 18,15,22 @.84, kPanelEdge: gold @.35, kTrack, kHpFill, kHpSheen, kHpChip, kHeal, kTaken, kGood: upgrade, kSell: sell}
+color:   {kInk: ink outline 20,12,8, kShadow: drop shadow, kText: 255 white, kTextSoft: 235,225,205, kTextMuted, kAccent: chrome accent = game accent orange 255,166,69,
+          kPanel: 18,15,22 @.84, kPanelEdge: accent @.35, kGameText: 239 game button text, kGameHighlight: 252,255,0 game counts/marks, kTrack, kHpFill, kHpSheen, kHpChip, kHeal, kTaken, kGood: upgrade, kSell: sell}
 element: kColor[combat::Element] / Of(e)   # Physical white, Fire, Ice, Lightning, Holy, Poison, Shadow, Arcane, Environment
 rarity:  kTier[0..7] / Of(tier), kGlowFrom 3   # EItemGrade by rank, WoW quality colours; names + order unverified; the game's own GetItemColorForGrade wins once read
 type:    {Ui(h), kXs 13, kSm 17, kMd 26, kLg 42, kXl 64, kAtlasPx 64, kNumberMin .8, kNumberMax 2.4, kStackCap 1.6, kHaloFrom 1.8,
@@ -103,14 +110,13 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Colour: highest item tier in the chest if known, else `kTextSoft`. Particles deterministic from hash(actor id) (SDK-free, tested).
 
 ### Suggestion badge (#22, #23)
-- Pill: height 18·Ui, padding x `space::k3`, `Pill(h)`, text `kXs`·Ui in `kInk`, no outline.
-- Upgrade: fill `kGood`, glyph up-triangle (w 8, h 6 ·Ui) + "+<score delta>". Sell: fill `kSell`, glyph coin (CircleFilled r 4·Ui + Circle r 2.5·Ui in ink) + "SELL"; second line "superior: <name>" `kSm` `kTextSoft` (bank items add "(bank)").
-- List row (overlay window): 3·Ui left bar in rarity colour, item name in rarity colour, badge right-aligned.
-- Motion: badge pops `kPop` on first appearance only. Don't: animate lists; use red for sell.
+Game screen: built from game widgets inside the bag (no ImGui pills). Spec waits for the live item-slot survey
+(open the inventory, `just ui WidgetItemInventory WidgetItemBag`): mark = the game's own slot highlight or a small game
+TextBlock (Narkisim, `kGameHighlight` for "upgrade", accent orange for "sell") on the slot; detail text in the game tooltip (`WidgetTooltip_C`).
 
 ### Boss name card (#19, Borderlands style)
 - Cinematic layer: hides WorldNumber/Hud while shown. Letterbox: black rects top and bottom, 0 → 0.1h over 0.4 s InOutCubic, out the same.
-- Plate: parallelogram skew 12°, anchor left edge at 0.08w, vertical centre 0.62h, height 96·Ui, width text + 2·`space::k8`·Ui, fill `kPanel`; `kGold` trim lines 3·Ui along top and bottom edges.
+- Plate: parallelogram skew 12°, anchor left edge at 0.08w, vertical centre 0.62h, height 96·Ui, width text + 2·`space::k8`·Ui, fill `kPanel`; `kAccent` trim lines 3·Ui along top and bottom edges.
 - Subtitle (epithet / FightStartedMessage) `kMd` `kTextSoft` above the name; name `kXl` `kText`, ink outline + hard drop shadow (offset (4, 4)·Ui, `kInk` @1).
 - Motion: plate slides in from −40·Ui with `kCardIn`; name scales 1.3 → 1 over 0.2 s OutCubic after 0.1 s; hold `kCardHold`; out `kCardOut` slide +40·Ui + fade. Skip → all out in 0.1 s.
 - Fallback: no name → class name with `BP_`/`_C` stripped. Names > 18 chars → `kLg`.
@@ -121,12 +127,19 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Don't: cuts, zoom punches, shake, roll. Borderlands energy stays in the name card.
 
 ### Menu (Insert window) and HUD panels
-- ImGuiStyle: WindowRounding `kLg`, FrameRounding/GrabRounding `kMd`, WindowPadding (k6, k6), FramePadding (k4, k2), ItemSpacing (k4, k3); WindowBg `kPanel`; Border `kPanelEdge`; Text `kText`; TextDisabled `kTextMuted`; CheckMark/SliderGrab `kGold`; Button/Header/FrameBg = `kGold` @ .25 / .40 (hovered) / .55 (active).
+- Insert window = feature flags only (toggle + that feature's tuning). No feature UI (lists, panels, item tools): those go into game screens.
+- ImGuiStyle: WindowRounding `kLg`, FrameRounding/GrabRounding `kMd`, WindowPadding (k6, k6), FramePadding (k4, k2), ItemSpacing (k4, k3); WindowBg `kPanel`; Border `kPanelEdge`; Text `kText`; TextDisabled `kTextMuted`; CheckMark/SliderGrab `kAccent`; Button/Header/FrameBg = `kAccent` @ .25 / .40 (hovered) / .55 (active).
 - Section titles: selected display font at `kMd`. Body: default font.
-- DPS meter: top-right, margin `space::k6`·Ui, panel `kPanel` @.45, radius `kMd`; DPS `kMd` `kGold` (inactive `kTextMuted`), detail line `kSm` `kTextSoft`.
+- DPS meter: top-right, margin `space::k6`·Ui, panel `kPanel` @.45, radius `kMd`; DPS `kMd` `kAccent` (inactive `kTextMuted`), detail line `kSm` `kTextSoft`.
 
-### Inventory sort controls (#21)
-Not specified: visuals by the design lead (maintainer 2026-10-08: "let the designer do the item sort visuals"). Data/actions: `item_sort::api` in `features/item-sort/item-sort.hpp`.
+### Inventory sort profile (#21, game screen)
+- Where: bag header row (`WidgetitemBagHeaderMenu_C`, inventory and bank), directly right of the game's Sort.
+- Widget: the game's `WidgetButton01_C`, Button style copied from Sort (Button05 art), label colour = Sort's (0.937), Narkisim 18, slot = Sort's (fill 0.5). Same size and look as Sort; the row reads `[Sort] [Profile: Melee]`.
+- Label: `Profile: <name>` (Balanced, Melee, Ranged, Magic …⊇ from `item_sort::api::ProfileNames`).
+- Click: next profile (wraps) and re-sorts that bag at once (`RequestSort(IsStorage)`). The game's Sort also follows the active profile.
+- States: hover/pressed = the game's Button05 art. Item sort off: the button stays inert until the game rebuilds the screen.
+- Weights stay in the Insert menu (tuning of the flag).
+- Don't: ImGui strips/windows over the bag, own colours, reuse `Button_SpecialOption0` (it is Destroy Items).
 
 ## Shelf (prior art used)
 WoW item-quality colours (rarity) · Robert Penner easings (ease) · OKLab ΔE (Ottosson) + WCAG 2.x contrast (test) ·
