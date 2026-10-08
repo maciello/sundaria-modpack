@@ -1,5 +1,6 @@
 #pragma once
-// The local player's way to the current floor's exit (plan.cpp reads the dungeon and asks the game's navmesh, route.hpp).
+// The current floor's main route, entry → exit, and the connector from the player to it (plan.cpp reads the dungeon and
+// asks the game's navmesh, route.hpp).
 // SDK-free types and choices; facts: references/game-facts.md § Dungeon.
 #include <string>
 #include <vector>
@@ -61,14 +62,16 @@ namespace dungeon_map {
     struct Plan {
         bool ok = false;
         int floor = -1;
-        Path path;                 // player → stairs down / exit volume (route.hpp)
+        Path path;                 // main route: floor entry → (levers →) stairs down / exit volume (route.hpp)
         bool partial = false;      // the navmesh stopped short somewhere; the route jumps on to the next room
-        std::vector<Box> rooms;    // the floor's room chain, for replanning on a room change
+        std::vector<Box> rooms;    // the floor's room chain, for replanning the connector on a room change
         Marks marks;
         std::string why;           // log line: what was found or why there is no plan
     };
 
-    // Game thread, dungeon only. Routes from pawn, which also decides the floor. O(rooms + triggers of the dungeon)
-    // + O(rooms of the floor) navmesh queries (one when nothing cuts the way).
+    // Game thread, dungeon only. pawn decides the floor; the route starts at its entry. O(rooms + triggers of the dungeon)
+    // + O(rooms of the floor + levers) navmesh queries (one when nothing cuts the way).
     Plan Compute(V3 pawn);
+    // Game thread: the connector, navmesh path from → to, joined straight to `to` where the navmesh stops. One query.
+    Path Connect(V3 from, V3 to);
 }

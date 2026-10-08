@@ -23,11 +23,13 @@
 #include "BP_DungeonFloor_classes.hpp"
 #include "BP_DungeonFloor_parameters.hpp"
 #include "BP_TriggerBase_classes.hpp"
+#include "UMG_classes.hpp"
+#include "UMG_parameters.hpp"
 
-// Dungeon map (#40): the local player's way to the floor's stairs down (route.hpp) drawn on the game's minimap from where
-// they stand, with a flow along it and blocked/lever icons where a locked door cuts it (#66 #67 #68 #83).
-// Replans on game events (door state, lock, floor activation), on entering a dungeon or another room, and when the
-// player leaves the route; game thread only.
+// Dungeon map (#40): the floor's main route, entry → stairs down (route.hpp), drawn in full on the game's minimap with a flow
+// along it and blocked/lever icons where a locked door cuts it (#66 #67 #68 #93). When the main route is out of the minimap's
+// view, a dashed connector leads from the player to it (#83). The main route replans on game events (door state, lock,
+// floor activation) and on entering a dungeon; the connector on a room change or when the player strays. Game thread only.
 // Facts: references/game-facts.md § Dungeon, game-ui.md § Minimap. Dev probe: dungeon-map.probe next to the exe.
 using namespace SDK;
 using umg::PtrOk;
@@ -58,8 +60,28 @@ namespace {
     void RemoveAll() { dungeon_map::draw::Clear(); g_drawn = false; }  // game thread (or Off() after its wait ran out)
     double g_replanAt = INFINITY;
     dungeon_map::Plan g_plan;
-    int g_room = -1;         // the player's room when the plan was made
-    double g_plannedAt = 0;
+    dungeon_map::Progress g_progress;  // along the main route, this floor
+    dungeon_map::Path g_link;          // connector: player → main route, empty = none
+    bool g_linkWanted = false;
+    int g_room = -1;                   // the player's room when the connector was made
+    double g_linkedAt = 0;
+    float g_mapPx = 0;                 // minimap view size (px), read from the widget once per minimap
+    constexpr float kMapPxFallback = 250;  // game-ui.md § Minimap SizeBox 250×250, used when the read fails (unverified)
+    ref::Fn g_cachedGeo{UWidget::StaticClass, "Widget", "GetCachedGeometry"};
+    ref::Fn g_localSize{USlateBlueprintLibrary::StaticClass, "SlateBlueprintLibrary", "GetLocalSize"};
+
+    // The minimap's visible size in its own pixels: the retainer that clips it (game thread).
+    float ReadMapPx(UWidgetMiniMap_C* m) {
+        UFunction* g = g_cachedGeo.Get();
+        UFunction* s = g_localSize.Get();
+        if (!g || !s || !PtrOk(m->RetainerBox_Minimap)) return 0;
+        Params::Widget_GetCachedGeometry q{};
+        umg::CallNative(m->RetainerBox_Minimap, g, &q);
+        Params::SlateBlueprintLibrary_GetLocalSize z{};
+        z.Geometry = q.ReturnValue;
+        umg::CallNative(USlateBlueprintLibrary::GetDefaultObj(), s, &z);
+        return float(std::min(z.ReturnValue.X, z.ReturnValue.Y));
+    }
 
     // Game thread → render thread (#93): the player and the levers on the route, plain copies.
     SRWLOCK g_mu = SRWLOCK_INIT;
@@ -100,6 +122,8 @@ namespace {
         g_gameState = ref::Ref(gs);
         g_inDungeon = PtrOk(gs) && PtrOk(gs->Class) && gs->Class->GetName().find("Dungeon") != std::string::npos;
         g_plan = {};
+        g_progress = {};
+        g_link.clear();
         g_replanAt = g_inDungeon ? Now() : INFINITY;
     }
 
@@ -117,22 +141,47 @@ namespace {
         const FVector l = pc->Pawn->K2_GetActorLocation();
         const dungeon_map::V3 pawn{l.X, l.Y, l.Z};
         if (Now() >= g_replanAt) {
+            const int floor = g_plan.floor;
             g_plan = dungeon_map::Compute(pawn);
             g_replanAt = g_plan.ok ? INFINITY : Now() + kRetry;
-            g_room = dungeon_map::RoomOf(g_plan.rooms, pawn);
-            g_plannedAt = Now();
+            if (g_plan.floor != floor) g_progress = {};
+            g_link.clear();
             logger::log("[dungeon-map] plan: " + g_plan.why);
         }
         Publish(pawn, g_plan.ok && g_plan.marks.locked ? g_plan.marks.levers : std::vector<dungeon_map::V3>{});
         if (!g_plan.ok) return;
-        // Lost or moved on: a new route from here. O(path points + rooms) per tick.
-        const dungeon_map::Proj at = dungeon_map::Project(g_plan.path, pawn);
-        const int room = dungeon_map::RoomOf(g_plan.rooms, pawn);
-        if ((at.d > dungeon_map::kOffLine || (room >= 0 && room != g_room)) && Now() >= g_plannedAt + kReplanGap) ReplanIn(0);
         auto* m = g_minimap.Get<UWidgetMiniMap_C>();
         if (!m || m->UnitToPixel <= 0 || !PtrOk(m->CanvasPanel_Map)) return;
-        const float from = std::floor(at.s / dungeon_map::kStep) * dungeon_map::kStep;
-        const auto qs = dungeon_map::Scene(g_plan.path, from, g_plan.marks, float(m->UnitToPixel), m->CanvasPanel_Map->RenderTransform.Angle, Now());
+        g_progress.Visit(g_plan.path, pawn);  // O(path points) per tick
+
+        // Connector: only while no main-route point lies inside the minimap's view (radius of its inscribed circle).
+        if (g_mapPx <= 0) {
+            const float px = ReadMapPx(m);
+            g_mapPx = px > 0 ? px : kMapPxFallback;
+            logger::log("[dungeon-map] minimap view: " + std::to_string(int(g_mapPx)) + " px (" + (px > 0 ? "widget geometry" : "fallback") + ")");
+        }
+        const float scale = std::max(m->CanvasPanel_Map->RenderTransform.Scale.X, 0.01f);
+        const float radius = 0.5f * g_mapPx / scale * float(m->UnitToPixel);
+        const float off = dungeon_map::MapDist(g_plan.path, pawn);
+        g_linkWanted = off > radius * (g_linkWanted ? dungeon_map::kLinkHide : 1.f);
+        if (!g_linkWanted) g_link.clear();
+        else {
+            const int room = dungeon_map::RoomOf(g_plan.rooms, pawn);
+            const bool stray = g_link.empty() || dungeon_map::Project(g_link, pawn).d > dungeon_map::kOffLine || (room >= 0 && room != g_room);
+            if (stray && Now() >= g_linkedAt + kReplanGap) {
+                const dungeon_map::V3 join = dungeon_map::Join(g_plan.path, pawn, g_progress.S(g_plan.path));
+                g_link = dungeon_map::Connect(pawn, join);
+                g_room = room;
+                g_linkedAt = Now();
+                char b[160];
+                std::snprintf(b, sizeof b, "[dungeon-map] connector: %zu points, %.0f long, route %.0f off (view radius %.0f), joins at %.0f of %.0f",
+                              g_link.size(), dungeon_map::Length(g_link), off, radius, dungeon_map::Project(g_plan.path, join).s, dungeon_map::Length(g_plan.path));
+                logger::log(b);
+            }
+        }
+        dungeon_map::Path link;
+        if (!g_link.empty()) link = dungeon_map::Suffix(g_link, std::floor(dungeon_map::Project(g_link, pawn).s / dungeon_map::kStep) * dungeon_map::kStep);
+        const auto qs = dungeon_map::Scene(g_plan.path, link, g_plan.marks, float(m->UnitToPixel), m->CanvasPanel_Map->RenderTransform.Angle, Now());
         dungeon_map::draw::Sync(m, qs);
         g_drawn = true;
     }
@@ -144,7 +193,7 @@ namespace {
         const bool on = g_on.load(std::memory_order_relaxed);
         if (umg::IsWorldTick(fn)) WorldTick();
         else if (on && g_minimapTick.Is(fn)) {
-            if (!g_minimap.Is(obj) && umg::Live(static_cast<UObject*>(obj))) g_minimap = ref::Ref(obj);
+            if (!g_minimap.Is(obj) && umg::Live(static_cast<UObject*>(obj))) g_minimap = ref::Ref(obj), g_mapPx = 0;
         } else if (on && g_inDungeon) {
             if (g_ev.state.Is(fn) || g_ev.lock.Is(fn)) g_replanAt = Now() + kDoorSettle;  // the last of a door's events counts
             else if (g_ev.floorOn.Is(fn)) ReplanIn(0);

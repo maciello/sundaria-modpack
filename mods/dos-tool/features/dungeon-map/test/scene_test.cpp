@@ -24,22 +24,28 @@ int main() {
     const std::vector<Box> rooms{{{0, 0, 0}, {500, 500, 500}, 0}, {{2000, 0, 0}, {500, 500, 500}, 0}};
     assert(RoomOf(rooms, {2100, 0, 0}) == 1 && RoomOf(rooms, {1000, 0, 0}) == -1);
 
-    // Scene: segments from the player on to the end, pulses, a cap at the end; icons only for a locked door.
+    // Scene: the whole main route, pulses, a cap at the end; icons only for a locked door.
     const Path p{{0, 0, 0}, {6400, 0, 0}, {6400, 6400, 0}};  // 100 px + 100 px at UnitToPixel 64
-    auto q = Scene(p, -1, {}, 64, 0, 0);
+    auto q = Scene({}, {}, {}, 64, 0, 0);
     assert(q.empty());
-    q = Scene(p, 3200, {}, 64, 30, 0);  // the player 50 px into the first leg
+    q = Scene(p, {}, {}, 64, 30, 0);
     int bars = 0, caps = 0;
     for (const Quad& x : q) {
         if (x.z == kZLine) bars++;
         if (x.z == kZMark && Near(x.alpha, kCapAlpha)) caps++;
     }
     assert(bars == 2 && caps >= 1);
-    const Quad& first = q[0];  // world +X = map up (-y): the first bar is vertical, from (0, -50) to (0, -100)
-    assert(Near(first.x, 0) && Near(first.y, -75) && Near(first.w, 50) && Near(std::abs(first.angle), 90));
+    const Quad& first = q[0];  // world +X = map up (-y): the first bar is vertical, from (0, 0) to (0, -100)
+    assert(Near(first.x, 0) && Near(first.y, -50) && Near(first.w, 100) && Near(std::abs(first.angle), 90));
     const Quad& cap = q.back();
     assert(Near(cap.x, 100) && Near(cap.y, -100) && Near(cap.angle, 15));  // at the end, counter-rotated: 45 - 30
-    q = Scene(p, 9600, m, 64, 0, 0);
+    // Connector: 110 px → 10 dashes of 6 px (period 11), then the join diamond; under the main route's quads.
+    const Path link{{0, 6400, 0}, {7040, 6400, 0}};
+    q = Scene({}, link, {}, 64, 0, 0);
+    int dashes = 0;
+    for (const Quad& x : q) dashes += x.z == kZLine && Near(x.w, kDashPx) && Near(x.alpha, kLinkAlpha);
+    assert(dashes == 10 && q.size() == 11 && q.back().z == kZMark);
+    q = Scene(p, {}, m, 64, 0, 0);
     int icons = 0;
     for (const Quad& x : q) icons += x.z >= kZIcon;
     assert(icons == 3 + 2);  // plate + X, lever plate + handle

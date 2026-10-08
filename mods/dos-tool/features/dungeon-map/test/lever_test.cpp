@@ -37,7 +37,7 @@ int main() {
     mk.locked = true;
     mk.levers = {{100, 0, 0}};
     int halos = 0;
-    for (const Quad& q : Scene({}, -1, mk, 64, 0, 0.8)) halos += q.z == kZMark && Near(q.alpha, kHaloAlpha);
+    for (const Quad& q : Scene({}, {}, mk, 64, 0, 0.8)) halos += q.z == kZMark && Near(q.alpha, kHaloAlpha);
     assert(halos == 1);
     std::puts("ok");
 }

@@ -145,10 +145,13 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 ### Dungeon map path (#40, inside the game's minimap)
 - Where: plain `UImage`s (no texture = solid tint) in `WidgetMiniMap_C::CanvasPanel_DynamicMinimp`, placed like the game's own icons
   (anchors (0,1), alignment 0.5, map pixel = (Y, −X) / UnitToPixel). They pan, rotate and clip with the minimap; nothing on the HUD outside it.
-- Line: the way from where the player stands to the floor's stairs down (exit volume on the last floor), all of it, one bar per path
-  segment, 2 px thick, `kAccent` @.55. It starts at the player (follows in 1 m steps) and is replanned when they enter another room or
-  stray 8 m off it (#83). Goal cap: 7 px diamond, `kGameHighlight` @.9, at the end.
-- Flow: 5 px diamonds `kGameHighlight` travelling player → goal at 40 px/s, 36 px apart (at most 24; spacing grows on long lines);
+- Main route: the floor's main line, entry → stairs down (exit volume on the last floor), always drawn in full, one bar per path
+  segment, 2 px thick, `kAccent` @.55. Goal cap: 7 px diamond, `kGameHighlight` @.9, at the end. Replans only on door, lever and floor events.
+- Connector (#83): only while no point of the main route lies inside the minimap's view (inscribed circle of the retainer, from its
+  geometry × UnitToPixel; hides again once the route is within 90 % of that radius). Dashed: 6 px dashes, 5 px gaps (at most 64, spread
+  evenly), 2 px, `kAccent` @.8, no flow; 5 px `kAccent` diamond @.8 where it joins. From the player (1 m steps) to the nearest point of the
+  main route at or after the furthest point they have reached (never back past it). Replans on a room change or 8 m off it, ≤ 1/s.
+- Flow: 5 px diamonds `kGameHighlight` travelling entry → goal at 40 px/s, 36 px apart (at most 24; spacing grows on long lines);
   each fades in over the first 16 px and out over the last 16 px before the goal. Linear, no easing: it reads as current, not as bounce.
 - Blocked: where the path stops at a locked door: 16 px `kInk` diamond plate @.85 + red X (two 11×3 bars, `kTaken`).
 - Lever (heuristic: unpulled levers in the locked door's room): 14 px `kInk` plate @.85 + `kGameHighlight` handle bar 9×3 at −60°.
@@ -160,9 +163,9 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
   Constants: `features/dungeon-map/lever.hpp` (marker), `scene.hpp` (halo).
 - Icons stay upright on screen (counter-rotate with the map). The game's own icons (party, NPCs) stay above the line (z: line 0, icons 5).
 - Constants: `features/dungeon-map/path.hpp` (path, flow), `scene.hpp` (geometry, opacity, z).
-- Don't: draw the part behind the player; own fog; textures we ship; ImGui over the minimap.
-- Superseded: "line only up to the frontier" (#40, 2026-10-08). Maintainer, 2026-10-09: "the map indicator doesnt show me where to go
-  from my current position to get back to the main line? im lost".
+- Don't: own fog; textures we ship; ImGui over the minimap.
+- Superseded: "line only up to the frontier" (#40, 2026-10-08). Maintainer, 2026-10-09: "and for the map indicator i meant the MAIN ROUTE
+  indicated and if the player is TOO FAR AWAY to see it on the map, then a route TO the main route".
 
 ### Suggested sell/salvage (#23, game screen)
 - Where: every item slot of the game's bags (`WidgetItemIconContainer_C` in `WidgetItemBag_C::ItemContainers`): inventory, bank, vendor.

@@ -22,6 +22,21 @@ int main() {
     assert(suf.size() == 3 && Near(suf[0].x, 500) && Near(Length(suf), 1500));
     assert(Suffix(p, 1000).size() == 2 && Near(Length(Suffix(p, 1500)), 500) && Suffix(p, -1).empty());
 
+    // Progress: needs kReach, only moves forward, keeps its place on a recomputed route.
+    Progress g;
+    g.Visit(p, {300, 900, 0});
+    assert(!g.has && Near(g.S(p), 0));
+    g.Visit(p, {1000, 300, 0});
+    g.Visit(p, {200, 0, 0});  // walking back
+    assert(Near(g.S(p), 1300));
+
+    // Join: the connector meets the route at or after the progress, never back past it. The player stands off the
+    // route beside s = 500: before any progress it joins there; with progress 1300 it joins at the corner region ahead.
+    assert(Near(Join(p, {500, -2000, 0}, 0).x, 500));
+    const V3 j = Join(p, {500, -2000, 0}, 1300);
+    assert(Near(Project(p, j).s, 1300));
+    assert(Near(MapDist(p, {500, 100, 9000}), 100));  // height does not count on the map
+
     // Map transform (in game: UnitToPixel 64).
     const Px m = ToMap({51351, 87540, 0}, 64);
     assert(std::abs(m.x - 1367.8f) < 0.1f && std::abs(m.y + 802.4f) < 0.1f);

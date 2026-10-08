@@ -165,7 +165,8 @@ namespace dungeon_map {
         const V3 to = Loc(goal);
         const Nav nav{[&](V3 a, V3 b, Path& out, bool& partial) { return NavPath(w, a, b, out, partial); },
                       [&](const Box& r, V3& out) { return Anchor(w, r, out); }};
-        Route route = PlanRoute(pawn, to, floor.rooms, nav);
+        const V3 entry = Loc(floor.actor);  // floor actor = its entry door
+        Route route = PlanRoute(entry, to, floor.rooms, nav);
         p.path = route.path;
         p.partial = !route.stops.empty();
         p.rooms = floor.rooms;
@@ -190,7 +191,7 @@ namespace dungeon_map {
             logger::log("[dungeon-map] partial: " + why);
             p.marks = MarksFor(ts, door);
             if (p.marks.locked && !p.marks.levers.empty()) {  // the way runs through the levers first (#93)
-                route = PlanVia(pawn, LeverOrder(pawn, p.marks.levers), to, floor.rooms, nav);
+                route = PlanVia(entry, LeverOrder(entry, p.marks.levers), to, floor.rooms, nav);
                 p.path = route.path;
             }
         }
@@ -200,6 +201,14 @@ namespace dungeon_map {
         p.why = F("floor %d: %zu points, %.0f long, legs %d, stops %zu, stopping door %d, locked %d, levers %zu on route, %.2f ms", p.floor, p.path.size(),
                   Length(p.path), route.legs, route.stops.size(), door >= 0, p.marks.locked, p.marks.levers.size(),
                   double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(fq.QuadPart));
+        return p;
+    }
+
+    Path Connect(V3 from, V3 to) {
+        Path p;
+        bool partial = false;
+        if (!NavPath(UWorld::GetWorld(), from, to, p, partial)) p = {from};
+        Append(p, to);
         return p;
     }
 }

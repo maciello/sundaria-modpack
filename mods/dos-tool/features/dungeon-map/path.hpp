@@ -1,6 +1,6 @@
 #pragma once
-// SDK-free logic of the dungeon map (#40): the route (world units, route.hpp), the drawn part ahead of the local player,
-// the flow pulses and the world → minimap transform. Spec: design-system.md § Dungeon map path.
+// SDK-free logic of the dungeon map (#40): the main route (entry → stairs, world units, route.hpp), the connector from
+// the player to it (#83), the flow pulses and the world → minimap transform. Spec: design-system.md § Dungeon map path.
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -10,8 +10,10 @@ namespace dungeon_map {
     inline float Dist(V3 a, V3 b) { return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z)); }
     using Path = std::vector<V3>;
 
-    constexpr float kOffLine = 800;   // world units (8 m): the player this far from the route gets a new one (#83)
-    constexpr float kStep = 100;      // the drawn start follows the player in steps of this (fewer redraws)
+    constexpr float kOffLine = 800;   // world units (8 m): the player this far from the connector gets a new one (#83)
+    constexpr float kStep = 100;      // the connector's drawn start follows the player in steps of this (fewer redraws)
+    constexpr float kReach = 600;     // world units (6 m): coming this close to the main route counts as having been there
+    constexpr float kLinkHide = 0.9f; // the connector hides once the main route is this far inside the minimap radius (no flicker)
     constexpr float kPartial = 300;   // path end this far from the goal = the navmesh stopped (closed door)
 
     inline float Length(const Path& p) {
@@ -59,6 +61,32 @@ namespace dungeon_map {
             if (s0 > s) out.push_back(p[i]);
         }
         return out;
+    }
+
+    // How far the player has come along the main route: a world point (survives a replan), never moves back.
+    struct Progress {
+        bool has = false;
+        V3 at;
+        float S(const Path& p) const { return has ? Project(p, at).s : 0; }
+        void Visit(const Path& p, V3 pawn) {
+            if (p.empty()) return;
+            const Proj q = Project(p, pawn);
+            if (q.d <= kReach && (!has || q.s > S(p))) at = At(p, q.s), has = true;
+        }
+    };
+
+    // Map-plane (XY) distance from q to the path: the minimap shows every height at once.
+    inline float MapDist(const Path& p, V3 q) {
+        Path flat = p;
+        for (V3& v : flat) v.z = 0;
+        return Project(flat, {q.x, q.y, 0}).d;
+    }
+
+    // Where the connector joins the main route: the nearest point at or after the player's progress (s0), so it never sends
+    // them back past where they already were. Off the route before ever touching it, s0 = 0: the nearest point.
+    inline V3 Join(const Path& p, V3 pawn, float s0) {
+        const Path ahead = Suffix(p, s0);
+        return ahead.empty() ? pawn : At(ahead, Project(ahead, pawn).s);
     }
 
     // World → minimap pixel (in game, game-ui.md § Minimap): (Y, -X) / UnitToPixel.
