@@ -38,6 +38,9 @@ add_library(${PROJECT_NAME} SHARED
     "${TP}/kiero/minhook/src/trampoline.c"
     "${TP}/kiero/minhook/src/hde/hde64.c"
     "${TP}/kiero/minhook/src/hde/hde32.c"
+
+    # Lua 5.4 for ability scripts (features/ability-mods), as C++
+    "${TP}/lua/lua_all.cpp"
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
@@ -60,6 +63,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     "${IMGUI}"
     "${IMGUI}/backends"
     "${TP}/kiero"
+    "${TP}/lua/src"
 )
 
 # MSVC-emulation flags so the MSVC-targeted SDK + Windows headers compile under
