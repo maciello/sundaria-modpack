@@ -29,7 +29,8 @@ namespace item_sort {
         Attack attack = Attack::Unknown;
         std::string name;
         std::vector<Stat> stats;
-        int weaponType = -1;              // EWeaponType raw (weapons)
+        int weaponType = -1;              // EWeaponType raw (weapons; the animation type: a wand is Club)
+        std::string typeName;             // weapon type as the spec names it (Bow, Wand, ...)
     };
 
     inline std::string Lower(std::string_view s) {
@@ -123,8 +124,8 @@ namespace item_sort {
         auto w = p.weight.find(stat);
         return w != p.weight.end() ? w->second : DefaultWeight(it.kind == Kind::Weapon ? it.attack : p.focus, stat);
     }
-    // Indexes of items in player order. score[i] = Σ weight × value / (max of that stat in the item's bucket),
-    // so flat stats (RAP 83) and percentages (0.03) count alike. Ties: level, grade desc; spec id, slot asc.
+    // Indexes of items in player order: bucket, then level desc, grade desc, then score desc; spec id, slot asc.
+    // score[i] = Σ weight × value / (max of that stat in the item's bucket): flat stats (RAP 83) and percentages (0.03) count alike.
     // ponytail: a stat only one item in the bucket has counts in full for it; rank-based scoring if that misorders.
     inline std::vector<int> Order(const std::vector<Item>& items, const Profile& p, const std::vector<std::string>& statNames,
                                   std::vector<float>* scoreOut = nullptr) {
@@ -147,9 +148,9 @@ namespace item_sort {
         std::stable_sort(idx.begin(), idx.end(), [&](int x, int y) {
             const Item &a = items[x], &b = items[y];
             if (bucket[x] != bucket[y]) return bucket[x] < bucket[y];
-            if (score[x] != score[y]) return score[x] > score[y];
             if (a.level != b.level) return a.level > b.level;
             if (a.grade != b.grade) return a.grade > b.grade;
+            if (score[x] != score[y]) return score[x] > score[y];
             if (a.specId != b.specId) return a.specId < b.specId;
             return a.slot < b.slot;
         });

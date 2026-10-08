@@ -86,6 +86,11 @@ namespace {
     }
     std::string At(const std::vector<std::string>& v, int i) { return i >= 0 && i < int(v.size()) ? v[i] : ""; }
 
+    std::vector<std::string> EquipSlotNames() {
+        std::vector<std::string> n = EnumNames("EBP_ItemEquipmentSlotEnum");
+        return n.empty() ? EnumNames("BP_ItemEquipmentSlotEnum") : n;
+    }
+
     // Written once on the render thread, then read-only (published by g_haveNames).
     struct Attr { std::string name; int32 offset; };
     struct Names {
@@ -226,7 +231,9 @@ namespace {
                     auto* wp = static_cast<UBP_SpecItemWeapon_C*>(sp);
                     it.kind = Kind::Weapon;
                     it.weaponType = int(wp->WeaponAnimationType);
-                    it.attack = AttackOfWeapon(At(g_names.weaponType, it.weaponType));
+                    it.typeName = wp->WeaponItemSpecData.mWeaponType_101_7C40707C4775D05C3C1AAB8DBA0BEA47.ToString();  // Wand, not the anim type Club
+                    if (it.typeName.empty() || it.typeName == "None") it.typeName = At(g_names.weaponType, it.weaponType);
+                    it.attack = AttackOfWeapon(it.typeName);
                     it.name = Text(wp->WeaponItemSpecData.mDisplayName_2_3062F8A64DE28500FF2B46B3C800B32B, it.name);
                 } else if (sp->IsA(armor)) {
                     it.kind = Kind::Armor;
@@ -341,7 +348,7 @@ namespace {
         for (int k = 0; k < int(idx.size()) && k < 20; k++) {
             const Item& it = items[idx[k]];
             const Bucket bk = BucketOf(it, prof.focus);
-            const std::string sub = bk.group == 0 ? At(g_names.weaponType, it.weaponType) : bk.group == 3 ? "" : At(g_names.equipSlot, it.equipSlot);
+            const std::string sub = bk.group == 0 ? it.typeName : bk.group == 3 ? "" : At(g_names.equipSlot, it.equipSlot) + "#" + I(it.equipSlot);
             logger::log("[item-sort]   " + I(k + 1) + ". " + kKindName[int(it.kind)] + (bk.group == 2 ? "(equipable)" : "") + "/" + sub + " '" +
                         it.name + "' " + std::to_string(score[idx[k]]).substr(0, 5) + " lv" + I(it.level));
         }
@@ -495,7 +502,7 @@ namespace {
         }
 
         void LoadNames() {
-            Names n{EnumNames("EItemContainerType"), EnumNames("EWeaponType"), EnumNames("EBP_ItemEquipmentSlotEnum"), AttrFloats(), {}};
+            Names n{EnumNames("EItemContainerType"), EnumNames("EWeaponType"), EquipSlotNames(), AttrFloats(), {}};
             for (const Attr& a : n.attr) n.stat.push_back(a.name);
             logger::log("[item-sort] names: containers " + I(n.container.size()) + ", weapon types " + I(n.weaponType.size()) + ", equip slots " + I(n.equipSlot.size()) +
                         ", item stat attributes " + I(n.attr.size()));

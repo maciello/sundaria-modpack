@@ -46,6 +46,9 @@ int main() {
     Item t1 = A(30, 1, 5, {}), t2 = A(31, 1, 6, {}), t3 = A(29, 1, 6, {});
     t3.grade = 0; t2.grade = 1;
     assert((Order({t1, t2, t3}, pre[0], st) == std::vector<int>{1, 2, 0}));
+    // level outranks stats inside a bucket
+    assert((Order({W(40, Attack::Ranged, 7, 6, {{1, 90}, {4, 1}}), W(41, Attack::Ranged, 7, 8, {{1, 95}})}, pre[2], st) == std::vector<int>{1, 0}));
+    assert(AttackOfWeapon("Wand") == Attack::Magic);
     assert(AttackRank(Attack::Ranged, Attack::Melee) == 2 && AttackRank(Attack::Melee, Attack::Ranged) == 2);
     assert(StatName(names, 9) == "Stat 9");
     Profile p{"Custom", Attack::Ranged};
