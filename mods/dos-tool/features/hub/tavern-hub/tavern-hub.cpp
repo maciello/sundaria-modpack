@@ -2,6 +2,7 @@
 #include "tavern-hub.hpp"
 #include "../shared/hub_ui.hpp"
 #include "../shared/mini_map.hpp"
+#include "../shared/props.hpp"
 #include "logger.hpp"
 #include "imgui.h"
 
@@ -148,7 +149,10 @@ namespace {
             walking = looking = ui = false;
             game::SetHubWalk(nullptr);
             game::SetFreeCam(nullptr, 0);
-            if (was) { hub_ui::Focus(false, 0, 0, 0); hub_ui::SetButtonsHidden(false); hub_ui::Stop(); mini_map::Stop(); }
+            if (was) {
+                EndBuild();
+                hub_ui::Focus(false, 0, 0, 0); hub_ui::SetButtonsHidden(false); hub_ui::Stop(); mini_map::Stop(); props::Stop();
+            }
             focusedName.clear();
         }
 
@@ -161,6 +165,7 @@ namespace {
                 if (HasRoom()) RebuildRoom();  // floor first: placed NPCs stand in the tavern and would fall through it
                 roomWorld = f.snap.worldName;
                 RebuildMap();
+                ApplyProps();
             }
             world = f.snap.worldName;
             npcs = game::ListNpcs();
@@ -242,6 +247,73 @@ namespace {
             RebuildMap();
         }
         float mapWidth = 250.0f;
+
+        // Build mode (B while walking): look at a prop (outlined like the NPCs), E picks it up, it rides in front of
+        // you on the floor, R turns it 15°, E puts it down; saved as PROP:<actor name>=x,y,z,yaw.
+        bool build = false, buildWas = false, rotWas = false;
+        std::vector<props::Prop> nearProps;
+        float scanX = 1e9f, scanY = 1e9f;
+        std::string lookedProp, carried;
+        float carryYaw = 0, carryBase = 0, carryRadius = 0;
+        static constexpr float kCapsuleHalf = 90.0f;  // hub hero's capsule: centre → feet
+
+        void Build(const game::Hero& h, bool focusedNow, bool e, bool eWas) {
+            const float dx = h.x - scanX, dy = h.y - scanY;
+            if (dx * dx + dy * dy > 200.0f * 200.0f) { nearProps = props::Near(h.x, h.y, h.z, 1500.0f); scanX = h.x; scanY = h.y; }
+            if (!carried.empty()) {
+                const float r = camYaw * tavern_hub::kD2R, ahead = 80.0f + carryRadius;
+                props::Move(carried, h.x + ahead * std::cos(r), h.y + ahead * std::sin(r), h.z - kCapsuleHalf + carryBase, carryYaw, true);
+                const bool rot = focusedNow && Down('R');
+                if (rot && !rotWas) carryYaw = std::fmod(carryYaw + 15.0f, 360.0f);
+                rotWas = rot;
+                if (e && !eWas) {  // put it down where it is, and remember
+                    const float x = h.x + ahead * std::cos(r), y = h.y + ahead * std::sin(r), z = h.z - kCapsuleHalf + carryBase;
+                    props::Move(carried, x, y, z, carryYaw, false);
+                    props::Highlight(carried, false, 0);
+                    tavern_hub::SetSpot(layout, {"PROP:" + carried, x, y, z, carryYaw});
+                    Save();
+                    logger::log("[tavern] put down " + carried);
+                    carried.clear();
+                    scanX = 1e9f;  // positions changed: rescan
+                }
+                return;
+            }
+            combat::View v{};
+            std::string hit;
+            const props::Prop* hp = nullptr;
+            if (game::GetView(v)) {
+                std::vector<tavern_hub::Target> ts;
+                for (const props::Prop& p : nearProps) ts.push_back({p.x, p.y, p.cz});
+                const int i = tavern_hub::LookedAt(v.x, v.y, v.z, v.pitch, v.yaw, ts, 8.0f, 1500.0f, 0.0f);
+                if (i >= 0) { hp = &nearProps[i]; hit = hp->name; }
+            }
+            if (hit != lookedProp) {
+                if (!lookedProp.empty()) props::Highlight(lookedProp, false, 0);
+                if (!hit.empty()) props::Highlight(hit, true, hub_ui::RimStencil());
+                lookedProp = hit;
+            }
+            if (e && !eWas && hp) {
+                carried = hp->name;
+                carryYaw = hp->yaw;
+                carryBase = hp->base;
+                carryRadius = hp->radius;
+                lookedProp.clear();
+                logger::log("[tavern] picked up " + carried);
+            }
+        }
+
+        void EndBuild() {
+            if (!lookedProp.empty()) props::Highlight(lookedProp, false, 0);
+            if (!carried.empty()) props::Highlight(carried, false, 0);
+            lookedProp.clear();
+            carried.clear();  // ponytail: a prop still carried stays where it last was, without collision until reload
+            build = false;
+        }
+
+        void ApplyProps() {
+            for (const tavern_hub::Spot& s : layout)
+                if (s.name.rfind("PROP:", 0) == 0) props::Move(s.name.substr(5), s.x, s.y, s.z, s.yaw, false);
+        }
         bool mapWas = false, sizeWas = false;
 
         // the NPC within talking range (3 m) closest to the hero, or nullptr
@@ -298,10 +370,14 @@ namespace {
                 if (d && !uiKeysWas[i]) ui = kUiKeys[i] == VK_ESCAPE ? false : !ui;
                 uiKeysWas[i] = d;
             }
-            Aim aim;
-            const bool looked = !ui && UpdateFocus(aim);
             const bool e = focused && !typing && Down('E');
-            if (e && !talkWas && !ui && game::CamOwner() != 1) {  // E is up for the free camera
+            const bool b = focused && !typing && !ui && Down('B');
+            if (b && !buildWas) { if (build) EndBuild(); else { build = true; hub_ui::Focus(false, 0, 0, 0); focusedName.clear(); } }
+            buildWas = b;
+            if (build && !ui) { Build(h, focused && !typing, e, talkWas); talkWas = e; }
+            Aim aim;
+            const bool looked = !ui && !build && UpdateFocus(aim);
+            if (!build && e && !talkWas && !ui && game::CamOwner() != 1) {  // E is up for the free camera
                 // like Space on the focused click zone before; standing right next to an NPC works without aiming
                 if (looked) { hub_ui::Talk(aim.x, aim.y, aim.z); ui = true; }
                 else if (const game::Npc* n = TalkTarget(h)) { hub_ui::Talk(n->x, n->y, n->z); ui = true; }
@@ -392,7 +468,7 @@ namespace {
         }
 
         void ResetAll() {  // NPCs only: the closed room stays
-            layout.erase(std::remove_if(layout.begin(), layout.end(), [](const tavern_hub::Spot& s) { return s.name.rfind("ROOM", 0) != 0 && s.name.rfind("MAP", 0) != 0; }),
+            layout.erase(std::remove_if(layout.begin(), layout.end(), [](const tavern_hub::Spot& s) { return s.name.rfind("ROOM", 0) != 0 && s.name.rfind("MAP", 0) != 0 && s.name.rfind("PROP:", 0) != 0; }),
                          layout.end());
             for (const game::Npc& n : npcs) SendHome(n);
             Save();

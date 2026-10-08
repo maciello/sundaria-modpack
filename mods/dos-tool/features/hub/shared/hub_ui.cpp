@@ -42,6 +42,7 @@ namespace {
     std::atomic<int> g_focusReq{-1};       // -1 none, 0 unfocus, 1 focus g_focusAt
     float g_focusAt[3] = {};
     ref::Ref g_focused;                    // game thread
+    std::atomic<int> g_rim{-1};            // the hub outline's custom depth stencil, learnt from a click zone
     std::atomic<bool> g_listening{false};
 
     // game thread
@@ -118,7 +119,15 @@ namespace {
         if (next == prev) return;
         if (prev) SetFocused(prev, pc, false);
         g_focused = ref::Ref(next);
-        if (next) SetFocused(next, pc, true);
+        if (next) {
+            SetFocused(next, pc, true);
+            if (UFunction* rim = FindFn(next->Class, "I_RimShaderOwnerGetStencil"); PtrOk(rim) && g_rim.load() < 0) {
+                alignas(16) unsigned char rp[512] = {};  // { bool VisualizeRim; bool NeedsViewCheck; int32 RimStencil @4; TSets… }
+                next->ProcessEvent(rim, rp);              // ponytail: the two out TSets' engine memory is leaked once
+                g_rim = *reinterpret_cast<int32_t*>(rp + 4);
+                logger::log("[hub-ui] outline stencil " + std::to_string(g_rim.load()));
+            }
+        }
     }
 
     void ApplyTalk() {
@@ -165,3 +174,5 @@ void hub_ui::Stop() {
     for (int i = 0; i < 50 && (g_hideReq.load() >= 0 || g_talkReq.load() || g_focusReq.load() >= 0); i++) Sleep(2);  // let queued work run
     if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);
 }
+
+int hub_ui::RimStencil() { return g_rim.load() < 0 ? 1 : g_rim.load(); }

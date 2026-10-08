@@ -10,5 +10,6 @@ namespace hub_ui {
     void SetButtonsHidden(bool hidden);   // hidden: every non-NPC hub button off; false: back as the hub had them
     void Focus(bool on, float npcX, float npcY, float npcZ);  // the NPC click zone nearest that spot; off = unfocus it
     void Talk(float npcX, float npcY, float npcZ);  // the NPC click zone nearest to that spot (within 500), pressed
+    int RimStencil();                     // the stencil value the hub's outline uses (learnt on the first focus; 1 before)
     void Stop();                          // render thread: listener off (may wait for in-flight game calls), once
 }
