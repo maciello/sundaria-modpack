@@ -1,0 +1,68 @@
+#pragma once
+// SDK-free: what the dungeon map draws this tick, as solid-tint quads in minimap pixels (CanvasPanel_DynamicMinimp space).
+// draw.cpp turns each Quad into one UImage. Spec: design-system.md § Dungeon map path.
+#include <cmath>
+#include <vector>
+#include "path.hpp"
+#include "style.hpp"
+
+namespace dungeon_map {
+    // Component geometry (px) and opacity, from the spec.
+    constexpr float kLineW = 2, kLineAlpha = 0.55f;
+    constexpr float kCapPx = 7, kCapAlpha = 0.9f, kPulsePx = 5;
+    constexpr float kPlateBlocked = 16, kPlateLever = 14, kPlateAlpha = 0.85f;
+    constexpr float kXLen = 11, kXW = 3, kLeverLen = 9, kLeverW = 3, kLeverAngle = -60;
+    constexpr int kZLine = 0, kZMark = 1, kZIcon = 2;
+
+    struct Quad {
+        float x, y, w, h, angle;  // centre, size, degrees in canvas space
+        style::Rgba c;
+        float alpha;
+        int z;
+    };
+
+    // Square of diagonal d, standing on its tip on screen (the canvas turns by mapAngle).
+    inline Quad Diamond(Px p, float d, style::Rgba c, float a, int z, float mapAngle) {
+        const float s = d / std::sqrt(2.f);
+        return {p.x, p.y, s, s, 45 - mapAngle, c, a, z};
+    }
+    inline Quad Bar(Px a, Px b, float w, style::Rgba c, float alpha, int z) {
+        const float dx = b.x - a.x, dy = b.y - a.y;
+        return {(a.x + b.x) / 2, (a.y + b.y) / 2, std::hypot(dx, dy), w, std::atan2(dy, dx) * 57.29578f, c, alpha, z};
+    }
+
+    struct Marks {
+        bool locked = false;  // path stops at a locked door
+        V3 door;
+        std::vector<V3> levers;  // heuristic: unpulled levers in that door's room
+    };
+
+    // path: the floor's main path (world); frontierS: drawn up to here (< 0 = nothing yet); upp: minimap UnitToPixel;
+    // mapAngle: CanvasPanel_Map render angle (icons counter-rotate); t: seconds, drives the flow.
+    inline std::vector<Quad> Scene(const Path& path, float frontierS, const Marks& m, float upp, float mapAngle, double t) {
+        using namespace style::color;
+        std::vector<Quad> out;
+        if (frontierS >= 0 && path.size() > 1) {
+            Path px;  // the drawn line in map pixels
+            for (const V3& w : Prefix(path, frontierS)) { const Px p = ToMap(w, upp); px.push_back({p.x, p.y, 0}); }
+            for (size_t i = 1; i < px.size(); i++)
+                if (Dist(px[i - 1], px[i]) > 0.5f) out.push_back(Bar({px[i - 1].x, px[i - 1].y}, {px[i].x, px[i].y}, kLineW, kAccent, kLineAlpha, kZLine));
+            for (const Pulse& p : Pulses(Length(px), t)) {
+                const V3 at = At(px, p.s);
+                out.push_back(Diamond({at.x, at.y}, kPulsePx, kGameHighlight, p.alpha, kZMark, mapAngle));
+            }
+            out.push_back(Diamond({px.back().x, px.back().y}, kCapPx, kGameHighlight, kCapAlpha, kZMark, mapAngle));
+        }
+        if (m.locked) {
+            const Px d = ToMap(m.door, upp);
+            out.push_back(Diamond(d, kPlateBlocked, kInk, kPlateAlpha, kZIcon, mapAngle));
+            for (float a : {45.f, -45.f}) out.push_back({d.x, d.y, kXLen, kXW, a - mapAngle, kTaken, 1, kZIcon + 1});
+            for (const V3& l : m.levers) {
+                const Px p = ToMap(l, upp);
+                out.push_back(Diamond(p, kPlateLever, kInk, kPlateAlpha, kZIcon, mapAngle));
+                out.push_back({p.x, p.y, kLeverLen, kLeverW, kLeverAngle - mapAngle, kGameHighlight, 1, kZIcon + 1});
+            }
+        }
+        return out;
+    }
+}
