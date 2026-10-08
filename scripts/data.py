@@ -41,7 +41,7 @@ def reader(*args, out=None):
                DOTNET_NOLOGO="1", DOTNET_ROOT=str(Path(dotnet()).parent))
     src = max(f.stat().st_mtime for f in (HERE / "data").glob("*.c*"))
     if not DLL.exists() or DLL.stat().st_mtime < src:
-        subprocess.run([dotnet(), "build", str(HERE / "data"), "-c", "Release", "-o", str(BIN), "-v", "q", "--nologo"],
+        subprocess.run([dotnet(), "build", str(HERE / "data"), "-c", "Release", "-o", str(BIN), "-v", "q", "--nologo", "--disable-build-servers"],
                        env=env, check=True, stdout=sys.stderr)
     if not KEY.exists():
         exe = next((PAKS / "../../Binaries/Win64").glob("*-Shipping.exe"))
