@@ -16,3 +16,5 @@
 | commit exposes personal email in the public repo | default git author | author = GitHub noreply of the hosting account |
 | GitHub/Steam downloads stall at ~2-5 GiB | Proton VPN free tier throttle | check the VPN before debugging the network |
 | bundled winmm.dll hash ≠ official | old/unknown ASI loader build | official Ultimate ASI Loader release, `dinput8.dll` renamed to `winmm.dll` |
+| game crash `EXCEPTION_ACCESS_VIOLATION reading 0x0` in `MSVCP140.dll` (minidump) | `std::mutex` from a newer MSVC STL (constexpr ctor) vs Proton's older msvcp140 `_Mtx_lock` | no `std::mutex`/`std::thread`/`condition_variable`: use `SRWLOCK`; check with `llvm-objdump -p DoS-Tool.dll \| grep _Mtx` → 0 |
+| crash diagnosis | UE writes `<prefix>/drive_c/users/steamuser/AppData/Local/Archon/Saved/Crashes/UE4CC-*/UE4Minidump.dmp` | `scripts/minidump.py <dmp>` → fault module+offset, stack return addresses into DoS-Tool/Archon |

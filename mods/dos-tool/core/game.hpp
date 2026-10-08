@@ -43,6 +43,11 @@ namespace game {
     void ApplyMovement(const Movement* m);
     bool OriginalMovement(Movement& out);  // local player's vanilla values, once seen
 
+    // Debug: hook UObject::ProcessEvent and log each UFunction the first time it fires
+    // (game thread records pointers; names are resolved by ProbeFlush on the render thread).
+    void SetEventProbe(bool on);
+    void ProbeFlush();
+
     float OriginalFOV();
     float OriginalDistance();
 }

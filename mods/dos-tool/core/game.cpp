@@ -4,6 +4,11 @@
 #include <Windows.h>
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
+#include <atomic>
+#include <vector>
+#include <cstdio>
+#include "minhook/include/MinHook.h"
 
 // game.cpp is the ONLY translation unit that pulls in the generated SDK.
 #include "Engine_classes.hpp"
@@ -195,3 +200,62 @@ bool game::OriginalMovement(Movement& out) { out = g_localMove; return g_haveLoc
 
 float game::OriginalFOV()      { return g_origFov; }
 float game::OriginalDistance() { return g_origDist; }
+
+namespace {
+    using ProcessEvent_t = void (*)(const UObject*, UFunction*, void*);
+    ProcessEvent_t g_oPE = nullptr;
+    void* g_peTarget = nullptr;
+    std::atomic<bool> g_probeOn{false};
+    std::atomic<int> g_inPE{0};
+    SRWLOCK g_probeMu = SRWLOCK_INIT;  // not std::mutex: newer STL's constexpr mutex null-derefs in Proton's older msvcp140 (crashed the game)
+    std::unordered_set<UFunction*> g_seen;
+    struct Fired { UFunction* fn; UClass* cls; ULONGLONG t; };
+    std::vector<Fired> g_fresh;
+
+    void hkProcessEvent(const UObject* obj, UFunction* fn, void* parms) {
+        g_inPE++;
+        if (g_probeOn.load(std::memory_order_relaxed)) {
+            AcquireSRWLockExclusive(&g_probeMu);
+            if (g_seen.insert(fn).second)
+                g_fresh.push_back({fn, PtrOk(obj) ? obj->Class : nullptr, GetTickCount64()});
+            ReleaseSRWLockExclusive(&g_probeMu);
+        }
+        g_oPE(obj, fn, parms);
+        g_inPE--;
+    }
+}
+
+void game::SetEventProbe(bool on) {
+    if (on && !g_peTarget) {
+        MH_Initialize();  // already initialised by kiero: harmless
+        void* target = reinterpret_cast<void*>(InSDKUtils::GetImageBase() + Offsets::ProcessEvent);
+        if (MH_CreateHook(target, (void*)hkProcessEvent, (void**)&g_oPE) != MH_OK || MH_EnableHook(target) != MH_OK) {
+            logger::log("[probe] ProcessEvent hook failed");
+            return;
+        }
+        g_peTarget = target;
+        logger::log("[probe] ProcessEvent hooked");
+    }
+    g_probeOn = on;
+    if (!on && g_peTarget) {
+        MH_DisableHook(g_peTarget);
+        MH_RemoveHook(g_peTarget);
+        g_peTarget = nullptr;
+        for (int i = 0; i < 200 && g_inPE.load() > 0; i++) Sleep(10);  // let in-flight calls leave our code before unload
+    }
+}
+
+void game::ProbeFlush() {
+    std::vector<Fired> batch;
+    {
+        AcquireSRWLockExclusive(&g_probeMu);
+        batch.swap(g_fresh);
+        ReleaseSRWLockExclusive(&g_probeMu);
+    }
+    for (const Fired& f : batch) {
+        char buf[512];
+        std::snprintf(buf, sizeof(buf), "[probe] t=%llu fn=%s on=%s", f.t,
+                      PtrOk(f.fn) ? f.fn->GetFullName().c_str() : "?", PtrOk(f.cls) ? f.cls->GetName().c_str() : "?");
+        logger::log(buf);
+    }
+}
