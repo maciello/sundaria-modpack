@@ -6,7 +6,7 @@
 #include "game.hpp"
 #include "overlay.hpp"
 
-static DWORD WINAPI MainThread(HMODULE self) {
+static DWORD WINAPI MainThread(LPVOID) {
     logger::log("[dos-tool] loaded into process");
 
     // 1) Headless proof: wait for the engine, then dump live camera/movement state
@@ -32,10 +32,18 @@ static DWORD WINAPI MainThread(HMODULE self) {
     return 0;
 }
 
+// Called by the loader (DoS-Tool.asi), see loader.cpp.
+extern "C" __declspec(dllexport) void ModStart() {
+    CreateThread(nullptr, 0, (LPTHREAD_START_ROUTINE)MainThread, nullptr, 0, nullptr);
+}
+
+extern "C" __declspec(dllexport) void ModStop() {
+    overlay::Shutdown();
+    logger::log("[dos-tool] unloaded");
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
-    if (reason == DLL_PROCESS_ATTACH) {
+    if (reason == DLL_PROCESS_ATTACH)
         DisableThreadLibraryCalls(hModule);
-        CreateThread(nullptr, 0, (LPTHREAD_START_ROUTINE)MainThread, hModule, 0, nullptr);
-    }
     return TRUE;
 }

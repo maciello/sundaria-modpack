@@ -26,4 +26,4 @@ cmake -S "$HERE" -B "$BUILD" -G "Unix Makefiles" \
 
 cmake --build "$BUILD" --config Release -j"$(nproc)"
 
-echo ">> Built: $(find "$BUILD" -name 'DoS-Tool.asi')"
+echo ">> Built: $(find "$BUILD" -name 'DoS-Tool.*')"

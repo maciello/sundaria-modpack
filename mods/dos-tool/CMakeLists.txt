@@ -42,8 +42,12 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     CXX_STANDARD_REQUIRED ON
     PREFIX ""          # no "lib" prefix
     OUTPUT_NAME "DoS-Tool"
-    SUFFIX ".asi"      # Ultimate ASI Loader loads *.asi
+    SUFFIX ".dll"      # loaded by DoS-Tool.asi (src/loader.cpp)
 )
+
+# Ultimate ASI Loader loads *.asi; this one loads (and in dev mode hot-reloads) DoS-Tool.dll.
+add_library(DoS-Loader SHARED src/loader.cpp)
+set_target_properties(DoS-Loader PROPERTIES PREFIX "" OUTPUT_NAME "DoS-Tool" SUFFIX ".asi")
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     src

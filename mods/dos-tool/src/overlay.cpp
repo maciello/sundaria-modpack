@@ -198,3 +198,18 @@ bool overlay::Init() {
     logger::log("[overlay] kiero D3D11 hooks bound (Present/Resize)");
     return true;
 }
+
+void overlay::Shutdown() {
+    kiero::shutdown();  // restores Present/ResizeBuffers
+    Sleep(200);         // let an in-flight hkPresent finish before tearing down
+    if (g_oWndProc) { SetWindowLongPtr(g_hwnd, GWLP_WNDPROC, (LONG_PTR)g_oWndProc); g_oWndProc = nullptr; }
+    if (g_imguiReady) {
+        ImGui_ImplDX11_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
+        g_imguiReady = false;
+    }
+    ReleaseRTV();
+    if (g_context) { g_context->Release(); g_context = nullptr; }
+    if (g_device) { g_device->Release(); g_device = nullptr; }
+}
