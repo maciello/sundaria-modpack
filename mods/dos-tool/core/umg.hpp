@@ -1,0 +1,22 @@
+#pragma once
+// Game-thread helpers for features that put game widgets into game screens (references/game-ui.md).
+// Call only inside a ProcessEvent listener (game::SetEventListener).
+#include <cstdint>
+#include <string>
+
+namespace SDK { class UObject; class UFunction; class UClass; class APlayerController; class FText; }
+
+namespace umg {
+    bool PtrOk(const void* p);
+    // Native UFunctions whose bodies are not compiled in: same call shape as Dumper-7's native bodies.
+    void CallNative(const SDK::UObject* obj, SDK::UFunction* fn, void* parms);
+    // Still the same object (not collected, slot not reused)?
+    bool Alive(const SDK::UObject* o, int32_t idx);
+    // Live screen widget, not a class default or designer template (never modify those).
+    bool Live(const SDK::UObject* o);
+    SDK::APlayerController* LocalPC();
+    // UTF-8 -> FText. ponytail: each call leaks one FText reference (a few bytes); call on change only.
+    SDK::FText Text(const std::string& s);
+    // New plain widget (UImage, UTextBlock …⊇) owned by a user widget's tree; add it to a panel afterwards.
+    SDK::UObject* Spawn(SDK::UClass* cls, SDK::UObject* outer);
+}

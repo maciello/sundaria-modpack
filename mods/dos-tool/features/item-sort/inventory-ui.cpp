@@ -2,6 +2,7 @@
 #include "item-sort.hpp"
 #include "game.hpp"
 #include "logger.hpp"
+#include "umg.hpp"
 
 #include <Windows.h>
 #include <atomic>
@@ -20,22 +21,15 @@
 // Click = next sort profile + re-sort that bag. Spec: references/design-system.md § Inventory sort profile.
 // Game thread only (ProcessEvent listener). Facts: references/game-ui.md.
 using namespace SDK;
+using umg::Alive;
+using umg::CallNative;
+using umg::PtrOk;
 
 namespace {
-    bool PtrOk(const void* p) {
-        const uintptr_t v = reinterpret_cast<uintptr_t>(p);
-        return v > 0x10000 && v < 0x7FFFFFFFFFFFull;
-    }
-    void CallNative(const UObject* obj, UFunction* fn, void* parms) {  // same call shape as Dumper-7's native bodies
-        auto flags = fn->FunctionFlags;
-        fn->FunctionFlags |= 0x400;
-        obj->ProcessEvent(fn, parms);
-        fn->FunctionFlags = flags;
-    }
 
     struct Fns {
-        UFunction *create, *addChild, *removeChild, *setSize, *setPad, *setH, *setV, *toText, *setText, *clicked;
-        bool ok() const { return create && addChild && removeChild && setSize && setPad && setH && setV && toText && setText && clicked; }
+        UFunction *create, *addChild, *removeChild, *setSize, *setPad, *setH, *setV, *setText, *clicked;
+        bool ok() const { return create && addChild && removeChild && setSize && setPad && setH && setV && setText && clicked; }
     } g_fn{};
     struct Placed { UWidgetitemBagHeaderMenu_C* header; int32 headerIdx; UWidgetButton01_C* button; int32 buttonIdx; };
     std::vector<Placed> g_placed;
@@ -43,8 +37,6 @@ namespace {
     thread_local bool t_busy = false;
     ULONGLONG g_nextScan = 0;
     int g_shown = -1;  // profile index the labels show
-
-    bool Alive(UObject* o, int32 idx) { return PtrOk(o) && UObject::GObjects->GetByIndex(idx) == o; }
 
     bool Resolve() {
         g_fn.create = UWidgetBlueprintLibrary::StaticClass()->GetFunction("WidgetBlueprintLibrary", "Create");
@@ -54,27 +46,14 @@ namespace {
         g_fn.setPad = UHorizontalBoxSlot::StaticClass()->GetFunction("HorizontalBoxSlot", "SetPadding");
         g_fn.setH = UHorizontalBoxSlot::StaticClass()->GetFunction("HorizontalBoxSlot", "SetHorizontalAlignment");
         g_fn.setV = UHorizontalBoxSlot::StaticClass()->GetFunction("HorizontalBoxSlot", "SetVerticalAlignment");
-        g_fn.toText = UKismetTextLibrary::StaticClass()->GetFunction("KismetTextLibrary", "Conv_StringToText");
         g_fn.setText = UWidgetButton01_C::StaticClass()->GetFunction("WidgetButton01_C", "SetButtonText");
         g_fn.clicked = UWidgetButton01_C::StaticClass()->GetFunction("WidgetButton01_C", "BndEvt__WidgetButton01_Button_K2Node_ComponentBoundEvent_0_OnButtonClickedEvent__DelegateSignature");
         return g_fn.ok();
     }
 
-    APlayerController* LocalPC() {
-        UWorld* w = UWorld::GetWorld();
-        if (!PtrOk(w) || !PtrOk(w->OwningGameInstance) || w->OwningGameInstance->LocalPlayers.Num() < 1) return nullptr;
-        ULocalPlayer* lp = w->OwningGameInstance->LocalPlayers[0];
-        return PtrOk(lp) && PtrOk(lp->PlayerController) ? lp->PlayerController : nullptr;
-    }
-
-    // ponytail: each label change leaks one FText reference (a few bytes); labels change only on click
-    void SetLabel(UWidgetButton01_C* b, const std::string& s) {
-        std::wstring w(s.begin(), s.end());
-        Params::KismetTextLibrary_Conv_StringToText t{};
-        t.inString = FString(w.c_str());
-        CallNative(UKismetTextLibrary::GetDefaultObj(), g_fn.toText, &t);
+    void SetLabel(UWidgetButton01_C* b, const std::string& s) {  // labels change only on click
         Params::WidgetButton01_C_SetButtonText p{};
-        p.Text_0 = t.ReturnValue;
+        p.Text_0 = umg::Text(s);
         b->ProcessEvent(g_fn.setText, &p);
     }
     std::string Label(int i) {
@@ -146,7 +125,7 @@ namespace {
 
     bool Scan() {  // true = a button was placed or adopted
         bool added = false;
-        APlayerController* pc = LocalPC();
+        APlayerController* pc = umg::LocalPC();
         if (!pc) return false;
         std::erase_if(g_placed, [](const Placed& p) { return !Alive(p.header, p.headerIdx) || !Alive(p.button, p.buttonIdx); });
         UClass* cls = UWidgetitemBagHeaderMenu_C::StaticClass();

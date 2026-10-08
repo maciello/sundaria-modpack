@@ -17,6 +17,7 @@ add_library(${PROJECT_NAME} SHARED
     core/game.cpp
     core/items.cpp
     core/overlay.cpp
+    core/umg.cpp
     ${FEATURES}
 
     # generated SDK: only the units whose function bodies we actually reference
