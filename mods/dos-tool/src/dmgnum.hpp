@@ -1,14 +1,82 @@
 #pragma once
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
 
 // SDK-free damage-number bookkeeping: diff per-actor health between samples,
-// emit a floating number for every change. Drawing lives in overlay.cpp.
+// emit a floating number for every change, keep fight stats. Drawing lives in overlay.cpp.
 namespace dmgnum {
-    struct Sample { uintptr_t id; float x, y, z; float health; };
-    struct Number { float x, y, z; float amount; double born; };  // amount > 0 = damage, < 0 = heal
+    struct Sample { uintptr_t id; float x, y, z; float health; bool isPlayer; };
+
+    enum class Kind { Dealt, Taken, Heal };
+    struct Number {
+        float x, y, z;
+        float amount;  // always > 0
+        Kind kind;
+        float scale;   // relative size: 1 = your typical hit
+        float drift;   // -1..1 sideways direction
+        double born;
+    };
+
+    // Fight = damage dealt to non-players with no gap longer than `gap` seconds.
+    struct Fight {
+        double start = 0, last = 0;
+        double total = 0;
+        double Duration() const { return std::max(1.0, last - start); }
+        double Dps() const { return total / Duration(); }
+    };
+
+    struct Tracker {
+        double lifetime = 1.4;   // seconds on screen
+        double grace = 1.5;      // ignore changes this long after first sight (spawn HP fill-up)
+        double gap = 5.0;        // fight ends after this long without damage dealt
+        float typical = 0;       // EMA of hit size (dealt), the "1.0" for scale
+
+        std::unordered_map<uintptr_t, float> last;
+        std::unordered_map<uintptr_t, double> firstSeen;
+        std::vector<Number> live;
+        Fight fight;
+        bool inFight = false;
+
+        float Scale(float amount) {
+            if (typical <= 0) typical = amount;
+            const float s = 1.0f + 0.45f * std::log2(amount / typical);
+            typical += 0.08f * (amount - typical);
+            return std::clamp(s, 0.6f, 2.2f);
+        }
+
+        void Update(const std::vector<Sample>& samples, double now) {
+            std::unordered_map<uintptr_t, float> seen;
+            std::unordered_map<uintptr_t, double> first;
+            for (const Sample& s : samples) {
+                seen[s.id] = s.health;
+                auto fs = firstSeen.find(s.id);
+                first[s.id] = fs != firstSeen.end() ? fs->second : now;
+                auto it = last.find(s.id);
+                if (it == last.end() || s.health == it->second) continue;
+                if (now - first[s.id] < grace || it->second <= 0) continue;
+                const float delta = it->second - s.health;
+                const float drift = float((s.id >> 4) % 200) / 100.0f - 1.0f;
+                if (delta < 0) {
+                    live.push_back({s.x, s.y, s.z, -delta, Kind::Heal, 0.8f, drift, now});
+                } else if (s.isPlayer) {
+                    live.push_back({s.x, s.y, s.z, delta, Kind::Taken, 0.9f, drift, now});
+                } else {
+                    live.push_back({s.x, s.y, s.z, delta, Kind::Dealt, Scale(delta), drift, now});
+                    if (!inFight || now - fight.last > gap) { fight = {now, now, 0}; inFight = true; }
+                    fight.total += delta;
+                    fight.last = now;
+                }
+            }
+            last.swap(seen);  // actors that vanished are forgotten (no number on despawn)
+            firstSeen.swap(first);
+            std::erase_if(live, [&](const Number& n) { return now - n.born > lifetime; });
+        }
+
+        bool FightActive(double now) const { return inFight && now - fight.last <= gap; }
+    };
 
     // UE camera POV (cm, degrees; FOV horizontal).
     struct View { float x, y, z, pitch, yaw, roll, fov; };
@@ -34,21 +102,10 @@ namespace dmgnum {
         return true;
     }
 
-    struct Tracker {
-        double lifetime = 1.2;  // seconds on screen
-        std::unordered_map<uintptr_t, float> last;
-        std::vector<Number> live;
-
-        void Update(const std::vector<Sample>& samples, double now) {
-            std::unordered_map<uintptr_t, float> seen;
-            for (const Sample& s : samples) {
-                seen[s.id] = s.health;
-                auto it = last.find(s.id);
-                if (it != last.end() && s.health != it->second)
-                    live.push_back({s.x, s.y, s.z, it->second - s.health, now});
-            }
-            last.swap(seen);  // actors that vanished are forgotten (no number on despawn)
-            std::erase_if(live, [&](const Number& n) { return now - n.born > lifetime; });
-        }
-    };
+    // Genshin-ish pop: overshoot to 1.25x, settle to 1.0 by 0.25 s, shrink a bit while fading.
+    inline float PopScale(double age) {
+        if (age < 0.08) return float(0.5 + (1.25 - 0.5) * age / 0.08);
+        if (age < 0.25) return float(1.25 - 0.25 * (age - 0.08) / 0.17);
+        return 1.0f;
+    }
 }

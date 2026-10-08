@@ -118,7 +118,8 @@ std::vector<dmgnum::Sample> game::SampleHealth() {
                 if (!PtrOk(set) || !set->IsA(statusCls)) continue;
                 const FVector& p = root->RelativeLocation;  // capsule root is unattached: relative == world
                 out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z + 110.0f,
-                               static_cast<UArchonAttributeSet_Status*>(set)->CurrentHealth});
+                               static_cast<UArchonAttributeSet_Status*>(set)->CurrentHealth,
+                               PtrOk(c->PlayerState)});
                 break;
             }
         }

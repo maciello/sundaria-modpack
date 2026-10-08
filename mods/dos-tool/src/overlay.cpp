@@ -6,8 +6,12 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <cstdio>
+#include <cstring>
+#include <algorithm>
+#include <cfloat>
 
 #include "kiero.h"
+#include "font_lilita.h"
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
@@ -29,7 +33,8 @@ static ID3D11RenderTargetView* g_rtv = nullptr;
 static HWND                    g_hwnd = nullptr;
 static WNDPROC                 g_oWndProc = nullptr;
 static bool                    g_imguiReady = false;
-static bool                    g_showMenu = true;
+static bool                    g_showMenu = false;
+static ImFont*                 g_numFont = nullptr;
 
 // ---- feature state ----------------------------------------------------------
 static bool  g_seeded = false;
@@ -37,6 +42,7 @@ static bool  g_ovrFov = false;   static float g_fov = 90.0f;
 static bool  g_ovrDist = false;  static float g_dist = 650.0f;
 static bool  g_noCamCollision = false;
 static bool  g_dmgNumbers = true;
+static bool  g_dpsPanel = true;
 static dmgnum::Tracker g_dmg;
 
 static LRESULT WINAPI hkWndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
@@ -77,6 +83,10 @@ static bool InitImGui(IDXGISwapChain* sc) {
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
     ImGui::StyleColorsDark();
+    io.Fonts->AddFontDefault();
+    ImFontConfig cfg;
+    cfg.FontDataOwnedByAtlas = false;
+    g_numFont = io.Fonts->AddFontFromMemoryTTF((void*)kFontLilita, sizeof(kFontLilita), 64.0f, &cfg);
     ImGui_ImplWin32_Init(g_hwnd);
     ImGui_ImplDX11_Init(g_device, g_context);
     g_oWndProc = (WNDPROC)SetWindowLongPtr(g_hwnd, GWLP_WNDPROC, (LONG_PTR)hkWndProc);
@@ -110,32 +120,79 @@ static void DrawMenu(const game::Snapshot& snap) {
 
     ImGui::SeparatorText("Combat");
     ImGui::Checkbox("Damage numbers", &g_dmgNumbers);
+    ImGui::Checkbox("DPS panel", &g_dpsPanel);
 
     ImGui::Separator();
     ImGui::TextDisabled("[INSERT] toggle menu");
     ImGui::End();
 }
 
+static void FormatAmount(char* buf, size_t n, double v) {
+    if (v >= 1e6)      std::snprintf(buf, n, "%.1fM", v / 1e6);
+    else if (v >= 1e4) std::snprintf(buf, n, "%.1fk", v / 1e3);
+    else               std::snprintf(buf, n, "%.0f", v);
+}
+
+static void OutlinedText(ImDrawList* dl, ImFont* f, float size, ImVec2 p, ImU32 col, ImU32 outline, float w, const char* s) {
+    for (int dx = -1; dx <= 1; dx++)
+        for (int dy = -1; dy <= 1; dy++)
+            if (dx || dy) dl->AddText(f, size, ImVec2(p.x + dx * w, p.y + dy * w), outline, s);
+    dl->AddText(f, size, p, col, s);
+}
+
 static void DrawDamageNumbers() {
     const double now = ImGui::GetTime();
-    g_dmg.Update(game::SampleHealth(), now);
     dmgnum::View view;
     if (g_dmg.live.empty() || !game::GetView(view)) return;
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    const float base = screen.y / 30.0f;  // ~36 px at 1080p for a typical hit
     ImDrawList* dl = ImGui::GetForegroundDrawList();
-    ImFont* font = ImGui::GetFont();
+    ImFont* font = g_numFont ? g_numFont : ImGui::GetFont();
     for (const dmgnum::Number& n : g_dmg.live) {
         float sx, sy;
         if (!dmgnum::Project(view, n.x, n.y, n.z, screen.x, screen.y, sx, sy)) continue;
-        const float t = float((now - n.born) / g_dmg.lifetime);   // 0..1
-        const int alpha = int(255 * (1.0f - t));
-        const ImU32 col = n.amount > 0 ? IM_COL32(255, 220, 60, alpha) : IM_COL32(80, 255, 120, alpha);
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "%.0f", n.amount > 0 ? n.amount : -n.amount);
-        const ImVec2 pos(sx - 10.0f, sy - 40.0f * t);              // rise while fading
-        dl->AddText(font, 26.0f, ImVec2(pos.x + 2, pos.y + 2), IM_COL32(0, 0, 0, alpha), buf);
-        dl->AddText(font, 26.0f, pos, col, buf);
+        const double age = now - n.born;
+        const float t = float(age / g_dmg.lifetime);                         // 0..1
+        const float fade = t < 0.65f ? 1.0f : 1.0f - (t - 0.65f) / 0.35f;
+        const int a = int(255 * fade);
+        ImU32 col;
+        char buf[24];
+        FormatAmount(buf, sizeof(buf) - 1, n.amount);
+        switch (n.kind) {
+            case dmgnum::Kind::Heal:  col = IM_COL32(110, 255, 140, a); std::memmove(buf + 1, buf, strlen(buf) + 1); buf[0] = '+'; break;
+            case dmgnum::Kind::Taken: col = IM_COL32(255, 80, 70, a); break;
+            default: {  // white -> gold as the hit grows past your typical
+                const float g = std::clamp((n.scale - 1.0f) / 0.8f, 0.0f, 1.0f);
+                col = IM_COL32(255, int(255 - 70 * g), int(255 - 200 * g), a);
+            }
+        }
+        const float size = base * n.scale * dmgnum::PopScale(age) * (1.0f - 0.15f * t);
+        const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, buf);
+        const ImVec2 pos(sx - ts.x * 0.5f + n.drift * 40.0f * t, sy - ts.y * 0.5f - 60.0f * t);
+        OutlinedText(dl, font, size, pos, col, IM_COL32(20, 12, 8, int(a * 0.85f)), std::max(1.5f, size / 18.0f), buf);
     }
+}
+
+static void DrawDpsPanel() {
+    const double now = ImGui::GetTime();
+    if (!g_dmg.inFight) return;
+    const dmgnum::Fight& f = g_dmg.fight;
+    const bool active = g_dmg.FightActive(now);
+    char dps[24], total[24];
+    FormatAmount(dps, sizeof(dps), f.Dps());
+    FormatAmount(total, sizeof(total), f.total);
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowPos(ImVec2(screen.x - 16, 16), ImGuiCond_Always, ImVec2(1, 0));
+    ImGui::SetNextWindowBgAlpha(0.35f);
+    ImGui::Begin("##dps", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    if (g_numFont) ImGui::PushFont(g_numFont);
+    ImGui::SetWindowFontScale(0.4f);
+    ImGui::TextColored(active ? ImVec4(1, 0.85f, 0.4f, 1) : ImVec4(0.7f, 0.7f, 0.7f, 1), "DPS %s", dps);
+    ImGui::SetWindowFontScale(0.28f);
+    ImGui::Text("total %s  |  %.0fs", total, f.Duration());
+    if (g_numFont) ImGui::PopFont();
+    ImGui::End();
 }
 
 static void ApplyFeatures() {
@@ -171,7 +228,9 @@ static HRESULT WINAPI hkPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flag
     ImGui::NewFrame();
 
     ApplyFeatures();
+    if (g_dmgNumbers || g_dpsPanel) g_dmg.Update(game::SampleHealth(), ImGui::GetTime());
     if (g_dmgNumbers) DrawDamageNumbers();
+    if (g_dpsPanel) DrawDpsPanel();
     DrawMenu(snap);
 
     ImGui::Render();
