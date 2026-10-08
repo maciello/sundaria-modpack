@@ -110,7 +110,7 @@ static bool InitImGui(IDXGISwapChain* sc) {
         if (sscanf(eq + 1, "%d,%d", &on, &stage) != 2) return;
         for (feature::Feature* f : feature::Feature::All())
             if (strlen(f->name) == size_t(eq - line) && !strncmp(f->name, line, eq - line) && stage == int(f->stage))
-            { f->enabled = f->wasEnabled = on == 1; logger::log(std::string("[flags] ") + f->name + (on == 1 ? " on" : " off") + " (ini)"); }
+                f->enabled = f->wasEnabled = on == 1;
     };
     h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* hh, ImGuiTextBuffer* out) {
         out->appendf("[%s][Settings]\nFont=%d\n", hh->TypeName, g_font);
@@ -170,10 +170,7 @@ static void DrawMenu(const game::Snapshot& snap) {
             if (f->stage != stage) continue;
             ImGui::SeparatorText(f->name);
             ImGui::PushID(f->name);
-            if (ImGui::Checkbox("Enabled", &f->enabled)) {
-                ImGui::MarkIniSettingsDirty();
-                logger::log(std::string("[flags] ") + f->name + (f->enabled ? " on" : " off") + " (menu)");
-            }
+            if (ImGui::Checkbox("Enabled", &f->enabled)) ImGui::MarkIniSettingsDirty();
             if (*kStage[st]) { ImGui::SameLine(); ImGui::TextColored(kStageColor[st], "%s", kStage[st]); }
             if (f->enabled) f->Menu();
             ImGui::PopID();
@@ -192,7 +189,7 @@ static void RunFeatures(const game::Snapshot& snap) {
     g_combat.Update(chars, now);
     const feature::Frame fr{now, screen.x, screen.y, g_fonts[g_font] ? g_fonts[g_font] : ImGui::GetFont(), snap, g_combat, chars};
     for (feature::Feature* f : feature::Feature::All()) {
-        if (f->wasEnabled && !f->enabled) { f->Off(); logger::log(std::string("[flags] ") + f->name + " Off() applied"); }
+        if (f->wasEnabled && !f->enabled) f->Off();
         f->wasEnabled = f->enabled;
         if (f->enabled) f->OnFrame(fr);
     }
@@ -246,9 +243,10 @@ bool overlay::Init() {
 }
 
 void overlay::Shutdown() {
-    for (feature::Feature* f : feature::Feature::All()) if (f->enabled) f->Off();  // unload = vanilla
     kiero::shutdown();  // restores Present/ResizeBuffers
     Sleep(200);         // let an in-flight hkPresent finish before tearing down
+    // unload = vanilla; only after the hook is gone, else a frame in between re-applies what Off() restored
+    for (feature::Feature* f : feature::Feature::All()) if (f->enabled) f->Off();
     if (g_oWndProc) { SetWindowLongPtr(g_hwnd, GWLP_WNDPROC, (LONG_PTR)g_oWndProc); g_oWndProc = nullptr; }
     if (g_imguiReady) {
         ImGui_ImplDX11_Shutdown();
