@@ -60,7 +60,7 @@ namespace dungeon_map {
 
     struct Plan {
         bool ok = false;
-        int seed = 0, floor = -1;  // key of the frontier
+        int floor = -1;
         Path path;                 // player → stairs down / exit volume (route.hpp)
         bool partial = false;      // the navmesh stopped short somewhere; the route jumps on to the next room
         std::vector<Box> rooms;    // the floor's room chain, for replanning on a room change

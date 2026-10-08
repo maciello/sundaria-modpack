@@ -10,7 +10,6 @@
 
 #include <Windows.h>
 #include <atomic>
-#include <map>
 #include <string>
 #include "Engine_classes.hpp"
 #include "WidgetMinimap_classes.hpp"
@@ -18,9 +17,10 @@
 #include "BP_DungeonFloor_parameters.hpp"
 #include "BP_TriggerBase_classes.hpp"
 
-// Dungeon map (#40): the floor's main path (navmesh, entry → stairs down) drawn on the game's minimap up to the local
-// player's frontier, with a flow along it and blocked/lever icons where it stops (#66 #67 #68).
-// Replans only on game events (door state, lock, floor activation) and on entering a dungeon; game thread only.
+// Dungeon map (#40): the local player's way to the floor's stairs down (route.hpp) drawn on the game's minimap from where
+// they stand, with a flow along it and blocked/lever icons where a locked door cuts it (#66 #67 #68 #83).
+// Replans on game events (door state, lock, floor activation), on entering a dungeon or another room, and when the
+// player leaves the route; game thread only.
 // Facts: references/game-facts.md § Dungeon, game-ui.md § Minimap. Dev probe: dungeon-map.probe next to the exe.
 using namespace SDK;
 using umg::PtrOk;
@@ -28,6 +28,7 @@ using umg::PtrOk;
 namespace {
     constexpr double kDoorSettle = 1.0;  // s after a door's last event: the navmesh updates once its collision changed (unverified)
     constexpr double kRetry = 5.0;       // s: no plan yet (dungeon still loading)
+    constexpr double kReplanGap = 1.0;   // s: at most one replan per this when the player moves (room change, off the route)
 
     std::atomic<bool> g_on{false}, g_probe{false};
     bool g_listening = false;
@@ -50,7 +51,8 @@ namespace {
     void RemoveAll() { dungeon_map::draw::Clear(); g_drawn = false; }  // game thread (or Off() after its wait ran out)
     double g_replanAt = INFINITY;
     dungeon_map::Plan g_plan;
-    std::map<std::pair<int, int>, dungeon_map::Frontier> g_frontiers;  // (dungeon seed, floor number), this dungeon run
+    int g_room = -1;         // the player's room when the plan was made
+    double g_plannedAt = 0;
 
     double Now() { return double(GetTickCount64()) / 1000.0; }
     void ReplanIn(double s) { g_replanAt = std::min(g_replanAt, Now() + s); }
@@ -80,7 +82,6 @@ namespace {
         g_gameState = ref::Ref(gs);
         g_inDungeon = PtrOk(gs) && PtrOk(gs->Class) && gs->Class->GetName().find("Dungeon") != std::string::npos;
         g_plan = {};
-        g_frontiers.clear();
         g_replanAt = g_inDungeon ? Now() : INFINITY;
     }
 
@@ -99,14 +100,19 @@ namespace {
         if (Now() >= g_replanAt) {
             g_plan = dungeon_map::Compute(pawn);
             g_replanAt = g_plan.ok ? INFINITY : Now() + kRetry;
+            g_room = dungeon_map::RoomOf(g_plan.rooms, pawn);
+            g_plannedAt = Now();
             logger::log("[dungeon-map] plan: " + g_plan.why);
         }
         if (!g_plan.ok) return;
-        dungeon_map::Frontier& f = g_frontiers[{g_plan.seed, g_plan.floor}];
-        f.Visit(g_plan.path, pawn);
+        // Lost or moved on: a new route from here. O(path points + rooms) per tick.
+        const dungeon_map::Proj at = dungeon_map::Project(g_plan.path, pawn);
+        const int room = dungeon_map::RoomOf(g_plan.rooms, pawn);
+        if ((at.d > dungeon_map::kOffLine || (room >= 0 && room != g_room)) && Now() >= g_plannedAt + kReplanGap) ReplanIn(0);
         auto* m = g_minimap.Get<UWidgetMiniMap_C>();
         if (!m || m->UnitToPixel <= 0 || !PtrOk(m->CanvasPanel_Map)) return;
-        const auto qs = dungeon_map::Scene(g_plan.path, f.S(g_plan.path), g_plan.marks, float(m->UnitToPixel), m->CanvasPanel_Map->RenderTransform.Angle, Now());
+        const float from = std::floor(at.s / dungeon_map::kStep) * dungeon_map::kStep;
+        const auto qs = dungeon_map::Scene(g_plan.path, from, g_plan.marks, float(m->UnitToPixel), m->CanvasPanel_Map->RenderTransform.Angle, Now());
         dungeon_map::draw::Sync(m, qs);
         g_drawn = true;
     }

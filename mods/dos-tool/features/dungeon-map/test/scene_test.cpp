@@ -24,21 +24,21 @@ int main() {
     const std::vector<Box> rooms{{{0, 0, 0}, {500, 500, 500}, 0}, {{2000, 0, 0}, {500, 500, 500}, 0}};
     assert(RoomOf(rooms, {2100, 0, 0}) == 1 && RoomOf(rooms, {1000, 0, 0}) == -1);
 
-    // Scene: segments up to the frontier, pulses, a cap; icons only for a locked door.
+    // Scene: segments from the player on to the end, pulses, a cap at the end; icons only for a locked door.
     const Path p{{0, 0, 0}, {6400, 0, 0}, {6400, 6400, 0}};  // 100 px + 100 px at UnitToPixel 64
     auto q = Scene(p, -1, {}, 64, 0, 0);
     assert(q.empty());
-    q = Scene(p, 9600, {}, 64, 30, 0);  // frontier 50 px into the second leg
+    q = Scene(p, 3200, {}, 64, 30, 0);  // the player 50 px into the first leg
     int bars = 0, caps = 0;
     for (const Quad& x : q) {
         if (x.z == kZLine) bars++;
         if (x.z == kZMark && Near(x.alpha, kCapAlpha)) caps++;
     }
     assert(bars == 2 && caps >= 1);
-    const Quad& first = q[0];  // world +X = map up (-y): the first bar is vertical, centred at (0, -50)
-    assert(Near(first.x, 0) && Near(first.y, -50) && Near(first.w, 100) && Near(std::abs(first.angle), 90));
+    const Quad& first = q[0];  // world +X = map up (-y): the first bar is vertical, from (0, -50) to (0, -100)
+    assert(Near(first.x, 0) && Near(first.y, -75) && Near(first.w, 50) && Near(std::abs(first.angle), 90));
     const Quad& cap = q.back();
-    assert(Near(cap.x, 50) && Near(cap.y, -100) && Near(cap.angle, 15));  // counter-rotated: 45 - 30
+    assert(Near(cap.x, 100) && Near(cap.y, -100) && Near(cap.angle, 15));  // at the end, counter-rotated: 45 - 30
     q = Scene(p, 9600, m, 64, 0, 0);
     int icons = 0;
     for (const Quad& x : q) icons += x.z >= kZIcon;

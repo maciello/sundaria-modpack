@@ -1,6 +1,6 @@
 #pragma once
-// SDK-free logic of the dungeon map (#40): the main path (the game's navmesh path, world units), the local player's
-// frontier on it, the drawn part, the flow pulses and the world → minimap transform. Spec: design-system.md § Dungeon map path.
+// SDK-free logic of the dungeon map (#40): the route (world units, route.hpp), the drawn part ahead of the local player,
+// the flow pulses and the world → minimap transform. Spec: design-system.md § Dungeon map path.
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -10,8 +10,8 @@ namespace dungeon_map {
     inline float Dist(V3 a, V3 b) { return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z)); }
     using Path = std::vector<V3>;
 
-    constexpr float kReach = 600;     // world units (6 m): coming this close to the path counts as being there
-    constexpr float kStep = 100;      // frontier moves in steps of at least this (fewer redraws)
+    constexpr float kOffLine = 800;   // world units (8 m): the player this far from the route gets a new one (#83)
+    constexpr float kStep = 100;      // the drawn start follows the player in steps of this (fewer redraws)
     constexpr float kPartial = 300;   // path end this far from the goal = the navmesh stopped (closed door)
 
     inline float Length(const Path& p) {
@@ -48,37 +48,18 @@ namespace dungeon_map {
         }
         return p.back();
     }
-    // The path from its start to distance s (the drawn line).
-    inline Path Prefix(const Path& p, float s) {
+    // The path from distance s to its end (the drawn line, ahead of the player).
+    inline Path Suffix(const Path& p, float s) {
         Path out;
         if (p.empty() || s < 0) return out;
-        out.push_back(p[0]);
+        out.push_back(At(p, s));
         float s0 = 0;
         for (size_t i = 1; i < p.size(); i++) {
-            const float len = Dist(p[i - 1], p[i]);
-            if (s0 + len >= s) break;
-            out.push_back(p[i]);
-            s0 += len;
+            s0 += Dist(p[i - 1], p[i]);
+            if (s0 > s) out.push_back(p[i]);
         }
-        out.push_back(At(p, s));
         return out;
     }
-
-    // The local player's frontier on one floor: a place, the furthest point of the path they came within kReach of.
-    // Kept as a world point, so a recomputed path (a door opened) keeps it where it was. Never moves back.
-    struct Frontier {
-        bool has = false;
-        V3 at;
-        float S(const Path& p) const { return has ? Project(p, at).s : -1; }
-        bool Visit(const Path& p, V3 pawn) {  // true = advanced
-            if (p.empty()) return false;
-            const Proj q = Project(p, pawn);
-            if (q.d > kReach || (has && q.s < S(p) + kStep)) return false;
-            at = At(p, q.s);
-            has = true;
-            return true;
-        }
-    };
 
     // World → minimap pixel (in game, game-ui.md § Minimap): (Y, -X) / UnitToPixel.
     struct Px { float x = 0, y = 0; };

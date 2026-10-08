@@ -37,14 +37,14 @@ namespace dungeon_map {
         std::vector<V3> levers;  // heuristic: unpulled levers in that door's room
     };
 
-    // path: the floor's main path (world); frontierS: drawn up to here (< 0 = nothing yet); upp: minimap UnitToPixel;
+    // path: the route (world); fromS: drawn from here to its end (< 0 = nothing); upp: minimap UnitToPixel;
     // mapAngle: CanvasPanel_Map render angle (icons counter-rotate); t: seconds, drives the flow.
-    inline std::vector<Quad> Scene(const Path& path, float frontierS, const Marks& m, float upp, float mapAngle, double t) {
+    inline std::vector<Quad> Scene(const Path& path, float fromS, const Marks& m, float upp, float mapAngle, double t) {
         using namespace style::color;
         std::vector<Quad> out;
-        if (frontierS >= 0 && path.size() > 1) {
+        if (fromS >= 0 && path.size() > 1) {
             Path px;  // the drawn line in map pixels
-            for (const V3& w : Prefix(path, frontierS)) { const Px p = ToMap(w, upp); px.push_back({p.x, p.y, 0}); }
+            for (const V3& w : Suffix(path, fromS)) { const Px p = ToMap(w, upp); px.push_back({p.x, p.y, 0}); }
             for (size_t i = 1; i < px.size(); i++)
                 if (Dist(px[i - 1], px[i]) > 0.5f) out.push_back(Bar({px[i - 1].x, px[i - 1].y}, {px[i].x, px[i].y}, kLineW, kAccent, kLineAlpha, kZLine));
             for (const Pulse& p : Pulses(Length(px), t)) {

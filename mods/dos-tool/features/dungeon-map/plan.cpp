@@ -158,7 +158,6 @@ namespace dungeon_map {
                 floor = Read(static_cast<ABP_DungeonFloor_C*>(fa));
         }
         if (!floor.actor) return p.why = F("no floor for the pawn (active floor %d)", d->CurrentActiveFloor), p;
-        p.seed = d->DungeonSeed;
         p.floor = floor.actor->FloorNumber;
         AActor* goal = Goal(floor);
         if (!goal) return p.why = F("floor %d: no stairs down or exit volume", p.floor), p;
