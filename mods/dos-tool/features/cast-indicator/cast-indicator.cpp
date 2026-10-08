@@ -3,6 +3,7 @@
 #include "logger.hpp"
 #include "ref.hpp"
 #include "style.hpp"
+#include "trace.hpp"
 #include "umg.hpp"
 #include "imgui.h"
 
@@ -104,8 +105,10 @@ namespace {
             g_castName = ab->Class->GetName();
             g_montageName = m->GetName();
             g_casts++;
+            cast_trace::Begin((g_castName + " montage " + g_montageName + " hits " + std::to_string(hits)).c_str());
         } else {
             g_tr.End(now);  // arrows in flight still count for kLateHits
+            cast_trace::End();
         }
         Publish();
     }
@@ -120,6 +123,7 @@ namespace {
 
     void OnEvent(void* objp, void* fnp, void* parms) {
         if (!g_on.load(std::memory_order_relaxed) || !game::OnGameThread()) return;
+        if (cast_trace::Active()) { cast_trace::Event(objp, fnp); cast_trace::Tick(); }
         if (g_hitName < 0) {
             UFunction* f = g_fnHit.Get();
             if (!f) return;
@@ -143,11 +147,22 @@ namespace {
 
     struct CastIndicator : feature::Feature {
         Pips pips;
+        double nextTrigger = 0;
+        std::string trigger;
 
         CastIndicator() : Feature("Cast indicator", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
 
         void OnFrame(const feature::Frame& f) override {
             if (!g_on) { g_on = true; game::SetEventListener(&OnEvent, true); }
+            if (f.now >= nextTrigger) {  // dev trace trigger, once a second
+                nextTrigger = f.now + 1.0;
+                if (trigger.empty()) {
+                    char exe[MAX_PATH] = {};
+                    GetModuleFileNameA(nullptr, exe, MAX_PATH);
+                    trigger = std::string(exe).substr(0, std::string(exe).find_last_of("\\/") + 1) + "cast-indicator.trace";
+                }
+                if (GetFileAttributesA(trigger.c_str()) != INVALID_FILE_ATTRIBUTES) { DeleteFileA(trigger.c_str()); cast_trace::Arm(); }
+            }
             AcquireSRWLockShared(&g_mu);
             const Cast c = g_pub;
             ReleaseSRWLockShared(&g_mu);
