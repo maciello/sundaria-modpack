@@ -54,6 +54,27 @@ SizeBox_2: {h: 60}
 - Item sort adds a `WidgetButton01_C` right after Button_Sort (features/item-sort/inventory-ui.cpp).
 - Live trees of the inventory, bank, character and options screens: not dumped yet (open the screen, then `just ui WidgetInventoryMenu WidgetStorageMenu WidgeCharacterMenu WidgetInGameMenu`).
 
+### Item slot (`WidgetItemIconContainer_C`, designer template)
+```yaml
+SizeBox_0: {min: 100x100}
+  ScaleBox_3 > Overlay_Container:                 # children bottom to top
+    BackgroundSlot: {NamedSlot, pad: 8}
+    Image_BackShadow: ItemIconContainer_Back (Box 0.2)
+    Border_IconArea: {pad: 4, vis: Hidden}        # the item icon (WidgetItemIcon_C) goes here
+    Image_Frame: ItemIconContainer_Frame (Box 0.2, pad -6)
+    Image_Highlight: HeroicChoiceBorder (alpha 0; game sets it on hover/focus)
+    ForegroundSlot: {NamedSlot, pad: 8}
+    TextBlock_Checked: {text: "○", Roboto 45, yellow, pad right 10}   # Select mode mark
+    Image_Focus: ComparisonIcon 64 (yellow tint, collapsed)
+```
+- Item: `CompressedItemSlot` + `IsStorage` (bank); `FItemContainerFunctions_C::ConvertCompressedItemSlot` → (item slot, `EItemContainerType`). `ItemData` (FSItemUIData: spec, icon, change id, grade, level).
+- Bag: `WidgetItemBag_C::ItemContainers` (one per visible slot, re-bound on page change via `SetContainerItemSlot`).
+- Game icons: `WidgetItemIconTooltip_C::Image_Action` shows `Tooltip_Sell` (128×128) / the salvage icon (`CanSalvage`).
+- Item details panel `WidgetItemDisplayDetail_C`: `VB_Details` (no member; parent of `TextBlock_AlreadyLearned`) holds name panel, stats,
+  set bonus, description, tier, AdditionalDetails (white), AlreadyLearned (orange 1, .651, .27), RequirementsNotMet (red), footer with
+  price (`WidgetCurrency`). Narkisim 16. Shown item: `LoadedItemUIData`. Several instances live at once (compare panels).
+- Suggested sell/salvage marks use these (features/item-sell/inventory-badges.cpp).
+
 ## Adding a game widget to a screen (game thread only)
 1. Run inside a ProcessEvent listener (`game::SetEventListener`), never on the render thread. Guard re-entry (`thread_local` busy flag): our calls re-enter ProcessEvent.
 2. Find the target: scan GObjects for the screen's class; skip CDOs and archetypes (`Flags & 0x30`); check `PtrOk` on every field you follow.
@@ -64,3 +85,5 @@ SizeBox_2: {h: 60}
 7. Clicks: use a game widget class whose blueprint binds the click (`WidgetButton01_C`). Its `BndEvt__…OnButtonClickedEvent…` passes ProcessEvent on your instance. A plain `UButton`'s `OnClicked` reaches nobody without a delegate binding.
 8. Hot reload: the game keeps added widgets. Adopt them on the next load (find your class among the panel's children) and never add a second one.
 9. Toggle off from the render thread cannot remove widgets (no UFunction calls there). They stay, inert, until the game rebuilds the screen.
+10. Plain widgets (UImage, UTextBlock): `umg::Spawn(UImage::StaticClass(), userWidget->WidgetTree)` (GameplayStatics::SpawnObject), then
+    `AddChild` into one of that user widget's panels. Helpers for all steps: `core/umg.hpp`.

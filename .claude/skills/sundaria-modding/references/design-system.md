@@ -109,10 +109,16 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - On closed → open: flash disc r 40·Ui·depth `kTextSoft` @.5 → 0 over 0.25 s; 12 sparks = radial lines from r 0 → 60·Ui·depth (OutCubic, 0.6 s), length 10·Ui → 0; 6 motes (CircleFilled 2·Ui) rising 80·Ui over 1.2 s with drift ±10·Ui, alpha → 0.
 - Colour: highest item tier in the chest if known, else `kTextSoft`. Particles deterministic from hash(actor id) (SDK-free, tested).
 
-### Suggestion badge (#22, #23)
-Game screen: built from game widgets inside the bag (no ImGui pills). Spec waits for the live item-slot survey
-(open the inventory, `just ui WidgetItemInventory WidgetItemBag`): mark = the game's own slot highlight or a small game
-TextBlock (Narkisim, `kGameHighlight` for "upgrade", accent orange for "sell") on the slot; detail text in the game tooltip (`WidgetTooltip_C`).
+### Suggested sell/salvage (#23, game screen)
+- Where: every item slot of the game's bags (`WidgetItemIconContainer_C` in `WidgetItemBag_C::ItemContainers`): inventory, bank, vendor.
+- Mark: the game's own action icon (`Tooltip_Sell` / `Tooltip_Salvage`, the icon its item tooltip shows) as a UImage 32×32 in the slot's
+  `Overlay_Container`, top-left, padding 6. Hit-test invisible (clicks and drags reach the slot). Top-right and bottom-right stay the game's
+  (select mark, comparison icon, stack count).
+- Reason: one line in the game's item details panel (`WidgetItemDisplayDetail_C`), appended under its text, styled like the panel's own
+  "Learned" line (Narkisim 16, orange 1, .651, .27, centred, wraps): `Sell suggested: worse than <item>` / `Salvage suggested: …`.
+- Code: `features/item-sell/inventory-badges.cpp`; data: `item_sell::api::Suggested()`.
+- Don't: own colours or ImGui over the bag; selecting items for the player (the game's Select mode stays theirs).
+- Upgrade mark (#22): not designed yet; candidate = the same slot corner with the game's yellow (`kGameHighlight`).
 
 ### Boss name card (#19, Borderlands style)
 - Cinematic layer: hides WorldNumber/Hud while shown. Letterbox: black rects top and bottom, 0 → 0.1h over 0.4 s InOutCubic, out the same.
