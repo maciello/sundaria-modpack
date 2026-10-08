@@ -50,11 +50,12 @@ namespace {
     void MeshReport(const std::vector<std::string>& terms, const std::string& world) {
         const ULONGLONG t0 = GetTickCount64();
         UClass* meshCls = UStaticMesh::StaticClass();
-        int matches = 0, fresh = 0;
+        int matches = 0, fresh = 0, meshes = 0;
         char buf[512];
         for (int i = 0; i < UObject::GObjects->Num(); i++) {
             UObject* o = UObject::GObjects->GetByIndex(i);
             if (!PtrOk(o) || !PtrOk(o->Class) || !o->IsA(meshCls)) continue;
+            meshes++;
             const std::string low = Lower(o->GetName());
             bool match = false;
             for (const std::string& t : terms) match |= low.find(t) != std::string::npos;
@@ -69,12 +70,12 @@ namespace {
                 trace = int(bs->CollisionTraceFlag);
             }
             std::string pkg = "?";  // outermost outer = the package (/Game/...): the path LoadAsset needs
-            for (UObject* p = o->Outer; PtrOk(p); p = p->Outer) pkg = p->GetName();
+            for (UObject* p = o->Outer; PtrOk(p); p = p->Outer) pkg = p->Name.GetRawString();  // GetName() drops the folders
             std::snprintf(buf, sizeof(buf), "[meshes] %s.%s  simple=%d trace=%d%s", pkg.c_str(), o->GetName().c_str(), simple, trace,
                           simple > 0 ? "  <-- HAS COLLISION" : "");
             logger::log(buf);
         }
-        std::snprintf(buf, sizeof(buf), "[meshes] world %s: %d matching meshes loaded, %d new (%llu ms)", world.c_str(), matches, fresh,
+        std::snprintf(buf, sizeof(buf), "[meshes] world %s: %d static meshes loaded, %d matching, %d new (%llu ms)", world.c_str(), meshes, matches, fresh,
                       GetTickCount64() - t0);
         logger::log(buf);
     }
