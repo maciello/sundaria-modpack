@@ -1,5 +1,6 @@
 #include "sdk.hpp"
 #include "logger.hpp"
+#include "reflect.hpp"
 #include <Windows.h>
 #include <atomic>
 #include <unordered_map>
@@ -45,10 +46,10 @@ namespace {
         Names n{EnumNames("EItemContainerType"), EnumNames("EWeaponType"), EquipSlotNames(), {}};
         std::vector<int32> offs;
         UClass* c = UArchonAttributeSet_Secondary::StaticClass();
-        for (FField* f = PtrOk(c) ? c->ChildProperties : nullptr; PtrOk(f); f = f->Next)
-            if (PtrOk(f->ClassPrivate) && f->ClassPrivate->Name.ToString() == "FloatProperty") {
-                n.stat.push_back(f->Name.ToString());
-                offs.push_back(static_cast<FProperty*>(f)->Offset);
+        for (const FProperty* p : reflect::Props(c, false))
+            if (reflect::Type(p) == "FloatProperty") {
+                n.stat.push_back(reflect::Name(p));
+                offs.push_back(p->Offset);
             }
         logger::log("[items] names: containers " + I(n.container.size()) + ", weapon types " + I(n.weaponType.size()) +
                     ", equip slots " + I(n.equipSlot.size()) + ", item stat attributes " + I(n.stat.size()));

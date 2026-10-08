@@ -1,6 +1,7 @@
 #include "feature.hpp"
 #include "game.hpp"
 #include "logger.hpp"
+#include "reflect.hpp"
 #include "umg.hpp"
 #include "../shared/sdk.hpp"
 
@@ -45,12 +46,11 @@ namespace {
     // Every float property of a set by reflection (no guessed offsets): `{Name: value, ...}`.
     std::string Floats(UObject* set) {
         std::string y = "{";
-        for (UStruct* c = set->Class; PtrOk(c); c = c->SuperStruct)
-            for (FField* f = c->ChildProperties; PtrOk(f); f = f->Next)
-                if (PtrOk(f->ClassPrivate) && f->ClassPrivate->Name.ToString() == "FloatProperty") {
-                    const float v = *reinterpret_cast<const float*>(reinterpret_cast<const uint8*>(set) + static_cast<FProperty*>(f)->Offset);
-                    y += F("%s%s: %.6g", y.size() > 1 ? ", " : "", f->Name.ToString().c_str(), v);
-                }
+        for (const FProperty* p : reflect::Props(set->Class))
+            if (reflect::Type(p) == "FloatProperty") {
+                const float v = *reinterpret_cast<const float*>(reinterpret_cast<const uint8*>(set) + p->Offset);
+                y += F("%s%s: %.6g", y.size() > 1 ? ", " : "", reflect::Name(p).c_str(), v);
+            }
         return y + "}";
     }
 
