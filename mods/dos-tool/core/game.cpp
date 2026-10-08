@@ -129,9 +129,10 @@ std::vector<combat::Sample> game::SampleHealth() {
                 else if (set->IsA(secondaryCls)) secondary = static_cast<UArchonAttributeSet_Secondary*>(set);
             }
             if (!status) continue;
-            // UPrimitiveComponent::LastRenderTimeOnScreen: native field in Dumper-7's Pad_1F8 (UE 4.27 layout, unverified)
-            static_assert(offsetof(UPrimitiveComponent, MinDrawDistance) == 0x200, "re-check LastRenderTimeOnScreen offset");
-            const float seen = PtrOk(c->Mesh) ? *reinterpret_cast<const float*>(reinterpret_cast<const uint8*>(c->Mesh) + 0x1FC) : 0.0f;
+            // UPrimitiveComponent::LastRenderTimeOnScreen: native, inside Dumper-7's Pad_288 after BoundsScale
+            // (UE 4.27: LastSubmitTime 0x288, LastRenderTime 0x28C, LastRenderTimeOnScreen 0x290; all three advance in-game)
+            static_assert(offsetof(UPrimitiveComponent, BoundsScale) == 0x284, "re-check LastRenderTimeOnScreen offset");
+            const float seen = PtrOk(c->Mesh) ? *reinterpret_cast<const float*>(reinterpret_cast<const uint8*>(c->Mesh) + 0x290) : 0.0f;
             const FVector& p = root->RelativeLocation;  // capsule center; unattached root: relative == world
             out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z, status->CurrentHealth,
                            PtrOk(c->PlayerState), secondary ? secondary->Health : 0.0f, status->CurrentLevel, seen});

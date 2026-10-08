@@ -78,7 +78,17 @@ namespace combat {
                 if (now - first[s.id] < grace || it->second <= 0) continue;
                 const float delta = it->second - s.health;
                 if (delta < 0) {
-                    Add(s, -delta, Kind::Heal, now);
+                    // HP bouncing back (co-op correction, prediction rollback) first cancels a live damage
+                    // stack on this actor, so a dip-rebound-dip counts once: stacks show net HP lost.
+                    float heal = -delta;
+                    for (Number& n : live)
+                        if (heal > 0 && n.id == s.id && n.kind != Kind::Heal && now - n.bump <= stack) {
+                            const float back = std::min(heal, n.amount);
+                            n.amount -= back; heal -= back;
+                            if (n.kind == Kind::Dealt) { fight.total -= back; n.scale = Rel(std::max(n.amount, 1.0f)); }
+                        }
+                    std::erase_if(live, [](const Number& n) { return n.amount <= 0; });
+                    if (heal > 0) Add(s, heal, Kind::Heal, now);
                 } else if (s.isPlayer) {
                     Add(s, delta, Kind::Taken, now);
                 } else {

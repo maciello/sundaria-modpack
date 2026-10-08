@@ -65,6 +65,11 @@ static bool CreateRTV(IDXGISwapChain* sc) {
 }
 static void ReleaseRTV() { if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; } }
 
+// Stable on; with dos-tool.dev every non-Deprecated, non-optIn feature on. The ini stores only deviations from this.
+static bool Default(const feature::Feature* f) {
+    return g_dev ? f->stage != feature::Stage::Deprecated && !f->optIn : f->stage == feature::Stage::Stable;
+}
+
 static bool InitImGui(IDXGISwapChain* sc) {
     if (FAILED(sc->GetDevice(__uuidof(ID3D11Device), (void**)&g_device)))
         return false;
@@ -83,9 +88,7 @@ static bool InitImGui(IDXGISwapChain* sc) {
     char devFlag[MAX_PATH];
     snprintf(devFlag, MAX_PATH, "%sdos-tool.dev", g_ini);
     g_dev = GetFileAttributesA(devFlag) != INVALID_FILE_ATTRIBUTES;
-    if (g_dev)
-        for (feature::Feature* f : feature::Feature::All())
-            if (f->stage != feature::Stage::Deprecated && !f->optIn) f->enabled = f->wasEnabled = true;
+    for (feature::Feature* f : feature::Feature::All()) f->enabled = f->wasEnabled = Default(f);
     strncat(g_ini, "dos-tool.ini", MAX_PATH - strlen(g_ini) - 1);
     io.IniFilename = g_ini;  // window layout + [DosTool][Settings] below; local to this install
     ImGuiSettingsHandler h{};
@@ -105,7 +108,8 @@ static bool InitImGui(IDXGISwapChain* sc) {
     };
     h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* hh, ImGuiTextBuffer* out) {
         out->appendf("[%s][Settings]\nFont=%d\n", hh->TypeName, g_font);
-        for (feature::Feature* f : feature::Feature::All()) out->appendf("%s=%d,%d\n", f->name, f->enabled ? 1 : 0, int(f->stage));
+        for (feature::Feature* f : feature::Feature::All())
+            if (f->enabled != Default(f)) out->appendf("%s=%d,%d\n", f->name, f->enabled ? 1 : 0, int(f->stage));
         out->append("\n");
     };
     ImGui::AddSettingsHandler(&h);

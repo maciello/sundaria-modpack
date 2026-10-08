@@ -22,10 +22,10 @@ int main() {
     assert(t.live.size() == 1 && t.live[0].kind == Kind::Dealt && t.live[0].amount == 30);
     assert(std::fabs(t.live[0].scale - 1.0f) < 1e-3);                   // first hit defines "typical"
     t.Update({{1, 0, 0, 0, 80, false}, {2, 0, 0, 0, 80, false}}, 2.2);
-    assert(t.live.back().kind == Kind::Heal && t.live.back().amount == 10);
+    assert(t.live.size() == 1 && t.live[0].amount == 20);                // rebound nets out of the stack, no heal
     t.Update({{1, 0, 0, 0, 80, false}, {2, 0, 0, 0, 80, false}, {3, 0, 0, 0, 500, true}}, 2.3);
     t.Update({{1, 0, 0, 0, 80, false}, {2, 0, 0, 0, 80, false}, {3, 0, 0, 0, 450, true}}, 4.0);
-    assert(t.live.back().kind == Kind::Taken && t.fight.total == 30);    // damage taken is not DPS
+    assert(t.live.back().kind == Kind::Taken && t.fight.total == 20);    // damage taken is not DPS
 
     // relative size: 4x typical is bigger, tiny is smaller, clamped
     combat::Tracker s;
@@ -83,5 +83,17 @@ int main() {
     assert(st.live.size() == 3 && st.live[2].amount == 20);
     st.Update({{5, 0, 0, 0, 920, false}, {6, 0, 0, 0, 990, false}}, 4.2 + 1.5);
     assert(st.live.empty());                                               // all expired after last bump
+    {   // dip-rebound-dip (server correction) counts once
+        combat::Tracker r;
+        combat::Sample e{9, 0, 0, 0, 100, false};
+        r.Update({e}, 0.0); r.Update({e}, 2.0);
+        e.health = 70; r.Update({e}, 2.1);
+        e.health = 100; r.Update({e}, 2.2);
+        e.health = 70; r.Update({e}, 2.3);
+        assert(r.live.size() == 1 && r.live[0].kind == combat::Kind::Dealt && r.live[0].amount == 30.0f);
+        assert(r.fight.total == 30.0);
+        e.health = 60; r.Update({e}, 2.4);
+        assert(r.live[0].amount == 40.0f);                       // a real second hit still stacks
+    }
     std::puts("ok");
 }
