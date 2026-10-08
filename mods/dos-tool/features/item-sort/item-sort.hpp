@@ -16,12 +16,12 @@ namespace item_sort {
     inline constexpr const char* kAttackName[] = {"-", "Melee", "Ranged", "Magic"};
     inline constexpr const char* kKindName[] = {"Other", "Weapon", "Armor"};
 
-    struct Stat { int type; float value; };  // EStatType raw value
+    struct Stat { int type; float value; };  // type = index into the attribute-name table (UArchonAttributeSet_Secondary floats)
     struct Item {
         Where where = Where::Other;
         bool bank = false;                // lives in the bank (storage) component
         std::uint8_t containerType = 0;   // EItemContainerType raw value
-        int slot = 0, specId = 0, grade = 0, level = 0;
+        int slot = 0, specId = 0, grade = 0, level = 0, changeId = 0;
         int equipSlot = -1;               // EBP_ItemEquipmentSlotEnum raw, -1 = not equipable
         Kind kind = Kind::Other;
         Attack attack = Attack::Unknown;
@@ -36,17 +36,24 @@ namespace item_sort {
     }
     inline bool Has(std::string_view hay, std::string_view needle) { return Lower(hay).find(needle) != std::string::npos; }
 
-    // Attack keyword in a game name (EWeaponDamageType / EWeaponType display name, stat name). Unverified in game.
+    // Attack of a stat name (attribute property, e.g. MeleePower_Bonus, RAP, CriticalDamage_Spell).
+    // Map/RAP/SP = melee/ranged/spell attack power (unverified meaning).
     inline Attack AttackIn(std::string_view name) {
+        if (name == "Map") return Attack::Melee;
+        if (name == "RAP") return Attack::Ranged;
+        if (name == "SP") return Attack::Magic;
         if (Has(name, "melee")) return Attack::Melee;
-        if (Has(name, "range") || Has(name, "bow")) return Attack::Ranged;
+        if (Has(name, "range")) return Attack::Ranged;
         if (Has(name, "magic") || Has(name, "spell")) return Attack::Magic;
         return Attack::Unknown;
     }
-    // Weapon: damage-type name first (3 values ~ Melee/Range/Magic), weapon-type name as fallback.
-    inline Attack AttackOf(std::string_view damageTypeName, std::string_view weaponTypeName) {
-        const Attack a = AttackIn(damageTypeName);
-        return a != Attack::Unknown ? a : AttackIn(weaponTypeName);
+    // Weapon: EWeaponType display name (in game: Axe, Club, Crossbow, Dagger, Fist, Sword, Shield, Axe2H, Bow2H, ...).
+    inline Attack AttackOfWeapon(std::string_view weaponTypeName) {
+        if (weaponTypeName.empty()) return Attack::Unknown;
+        if (Has(weaponTypeName, "bow")) return Attack::Ranged;
+        for (const char* m : {"staff", "wand", "orb", "scepter", "tome", "focus"})
+            if (Has(weaponTypeName, m)) return Attack::Magic;
+        return Attack::Melee;
     }
 
     // EItemContainerType display name → where. Unverified in game.
@@ -148,33 +155,32 @@ namespace item_sort {
     }
 
     // ---- the game's own Sort, hooked (game thread) ----
-    // UFunction names that start a vanilla sort when they pass ProcessEvent (button event, HUD/manager calls,
-    // input action). Our own SortItemsInternalClient call is excluded; "Sorted…" getters are not triggers.
+    // UFunctions that start a vanilla sort when they pass ProcessEvent. In game only the bag header's
+    // BndEvt__Button_Sort_* was seen; SortItem/RequestSortItems run inside the BP VM.
     inline bool SortTrigger(std::string_view fn) {
-        if (fn == "SortItemsInternalClient" || Has(fn, "sorted")) return false;
-        return Has(fn, "sort") || fn == "ReorderItems";
+        return fn.starts_with("BndEvt__Button_Sort") || fn == "SortItem" || fn == "RequestSortItems";
     }
-    // Byte offset of the IsStorage bool in the trigger's params, -1 when it has none (e.g. the button event).
+    // Byte offset of the IsStorage bool in the trigger's params, -1 when it has none (the button event).
     inline int StorageParamOffset(std::string_view fn) {
         if (fn == "SortItem") return 0x0;
         if (fn == "RequestSortItems") return 0x1;
-        if (fn == "ReorderItems") return 0x10;
         return -1;
     }
-    // Class name of the widget that owns a bag header → bank bag?  Unverified in game.
-    inline bool StorageWidget(std::string_view cls) { return Has(cls, "storage") || Has(cls, "bank") || Has(cls, "stash"); }
     inline constexpr unsigned kSettleMs = 150;  // run after the vanilla sort's burst of calls
 
-    // ---- panel anchored to the game's bag header (pixels) ----
-    // Strip geometry, px at 1080p (× style::type::Ui). Spec: design-system.md "Inventory sort strip".
-    inline constexpr float kComboW = 120, kFilterW = 96, kSearchW = 120, kGapToHeader = 6;
-    struct Rect { float x, y, w, h; };
-    // Above the header, right-aligned to it; below when there is no room above. Clamped to the screen.
-    inline Rect PanelRect(Rect header, float w, float h, float gap, float screenW, float screenH) {
-        Rect r{header.x + header.w - w, header.y - gap - h, w, h};
-        if (r.y < 0) r.y = header.y + header.h + gap;
-        r.x = std::clamp(r.x, 0.0f, std::max(0.0f, screenW - w));
-        r.y = std::clamp(r.y, 0.0f, std::max(0.0f, screenH - h));
-        return r;
+    // Positions where the container's order after applying equals the intended order (item keys).
+    inline int InOrder(const std::vector<long long>& intended, const std::vector<long long>& actual) {
+        int n = 0;
+        for (size_t i = 0; i < intended.size() && i < actual.size(); i++) n += intended[i] == actual[i];
+        return n;
     }
+}
+
+// Game-thread API for the inventory UI (implemented in item-sort.cpp; any thread may call).
+namespace item_sort::api {
+    std::vector<std::string> ProfileNames();
+    int ActiveProfile();
+    void SetActiveProfile(int i);   // persisted in dos-tool.ini
+    void RequestSort(bool bank);    // runs on the game thread at the next ProcessEvent
+    std::string LastStatus();       // "inventory: … applied …" or why not
 }

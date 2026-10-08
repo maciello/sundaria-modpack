@@ -7,9 +7,9 @@ using namespace item_sort;
 
 int main() {
     const std::vector<std::string> names = {"Melee Damage", "Ranged Damage", "Armor"};
-    Item bow{Where::Inventory, false, 0, 3, 100, 2, 10, 1, Kind::Weapon, Attack::Ranged, "Bow", {{1, 10}, {2, 5}}};
-    Item sword{Where::Bank, true, 0, 4, 200, 2, 10, 1, Kind::Weapon, Attack::Melee, "Sword", {{0, 10}, {2, 5}}};
-    Item helm{Where::Equipped, false, 1, 0, 300, 1, 12, 2, Kind::Armor, Attack::Unknown, "Helm", {{2, 8}}};
+    Item bow{Where::Inventory, false, 0, 3, 100, 2, 10, 0, 1, Kind::Weapon, Attack::Ranged, "Bow", {{1, 10}, {2, 5}}};
+    Item sword{Where::Bank, true, 0, 4, 200, 2, 10, 0, 1, Kind::Weapon, Attack::Melee, "Sword", {{0, 10}, {2, 5}}};
+    Item helm{Where::Equipped, false, 1, 0, 300, 1, 12, 0, 2, Kind::Armor, Attack::Unknown, "Helm", {{2, 8}}};
 
     // score = weighted sum (#16)
     Profile flat{"Balanced"};
@@ -39,11 +39,12 @@ int main() {
     b = helm; b.specId = 299;
     assert(Before(b, 1, a, 1) && !Before(a, 1, b, 1));
 
-    // ranged/melee rule
-    assert(AttackOf("NewEnumerator0", "Longbow") == Attack::Ranged);
-    assert(AttackOf("Melee", "Bow") == Attack::Melee);
-    assert(AttackOf("Magic", "") == Attack::Magic);
-    assert(AttackOf("x", "y") == Attack::Unknown);
+    // ranged/melee rule (weapon type names as logged in game)
+    for (const char* m : {"Axe", "Club", "Dagger", "Fist", "Sword", "Shield", "Axe2H", "Hammer2H"}) assert(AttackOfWeapon(m) == Attack::Melee);
+    assert(AttackOfWeapon("Crossbow") == Attack::Ranged && AttackOfWeapon("Bow2H") == Attack::Ranged && AttackOfWeapon("Crossbow2H") == Attack::Ranged);
+    assert(AttackOfWeapon("Staff2H") == Attack::Magic && AttackOfWeapon("") == Attack::Unknown);
+    assert(AttackIn("MeleePower_Bonus") == Attack::Melee && AttackIn("RAP") == Attack::Ranged && AttackIn("CriticalDamage_Spell") == Attack::Magic);
+    assert(AttackIn("Damage_Slash") == Attack::Unknown);
     assert(WhereOf("Equipment", false) == Where::Equipped);
     assert(WhereOf("MainInventory", false) == Where::Inventory);
     assert(WhereOf("Equipment", true) == Where::Bank);
@@ -77,18 +78,9 @@ int main() {
 
     // vanilla sort hook
     assert(SortTrigger("BndEvt__Button_Sort_K2Node_ComponentBoundEvent_974_OnButtonClickedEvent__DelegateSignature"));
-    assert(SortTrigger("SortItem") && SortTrigger("RequestSortItems") && SortTrigger("ReorderItems"));
-    assert(!SortTrigger("SortItemsInternalClient") && !SortTrigger("OnRep_SortedSimplifiedItemChange") && !SortTrigger("Tick"));
+    assert(SortTrigger("SortItem") && SortTrigger("RequestSortItems"));
+    assert(!SortTrigger("SortItemsInternalClient") && !SortTrigger("ReorderItems") && !SortTrigger("Tick"));
     assert(StorageParamOffset("RequestSortItems") == 1 && StorageParamOffset("BndEvt__Button_Sort_x") == -1);
-    assert(StorageWidget("WidgetItemStorage_C") && !StorageWidget("WidgetItemInventory_C"));
-
-    // panel above the header, below when no room, kept on screen
-    Rect hdr{1000, 300, 400, 40};
-    Rect r = PanelRect(hdr, 300, 50, 8, 1920, 1080);
-    assert(r.x == 1100 && r.y == 242);
-    r = PanelRect({1000, 20, 400, 40}, 300, 50, 8, 1920, 1080);
-    assert(r.y == 68);
-    r = PanelRect({1700, 300, 400, 40}, 300, 50, 8, 1920, 1080);
-    assert(r.x == 1620);
+    assert(InOrder({1, 2, 3}, {1, 3, 2}) == 1 && InOrder({1, 2}, {1, 2}) == 2);
     std::puts("ok");
 }
