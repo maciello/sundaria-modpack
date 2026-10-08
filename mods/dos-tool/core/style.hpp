@@ -80,9 +80,9 @@ namespace style {
         constexpr float kIconRatio = 0.2f, kIconMinR = 6, kIconGlyph = 0.68f;
     }
 
-    namespace hud {  // bars under the character (hit pips N > 10, charge bar); px at 1080p × Ui(h)
+    namespace hud {  // HUD under the character (hit pips, N > 10 bar); px at 1080p × Ui(h)
         constexpr float kBarW = 120, kBarH = 6;
-        constexpr float kPipsY = 0.62f, kChargeY = 0.655f;  // row centres, × screen height
+        constexpr float kPipsY = 0.62f;  // row centre, × screen height
     }
 
     namespace space { constexpr float k1 = 2, k2 = 4, k3 = 6, k4 = 8, k5 = 12, k6 = 16, k7 = 24, k8 = 32; }
