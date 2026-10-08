@@ -1,6 +1,7 @@
 #include "sdk.hpp"
 #include "logger.hpp"
 #include "game.hpp"
+#include "cost.hpp"
 #include <unordered_map>
 #include "BP_SpecItemBase_classes.hpp"
 #include "BP_SpecItemBase_parameters.hpp"
@@ -15,7 +16,9 @@ namespace {
     UArchonSpecManager* g_mgr = nullptr;
     int32 g_mgrIdx = -1;
     bool Live(const UObject* o, int32 idx) { return PtrOk(o) && UObject::GObjects->GetByIndex(idx) == o; }
-    void BuildSpecs() {
+    void BuildSpecs() {  // O(loaded specs); only on a miss
+        static cost::Path path{"items spec map rebuild"};
+        cost::Scope cs(path);
         if (!Live(g_mgr, g_mgrIdx)) {
             auto* m = static_cast<UObject*>(game::FindSingleton("BP_SpecManagerItem_C"));
             g_mgr = PtrOk(m) && m->IsA(UArchonSpecManager::StaticClass()) ? static_cast<UArchonSpecManager*>(m) : nullptr;
@@ -31,7 +34,9 @@ namespace {
 }
 
 namespace items::sdk {
-    UArchonSpec* Spec(int id, bool& rebuilt) {
+    UArchonSpec* Spec(int id, bool& rebuilt) {  // O(1) hash hit
+        static cost::Path path{"items spec lookup"};
+        cost::Scope cs(path);
         auto it = g_specs.find(id);
         if (it != g_specs.end() && Live(it->second.sp, it->second.idx)) return it->second.sp;
         if (rebuilt) return nullptr;  // one rebuild per read

@@ -2,6 +2,7 @@
 #include "item-sort.hpp"
 #include "inventory-ui.hpp"
 #include "logger.hpp"
+#include "cost.hpp"
 #include "imgui.h"
 #include "imgui_internal.h"  // MarkIniSettingsDirty
 
@@ -127,7 +128,9 @@ namespace {
 
     // Sort one bag by the active profile through InvManager.ReorderItems (verified path), proven by one readback.
     // One log line; the per-item dump only after item-sort.probe (g_verbose).
-    void RunSort(bool bank) {
+    void RunSort(bool bank) {  // O(items in the container), once per Sort press
+        static cost::Path path{"item-sort apply"};
+        cost::Scope cs(path);
         const char* what = bank ? "bank" : "inventory";
         LARGE_INTEGER t;
         QueryPerformanceCounter(&t);

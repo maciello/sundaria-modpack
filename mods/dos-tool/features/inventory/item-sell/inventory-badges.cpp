@@ -3,6 +3,7 @@
 #include "game.hpp"
 #include "logger.hpp"
 #include "umg.hpp"
+#include "cost.hpp"
 
 #include <atomic>
 #include <string>
@@ -226,7 +227,9 @@ namespace {
         if (t_busy || !g_on.load(std::memory_order_relaxed) || !PtrOk(objp)) return;
         t_busy = true;
         auto* obj = static_cast<UObject*>(objp);
-        if (fnp == g_fn.detailTick) {
+        if (fnp == g_fn.detailTick) {  // O(lines + badges on screen)
+            static cost::Path path{"item-sell details tick"};
+            cost::Scope cs(path);
             bool known = false;
             for (Line& l : g_lines) if (l.detail == obj) { UpdateLine(l); known = true; }
             for (const Tracked& t : g_noLine) known |= t.w == obj;
@@ -237,7 +240,9 @@ namespace {
                          : c == g_invCls  ? static_cast<UWidgetItemInventory_C*>(obj)->widget_ItemBag
                          : c == g_storCls ? static_cast<UWidgetItemStorage_C*>(obj)->widget_ItemStorageBag
                                           : nullptr;
-            if (PtrOk(bag) && bag->Class == g_bagCls) {
+            if (PtrOk(bag) && bag->Class == g_bagCls) {  // O(open bags)
+                static cost::Path path{"item-sell bag event"};
+                cost::Scope cs(path);
                 Track(g_bags, bag);
                 g_dirty = true;
             }
