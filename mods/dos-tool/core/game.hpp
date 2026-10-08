@@ -115,8 +115,9 @@ namespace game {
     std::string RoomStatus();
     void ShowRoom(bool show);  // draw the room's invisible boxes as outlines
 
-    // Survey: log "class name @ x y z" of every actor in the loaded levels (memory reads only). Returns the count.
-    int LogActors();
+    // Survey: the game thread logs "class name @ x y z" of every actor in the loaded levels on its next world tick.
+    void LogActors();
+    int LoggedActors();  // count of the last survey, 0 = none yet
     // Debug readout: camera manager class + its view target class ("-" when missing).
     void CameraClasses(std::string& manager, std::string& target);
 

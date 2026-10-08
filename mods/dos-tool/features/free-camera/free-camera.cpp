@@ -25,7 +25,6 @@ namespace {
     struct FreeCamera : feature::Feature {
         bool flying = false, keyWas = false, looking = false;
         int key = 0;  // index into kKeys
-        int logged = 0;
         POINT anchor{};
         float speed = 800.0f, sens = 0.15f;
         free_camera::Pose pose{};
@@ -105,8 +104,8 @@ namespace {
                 ImGui::EndCombo();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Log actors")) logged = game::LogActors();
-            if (logged) { ImGui::SameLine(); ImGui::TextDisabled("%d logged", logged); }
+            if (ImGui::Button("Log actors")) game::LogActors();
+            if (const int logged = game::LoggedActors()) { ImGui::SameLine(); ImGui::TextDisabled("%d logged", logged); }
             ImGui::SetNextItemWidth(150);
             ImGui::SliderFloat("Speed", &speed, 100.0f, 4000.0f, "%.0f");
             ImGui::SetNextItemWidth(150);

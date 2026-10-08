@@ -201,6 +201,9 @@ std::atomic<bool> g_moving{false};  // movement/ground settings on, or a restore
 std::atomic<bool> g_coreTick{false};
 
 void MoveTick();
+int LogActorsNow();
+std::atomic<bool> g_logActorsReq{false};
+std::atomic<int> g_loggedActors{0};
 
 // Core's game-thread work: one listener slot for everything core reads or writes in the world.
 void CoreTick(void*, void* fn, void*) {
@@ -213,12 +216,13 @@ void CoreTick(void*, void* fn, void*) {
     }
     if (g_moving.load()) MoveTick();
     CamTick();
+    if (g_logActorsReq.exchange(false)) g_loggedActors = LogActorsNow();
     g_coreTickAt = GetTickCount64();
 }
 
 // CoreTick is registered only while a core user needs it: with every feature off, no listener and no world reads.
 void UpdateCoreTick() {
-    const bool want = g_sampling.load() || g_moving.load() || GetTickCount64() - g_camPostedAt.load() < 500;
+    const bool want = g_sampling.load() || g_moving.load() || GetTickCount64() - g_camPostedAt.load() < 500 || g_logActorsReq.load();
     if (want != g_coreTick.exchange(want)) game::SetEventListener(&CoreTick, want);
 }
 }
@@ -1195,7 +1199,11 @@ void game::PlaceNpc(uintptr_t id, float x, float y, float z, float yaw) {
     UpdatePEHook();
 }
 
-int game::LogActors() {
+void game::LogActors() { g_logActorsReq = true; UpdateCoreTick(); }
+int game::LoggedActors() { return g_loggedActors.load(); }
+
+namespace {
+int LogActorsNow() {  // game thread (CoreTick)
     UWorld* w = UWorld::GetWorld();
     if (!PtrOk(w)) return 0;
     int n = 0;
@@ -1215,6 +1223,7 @@ int game::LogActors() {
         }
     }
     return n;
+}
 }
 
 void game::CameraClasses(std::string& manager, std::string& target) {
