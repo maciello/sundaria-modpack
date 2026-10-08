@@ -1,6 +1,6 @@
 ---
 name: sundaria-modding
-description: Main entrypoint for ALL work on Dungeons of Sundaria (UE 4.27, Steam 587520) and the sundaria-modpack repo — the dos-tool DLL (ImGui overlay, damage numbers, DPS meter, camera, air control, health bars), the Dumper-7 SDK, hot reload into the running game, crash dumps, and the GitHub-release auto-updater friends use. Use whenever the user mentions Sundaria, the modpack, dos-tool, a new in-game feature/tweak (UI, numbers, colours, movement, camera, stats), a game crash, "the game patched and the mod broke", re-dumping the SDK, releasing to friends, or finding a game class/field/offset — even if they don't say "mod".
+description: Main entrypoint for ALL work on Dungeons of Sundaria (UE 4.27, Steam 587520) and the sundaria-modpack repo — the dos-tool DLL (ImGui overlay, damage numbers, DPS meter, camera, air control, health bars), the Dumper-7 SDK, hot reload into the running game, crash dumps, and the GitHub-release auto-updater friends use. Use whenever the user mentions Sundaria, the modpack, dos-tool, a new in-game feature/tweak (UI, numbers, colours, design system, visuals, movement, camera, stats), a game crash, "the game patched and the mod broke", re-dumping the SDK, releasing to friends, or finding a game class/field/offset — even if they don't say "mod".
 ---
 
 # Sundaria modding: router
@@ -24,6 +24,7 @@ Maintenance contract:
 | build/compile errors, hot-reload internals, SDK re-dump, updater | `references/toolchain.md` |
 | something fails or crashed | `references/gotchas.md` |
 | new machine (SDK, MSVC kit), working together, trunk/flags | repo `CLAUDE.md` → `just sdk-pull` |
+| any visual: colours, sizes, motion, icons, component specs (numbers, bars, loot, cards, menu) | `references/design-system.md` + tokens `core/style.hpp`; rule `.claude/rules/design.md` |
 | new work, idea, bug: file / claim / close an issue | `.claude/rules/issues.md` |
 
 ## Tools
