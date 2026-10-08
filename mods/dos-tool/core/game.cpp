@@ -493,14 +493,29 @@ namespace {
     }
 
     // Invisible copy of `smc` with the real (colliding) mesh, same world transform.
+    // A component we add must be owned by something the garbage collector sees: added to an existing actor it is
+    // referenced by nothing, gets collected, and a character that touched it crashes the game ("Object without
+    // class referenced by BP_CharacterBase … OtherComp"). So each one is the root of its own spawned actor, which
+    // the level keeps alive until the map unloads. `setup` runs before the component registers (mesh, mobility).
+    template <class C, class F> C* SpawnRooted(AActor* worldCtx, const FTransform& world, F&& setup, AActor** holderOut) {
+        AActor* holder = UGameplayStatics::BeginDeferredActorSpawnFromClass(worldCtx, AActor::StaticClass(), world,
+                                                                            ESpawnActorCollisionHandlingMethod::AlwaysSpawn, nullptr);
+        if (!PtrOk(holder)) return nullptr;
+        UGameplayStatics::FinishSpawningActor(holder, world);
+        auto* c = static_cast<C*>(holder->AddComponentByClass(C::StaticClass(), false, world, true));
+        if (!PtrOk(c)) { holder->K2_DestroyActor(); return nullptr; }
+        c->SetMobility(EComponentMobility::Movable);
+        setup(c);
+        holder->FinishAddComponent(c, false, world);  // no root yet: it becomes the root, relative == world
+        if (holderOut) *holderOut = holder;
+        return c;
+    }
+
     bool AddCollisionProxy(AActor* owner, UStaticMeshComponent* smc, UStaticMesh* real) {
         if (SimpleShapes(real->BodySetup) <= 0) return false;  // only real simple shapes (see CollisionTick)
         const FTransform world = smc->K2_GetComponentToWorld();
-        auto* px = static_cast<UStaticMeshComponent*>(owner->AddComponentByClass(UStaticMeshComponent::StaticClass(), true, world, true));
+        auto* px = SpawnRooted<UStaticMeshComponent>(owner, world, [&](UStaticMeshComponent* c) { c->SetStaticMesh(real); }, nullptr);
         if (!PtrOk(px)) return false;
-        px->SetMobility(EComponentMobility::Movable);
-        px->SetStaticMesh(real);
-        owner->FinishAddComponent(px, true, world);  // manual attachment: relative == world
         px->SetHiddenInGame(true, false);
         px->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
         px->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Block);
@@ -514,7 +529,8 @@ namespace {
     std::vector<RoomReq> g_roomQueue;
     std::atomic<bool> g_roomPending{false};
     std::string g_roomMsg = "no room yet";
-    std::unordered_map<ref::Ref, std::vector<ref::Ref>, ref::Hash> g_rooms;  // building actor -> its UBoxComponents
+    struct RoomBox { ref::Ref holder, box; };  // the spawned actor that owns the box (keeps it from being collected)
+    std::unordered_map<ref::Ref, std::vector<RoomBox>, ref::Hash> g_rooms;  // building actor -> its boxes
     std::atomic<bool> g_roomShow{false};  // draw the invisible boxes as outlines (debug)
     bool g_roomShown = false;
     ref::Ref g_roomWorld;
@@ -571,8 +587,8 @@ namespace {
         if (!g_colWorld.Is(w)) { g_colWorld = ref::Ref(w); g_colDone.clear(); g_colLogged.clear(); }
         if (UStaticMesh* real = RealMesh(best->StaticMesh)) {
             if (g_colDone.insert(ref::Ref(best)).second) AddCollisionProxy(bestActor, best, real);
-            std::vector<ref::Ref>& room = g_rooms[ref::Ref(bestActor)];
-            for (const ref::Ref& old : room) if (auto* b = old.Get<UBoxComponent>()) b->K2_DestroyComponent(bestActor);
+            std::vector<RoomBox>& room = g_rooms[ref::Ref(bestActor)];
+            for (const RoomBox& old : room) if (auto* a = old.holder.Get<AActor>()) a->K2_DestroyActor();
             room.clear();
             if (r.teleportHero && h)
                 h->K2_SetActorLocation(FVector{r.at.X, r.at.Y, feetZ + halfHeight + 5.0f}, false, nullptr, true);
@@ -589,23 +605,22 @@ namespace {
         std::vector<room::Box> boxes = room::Shell(bMin.X, bMin.Y, bMax.X, bMax.Y, lf.Z,
             {r.inset.minX / sx, r.inset.maxX / sx, r.inset.minY / sy, r.inset.maxY / sy}, 30.0f / s, r.wallHeight / sz);
         // replace this building's previous room
-        std::vector<ref::Ref>& room = g_rooms[ref::Ref(bestActor)];
-        for (const ref::Ref& old : room) if (auto* b = old.Get<UBoxComponent>()) b->K2_DestroyComponent(bestActor);
+        std::vector<RoomBox>& room = g_rooms[ref::Ref(bestActor)];
+        for (const RoomBox& old : room) if (auto* a = old.holder.Get<AActor>()) a->K2_DestroyActor();
         room.clear();
         for (const room::Box& b : boxes) {
             const FVector c = UKismetMathLibrary::TransformLocation(t, FVector{b.cx, b.cy, b.cz});
             FTransform bt = t;
             bt.Translation = c;
             bt.Scale3D = FVector{1.0f, 1.0f, 1.0f};
-            auto* box = static_cast<UBoxComponent*>(bestActor->AddComponentByClass(UBoxComponent::StaticClass(), true, bt, true));
+            AActor* holder = nullptr;
+            auto* box = SpawnRooted<UBoxComponent>(bestActor, bt, [](UBoxComponent*) {}, &holder);
             if (!PtrOk(box)) continue;
-            box->SetMobility(EComponentMobility::Movable);
-            bestActor->FinishAddComponent(box, true, bt);
             box->SetBoxExtent(FVector{b.ex * sx, b.ey * sy, b.ez * sz}, false);
             box->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
             box->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Block);
             box->SetHiddenInGame(!g_roomShow.load(), false);
-            room.push_back(ref::Ref(box));
+            room.push_back({ref::Ref(holder), ref::Ref(box)});
             char bb[200];
             std::snprintf(bb, sizeof(bb), "[room] box at %.0f %.0f %.0f half %.0f %.0f %.0f", c.X, c.Y, c.Z, b.ex * sx, b.ey * sy, b.ez * sz);
             logger::log(bb);
@@ -630,7 +645,7 @@ namespace {
         if (show != g_roomShown) {
             g_roomShown = show;
             for (auto& [owner, boxes] : g_rooms)
-                for (const ref::Ref& r : boxes) if (auto* b = r.Get<UBoxComponent>()) b->SetHiddenInGame(!show, false);
+                for (const RoomBox& b : boxes) if (auto* x = b.box.Get<UBoxComponent>()) x->SetHiddenInGame(!show, false);
         }
     }
 
