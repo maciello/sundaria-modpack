@@ -1,5 +1,6 @@
 #include "feature.hpp"
 #include "input-feel.hpp"
+#include "logger.hpp"
 #include "ref.hpp"
 #include "imgui.h"
 
@@ -144,6 +145,9 @@ namespace {
             if (a.cancelCurrent) { Call(cur, g_fnCancel.Get(), nullptr); g_windupCancels++; }
             if (a.refundCooldown) RefundCooldown(asc, cur);
             if (a.removeLock) { Call(asc, g_fnRemoveLock.Get(), nullptr); if (!a.cancelCurrent) g_recoveryCuts++; }
+            if (a.cancelCurrent || a.removeLock)
+                logger::log(std::string("[input-feel] ") + (a.cancelCurrent ? "windup cancel " : "recovery cut ") + (cur ? cur->Class->GetName() : std::string("?"))
+                            + (a.refundCooldown ? ", cooldown refunded" : ""));
         }
         t_busy = false;
     }
