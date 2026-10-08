@@ -9,7 +9,8 @@ ALLOW='core/game.cpp:SampleNow core/game.cpp:ForEachPlayerMovement core/game.cpp
 core/game.cpp:ForEachActor core/game.cpp:LogActorsNow
 features/hub/shared/hub_ui.cpp:ForEachButton features/hub/shared/map_probe.cpp:Survey features/hub/shared/mini_map.cpp:ForEachActor
 features/hub/shared/props.cpp:Find features/hub/shared/props.cpp:NearNow features/hub/shared/npc_audio.cpp:Apply
-features/loot/shared/track.cpp:Scan features/inventory/dps-probe/dps-probe.cpp:Enemies'
+features/loot/shared/track.cpp:Scan features/inventory/dps-probe/dps-probe.cpp:Enemies
+features/live-bridge/world.cpp:FindActors'
 cd mods/dos-tool
 bad=$(grep -rn --include='*.cpp' --include='*.hpp' 'Levels\.Num()' core features | grep -v '/test/' |
   while IFS=: read -r f n _; do

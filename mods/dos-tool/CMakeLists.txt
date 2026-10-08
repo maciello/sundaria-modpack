@@ -98,5 +98,5 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 
 # imgui win32 backend links dwmapi; dx11 backend needs d3d11 + d3dcompiler.
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    d3d11 dxgi d3dcompiler dwmapi user32 gdi32
+    d3d11 dxgi d3dcompiler dwmapi user32 gdi32 ws2_32
 )

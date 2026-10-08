@@ -77,6 +77,7 @@ test:
     sh scripts/widget-off-check.sh
     {{python}} scripts/ref-check.py --self-test && {{python}} scripts/ref-check.py
     {{python}} scripts/data.py --self-test
+    {{python}} scripts/game.py --self-test
     {{python}} updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
     mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp mods/*/features/*/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); {{cxx}} -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp){{exe}} && build/$(basename $t .cpp){{exe}} || exit 1; done
 
@@ -84,6 +85,11 @@ test:
 [positional-arguments]
 data *args:
     @PAKS="{{win64}}/../../Content/Paks" {{python}} scripts/data.py "$@"
+
+# game running (dev install): ask the live game, YAML out: get <path> | find <class> | call | trace <regex> <s> | shot | log | ping
+[positional-arguments]
+game *args:
+    @GAME_WIN64="{{win64}}" {{python}} scripts/game.py "$@"
 
 # once per machine: .NET 10 SDK for `just data`, into ../tools/dotnet next to the main clone (skipped if one is on PATH)
 data-setup:
