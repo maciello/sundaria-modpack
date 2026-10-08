@@ -68,13 +68,43 @@ int main() {
     assert(!SortTrigger("SortItemsInternalClient") && !SortTrigger("ReorderItems") && !SortTrigger("Tick"));
     assert(StorageParamOffset("RequestSortItems") == 1 && StorageParamOffset("BndEvt__Button_Sort_x") == -1);
     assert(InOrder({1, 2, 3}, {1, 3, 2}) == 1 && InOrder({1, 2}, {1, 2}) == 2);
-    assert(PrefixToMove({0, 1, 2, 3}, {0, 1, 2, 3}) == 0);         // in order: no call
-    assert(PrefixToMove({5, 0, 1, 2, 3, 4, 6}, {0, 1, 2, 3, 4, 5, 6}) == 6);  // item 5 to the front: 6 entries
-    assert(PrefixToMove({0, 1, 3, 2}, {0, 1, 2, 3}) == 4);
-    // #75: sold slots 1 and 4 of a sorted bag; the rest is still in order but the bag has holes: pack it
+    assert(PrefixToMove({0, 1, 2, 3}) == 0);         // in order: no call
+    assert(PrefixToMove({5, 0, 1, 2, 3, 4, 6}) == 6);  // item 5 to the front: 6 entries
+    assert(PrefixToMove({0, 1, 3, 2}) == 4);
     assert(Holes({0, 2, 3, 5}) == 2 && Holes({0, 1, 2}) == 0 && Holes({}) == 0);
-    assert(PrefixToMove({0, 2, 3, 5}, {0, 2, 3, 5}) == 1);
-    assert(PrefixToMove({2, 3, 5}, {2, 3, 5}) == 1);  // slot 0 sold
-    assert(PrefixToMove({3, 0, 2, 5}, {0, 2, 3, 5}) == 3);  // a real move packs too
+
+    // ReorderItems as the game runs it (ReorderItemsInternal): the k listed items land in slots 0..k-1 in list
+    // order, the others keep their slots. Returns the slot list after, item ids by slot (-1 = hole).
+    auto Reorder = [](std::vector<int> bag, const std::vector<int>& list) {  // bag[slot] = item id or -1
+        std::vector<int> moved;
+        for (int s : list) { moved.push_back(bag[s]); bag[s] = -1; }
+        for (size_t i = 0; i < moved.size(); i++) { assert(bag[i] == -1); bag[i] = moved[i]; }  // a collision loses an item
+        return bag;
+    };
+    // One press: sorted and packed. bag[slot] = id; ids are the wanted rank (0 first).
+    auto Press = [&](const std::vector<int>& bag) {
+        std::vector<int> intended(std::count_if(bag.begin(), bag.end(), [](int v) { return v >= 0; }));
+        for (int s = 0; s < int(bag.size()); s++) if (bag[s] >= 0) intended[bag[s]] = s;  // slot of the item ranked i
+        std::vector<int> list = intended;
+        list.resize(PrefixToMove(intended));
+        const std::vector<int> after = Reorder(bag, list);
+        for (int i = 0; i < int(after.size()); i++) assert(after[i] == (i < int(intended.size()) ? i : -1));
+        return list.size();
+    };
+    // #91: 77 items in order over 116 slots, 39 holes (sold/salvaged) → one press packs them all
+    {
+        std::vector<int> bag(116, -1);
+        for (int i = 0, s = 0; i < 77; i++, s += i <= 39 ? 2 : 1) bag[s] = i;
+        std::vector<int> now;
+        for (int s = 0; s < 116; s++) if (bag[s] >= 0) now.push_back(s);
+        assert(now.size() == 77 && Holes(now) == 39);
+        assert(Press(bag) == 77);  // the last item sits in slot 115: all 77 listed
+    }
+    // #75: sold slots 1 and 4 of a sorted bag; the rest is still in order but the bag has holes: pack it
+    assert(Press({0, -1, 1, 2, -1, 3}) == 4);
+    assert(Press({-1, -1, 0, 1, -1, 2}) == 3);  // slot 0 sold
+    assert(Press({1, -1, 2, 0, -1, 3}) == 4);  // a real move packs too
+    assert(Press({0, 1, 2, 3, -1, -1}) == 0);   // packed + in order (free slots at the end): #62, no call
+    assert(Press({3, 0, 1, 2}) == 4 && Press({1, 0, 2, 3}) == 2);
     std::puts("ok");
 }

@@ -154,11 +154,9 @@ namespace {
         std::vector<float> score;
         const std::vector<int> idx = Order(items, prof, io::GetNames().stat, &score);
         std::vector<long long> intended;
-        std::vector<int> bySlots, now;
+        std::vector<int> bySlots;
         for (int i : idx) { intended.push_back(KeyOf(items[i])); bySlots.push_back(items[i].slot); }
-        for (const Item& it : items) now.push_back(it.slot);
-        std::sort(now.begin(), now.end());
-        bySlots.resize(PrefixToMove(bySlots, now));  // the game re-adds every listed item (~0.4 ms each): list only what moves
+        bySlots.resize(PrefixToMove(bySlots));  // the game re-adds every listed item (~0.4 ms each): list only what moves
         const double orderMs = Ms(t);
 
         if (!bySlots.empty()) {

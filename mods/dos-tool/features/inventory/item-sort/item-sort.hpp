@@ -36,15 +36,15 @@ namespace item_sort {
     // Empty slots below the last item (sold/salvaged items leave them). now: occupied slots ascending, from 0.
     inline int Holes(const std::vector<int>& now) { return now.empty() ? 0 : now.back() + 1 - int(now.size()); }
 
-    // ReorderItems(SlotsToMove) puts the listed items first, in list order, keeps the rest in their order and
-    // packs slots 0..n-1 (verified in game). So only the prefix up to the last position that changes needs
-    // sending; 0 = in order and packed, holes alone need 1 (#75).
-    // intended / now: item slots in the wanted order and in the current order.
-    inline size_t PrefixToMove(const std::vector<int>& intended, const std::vector<int>& now) {
+    // ReorderItems(SlotsToMove) puts the k listed items into slots 0..k-1 in list order; unlisted items keep
+    // their slots, holes included (#91). So the item ranked i must end in slot i: send the prefix up to the
+    // last item not already in its slot, as vanilla SortItemsInternalClient does. 0 = sorted and packed.
+    // intended: item slots in the wanted order.
+    inline size_t PrefixToMove(const std::vector<int>& intended) {
         size_t n = 0;
         for (size_t i = 0; i < intended.size(); i++)
-            if (i >= now.size() || intended[i] != now[i]) n = i + 1;
-        return n || intended.empty() || !Holes(now) ? n : 1;
+            if (intended[i] != int(i)) n = i + 1;
+        return n;
     }
 
     // Positions where the container's order after applying equals the intended order (item keys).
