@@ -279,7 +279,7 @@ namespace {
     std::unordered_set<ref::Ref, ref::Hash> g_seen;
     struct Fired { ref::Ref fn, cls; ULONGLONG t; };
     std::vector<Fired> g_fresh;
-    std::atomic<game::EventListener> g_listeners[8] = {};  // 6 users today; full = logged, never silent
+    std::atomic<game::EventListener> g_listeners[16] = {};  // 10 users today; full = logged, never silent
     std::atomic<game::EventFilter> g_filter{nullptr};  // ponytail: one slot (item-sort); a table when a second user comes
 
     // Free camera: render thread writes the pose, the game thread's BlueprintUpdateCamera call reads it.
