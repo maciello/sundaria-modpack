@@ -36,7 +36,13 @@ namespace {
     std::atomic<bool> g_sweepOn{false};
     std::atomic<float> g_clear{1.0f};
     std::vector<ref::Ref> g_fights;  // ABP_BossFight_C seen by a signal, newest last
-    std::vector<boss_intro::pause::Held<ref::Ref>> g_held;  // render thread (Pause/Resume)
+    std::vector<boss_intro::pause::Held<ref::Ref>> g_held;  // game thread (GameTick), or Resume's unload fallback
+    // render thread → game thread (#80): the fight to frame and to freeze, a resume request, and the answers
+    std::atomic<std::uintptr_t> g_bossWant{0}, g_pauseFight{0};
+    std::atomic<int> g_resumeReq{0};  // 0 none, 1 asked, 2 the game thread is resuming
+    std::atomic<int> g_paused{0}, g_resumed{0};
+    struct BossRead { std::uintptr_t fight; bool ok; boss_intro::game_side::Boss boss; } g_boss{};  // g_mu
+    void GameTick();
 
     void HoldOne(AActor* a, int& n) {  // a: live (ref-checked)
         if (a && a->Role == ENetRole::ROLE_Authority && boss_intro::pause::Hold(g_held, ref::Ref(a), a->CustomTimeDilation)) n++;
@@ -144,7 +150,9 @@ namespace {
                 }
                 return;
             case kCamera:
-                if (g_sweepOn.load(std::memory_order_relaxed) && game::OnGameThread()) DoSweep(obj);
+                if (!game::OnGameThread()) return;
+                GameTick();
+                if (g_sweepOn.load(std::memory_order_relaxed)) DoSweep(obj);
                 return;
             case kConstruct:
                 if (ClassNamed(obj, g_splashCls, "WidgetBossSplashScreen_C")) Push(Signal::Splash, nullptr);
@@ -158,6 +166,9 @@ namespace {
 }
 
 namespace boss_intro::game_side {
+    bool BossNow(std::uintptr_t fight, Boss& out);
+    int ResumeNow();
+
     void Listen(bool on) {
         if (on == g_on.load()) return;
         g_on = on;
@@ -173,6 +184,31 @@ namespace boss_intro::game_side {
     bool Alive(std::uintptr_t fight) { return FightRef(fight).Get<ABP_BossFight_C>() != nullptr; }
 
     bool BossOf(std::uintptr_t fight, Boss& out) {
+        g_bossWant = fight;
+        AcquireSRWLockShared(&g_mu);
+        const BossRead r = g_boss;
+        ReleaseSRWLockShared(&g_mu);
+        if (r.fight != fight || !r.ok) return false;
+        out = r.boss;
+        return true;
+    }
+
+    int Pause(std::uintptr_t fight) {
+        g_pauseFight = fight;
+        return g_paused.exchange(0);
+    }
+
+    int Resume() {
+        g_pauseFight = 0;
+        g_resumeReq = 1;
+        for (int i = 0; i < 50 && g_resumeReq.load(); i++) Sleep(2);
+        int asked = 1;
+        if (g_resumeReq.compare_exchange_strong(asked, 0)) return ResumeNow();  // no camera update came (unload): the hooks are gone
+        for (int i = 0; i < 50 && g_resumeReq.load(); i++) Sleep(2);
+        return g_resumed.exchange(0);
+    }
+
+    bool BossNow(std::uintptr_t fight, Boss& out) {
         const auto* bf = FightRef(fight).Get<ABP_BossFight_C>();
         if (!bf || bf->BossActors.Num() < 1) return false;
         const auto* boss = ref::Ref(bf->BossActors[0]).Get<ACharacter>();
@@ -183,7 +219,7 @@ namespace boss_intro::game_side {
         return out.halfHeight > 1.0f;
     }
 
-    int Pause(std::uintptr_t fight) {
+    int PauseNow(std::uintptr_t fight) {
         const auto* bf = FightRef(fight).Get<ABP_BossFight_C>();
         if (!bf) return 0;
         int n = 0;
@@ -196,7 +232,7 @@ namespace boss_intro::game_side {
         return n;
     }
 
-    int Resume() {
+    int ResumeNow() {
         int n = 0;
         for (const auto& h : g_held)
             if (AActor* a = h.key.Get<AActor>()) n += boss_intro::pause::Release(h, a->CustomTimeDilation);
@@ -211,7 +247,7 @@ namespace boss_intro::game_side {
         g_sweepOn = true;
     }
     float Clear() { return g_clear.load(); }
-    void StopSweep() { g_sweepOn = false; g_clear = 1.0f; }
+    void StopSweep() { g_sweepOn = false; g_clear = 1.0f; g_bossWant = 0; }
 
     std::vector<Event> Take() {
         std::vector<Event> out;
@@ -219,5 +255,24 @@ namespace boss_intro::game_side {
         out.swap(g_events);
         ReleaseSRWLockExclusive(&g_mu);
         return out;
+    }
+}
+
+namespace {
+    // Game thread, once per camera update: the reads and writes the render thread asked for.
+    void GameTick() {
+        using namespace boss_intro::game_side;
+        if (const std::uintptr_t fight = g_bossWant.load()) {
+            BossRead r{fight, false, {}};
+            r.ok = BossNow(fight, r.boss);
+            AcquireSRWLockExclusive(&g_mu);
+            g_boss = r;
+            ReleaseSRWLockExclusive(&g_mu);
+        }
+        if (const std::uintptr_t fight = g_pauseFight.load()) g_paused += PauseNow(fight);
+        if (int asked = 1; g_resumeReq.compare_exchange_strong(asked, 2)) {
+            g_resumed = ResumeNow();
+            g_resumeReq = 0;
+        }
     }
 }

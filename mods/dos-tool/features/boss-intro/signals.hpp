@@ -14,15 +14,19 @@ namespace boss_intro::game_side {
         std::string name, subtitle;  // FightDisplayName, FightStartedMessage ("" if unset)
     };
     struct Boss { float x, y, z, halfHeight; };  // capsule centre (cm), capsule half height
-    // The fight's first boss actor, if spawned (render thread: memory reads only).
+    // The fight's first boss actor, if spawned: read on the game thread in each camera update while asked (#80); this
+    // returns the last read (one frame behind). StopSweep ends the asking.
     bool BossOf(std::uintptr_t fight, Boss& out);
     bool Alive(std::uintptr_t fight);  // the fight actor still exists (map travel frees it)
     std::uintptr_t LocalPawn();  // id of the local pawn (= combat::Sample::id), 0 = none (render thread: memory reads)
     void Listen(bool on);
     // #70: freeze the fight's bosses, partners and their controllers that this machine simulates (host / solo; a
-    // co-op client simulates none, so it writes nothing). Idempotent per frame; returns how many were newly frozen.
+    // co-op client simulates none, so it writes nothing). Asked every frame, done on the game thread in the camera
+    // update; returns how many were newly frozen since the last call.
     int Pause(std::uintptr_t fight);
-    int Resume();  // restores all frozen actors still alive; returns how many
+    // Restores all frozen actors still alive on the game thread, waiting up to 100 ms (unload: the hooks are gone, so
+    // then here); returns how many.
+    int Resume();
     // #71: render thread asks for a sphere sweep (cam::kProbe, Camera channel) from `from` to `to`, run on the game thread
     // in each camera update until StopSweep; the fight's bosses, partners and the local pawn are ignored.
     void Sweep(std::uintptr_t fight, const float from[3], const float to[3]);
