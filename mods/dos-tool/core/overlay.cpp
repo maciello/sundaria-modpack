@@ -51,6 +51,12 @@ static bool InputCaptured() {
     return false;
 }
 
+static bool KeyPassed(unsigned vk) {
+    for (const feature::Feature* f : feature::Feature::All())
+        if (f->enabled && f->CapturesInput() && f->PassesKey(vk)) return true;
+    return false;
+}
+
 // Raw mouse motion while input is captured: the hidden cursor can be frozen by the game, raw deltas can't.
 // Registered on the window's (game) thread only if the game hasn't registered the mouse itself; removed after.
 static std::atomic<long> g_rawDX{0}, g_rawDY{0};
@@ -109,7 +115,7 @@ static LRESULT WINAPI hkWndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     if (captured) {
         switch (msg) {
             case WM_KEYDOWN: case WM_SYSKEYDOWN:
-                if (w == VK_INSERT) break;
+                if (w == VK_INSERT || KeyPassed(unsigned(w))) break;
                 if (w < 256) swallowedKey[w] = true;
                 return 0;
             case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:

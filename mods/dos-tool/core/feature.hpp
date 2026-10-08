@@ -43,6 +43,7 @@ namespace feature {
         virtual void Save(std::vector<std::pair<std::string, std::string>>& out) {}
         // true = the game gets no key/mouse presses and no cursor (the feature reads keys itself); ignored while the menu is open
         virtual bool CapturesInput() const { return false; }
+        virtual bool PassesKey(unsigned vk) const { return false; }  // while capturing: this key still reaches the game
         static std::vector<Feature*>& All() { static std::vector<Feature*> v; return v; }
     };
 }
