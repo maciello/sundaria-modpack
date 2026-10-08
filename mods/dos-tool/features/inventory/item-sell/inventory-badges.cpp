@@ -5,6 +5,7 @@
 #include "umg.hpp"
 #include "cost.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <string>
 #include <vector>
@@ -261,10 +262,14 @@ namespace {
                 UpdateSlots(all);
                 QueryPerformanceCounter(&t1);
                 QueryPerformanceFrequency(&f);
-                char buf[128];
-                std::snprintf(buf, sizeof buf, "[item-sell] badges: %zu bags, %zu badges, %zu suggestions, %.2f ms", g_bags.size(),
-                              g_badges.size(), all.size(), double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart));
-                logger::log(buf);
+                static size_t logged[3] = {~size_t(0)};  // log on change only: bag events fire on every hover
+                if (const size_t now[3] = {g_bags.size(), g_badges.size(), all.size()}; !std::equal(now, now + 3, logged)) {
+                    std::copy(now, now + 3, logged);
+                    char buf[128];
+                    std::snprintf(buf, sizeof buf, "[item-sell] badges: %zu bags, %zu badges, %zu suggestions, %.2f ms", now[0], now[1], now[2],
+                                  double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart));
+                    logger::log(buf);
+                }
             }
             g_dirty = false;
             if (g_texSearched && !g_newDetails.empty()) {
