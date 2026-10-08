@@ -5,7 +5,7 @@ xwin := env_var_or_default("XWIN", justfile_directory() / "../tools/msvc")
 repo := "maciello/sundaria-modpack"
 
 test:
-    python3 updater/test_update.py
+    python3 updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
     mkdir -p build && c++ -std=c++20 -Imods/dos-tool/src mods/dos-tool/test/dmgnum_test.cpp -o build/dmgnum_test
     build/dmgnum_test
 

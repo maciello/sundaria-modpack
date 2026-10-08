@@ -5,12 +5,12 @@ $Api = if ($env:MODPACK_API) { $env:MODPACK_API } else { "https://api.github.com
 $exe = $args | Where-Object { $_ -like "*Archon-Win64-Shipping.exe" } | Select-Object -First 1
 if ($exe) {
   try {
-    $root = (Get-Item $exe).Directory.Parent.Parent.Parent.FullName
+    $root = Split-Path (Split-Path (Split-Path (Split-Path $exe)))
     $rel = Invoke-RestMethod -Uri $Api -TimeoutSec 10
     $ver = Join-Path $root ".modpack-version"
     if (-not ((Test-Path $ver) -and ((Get-Content $ver -Raw) -eq $rel.tag_name))) {
       $url = ($rel.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1).browser_download_url
-      $tmp = Join-Path $env:TEMP "modpack.zip"
+      $tmp = Join-Path ([IO.Path]::GetTempPath()) "modpack.zip"
       Invoke-WebRequest -Uri $url -OutFile $tmp -TimeoutSec 60
       Add-Type -AssemblyName System.IO.Compression.FileSystem
       $zip = [IO.Compression.ZipFile]::OpenRead($tmp)
