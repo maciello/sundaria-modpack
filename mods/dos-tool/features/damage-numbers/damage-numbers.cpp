@@ -1,6 +1,7 @@
 #include "feature.hpp"
 #include "draw.hpp"
 #include "anim.hpp"
+#include "colors.hpp"
 #include "imgui.h"
 
 #include <algorithm>
@@ -33,7 +34,9 @@ namespace {
             switch (n.kind) {
                 case combat::Kind::Heal:  r = 110; g = 255; b = 140; std::memmove(buf + 1, buf, strlen(buf) + 1); buf[0] = '+'; break;
                 case combat::Kind::Taken: r = 255; g = 80;  b = 70;  break;
-                default:                  r = 255; g = 255 - 70 * big; b = 255 - 200 * big;  // white -> gold
+                default:
+                    if (n.element == combat::Element::Physical) { r = 255; g = 255 - 70 * big; b = 255 - 200 * big; }  // white -> gold
+                    else { const dmgnum::Rgb c = dmgnum::ColorOf(n.element); r = c.r; g = c.g; b = c.b; }
             }
             r += (255 - r) * an.flash; g += (255 - g) * an.flash; b += (255 - b) * an.flash;  // impact flash
             const int a = int(255 * an.alpha);
@@ -88,15 +91,17 @@ namespace {
             const ImVec2 c(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.45f);
             const double now = ImGui::GetTime();
             const float amounts[] = {18, 24, 21, 95, 19, 260};
+            using E = combat::Element;
+            const E elements[] = {E::Holy, E::Fire, E::Ice, E::Shadow, E::Lightning, E::Physical};
             combat::Tracker scratch;  // don't let fake hits move the real "typical hit"
             scratch.typical = 20;
             for (int i = 0; i < 6; i++) {
                 const float sc = scratch.Scale(amounts[i]);
-                preview.push_back({c.x + (i - 2.5f) * 50.0f, c.y, {0, 0, 0, amounts[i], combat::Kind::Dealt, sc, (i % 3) - 1.0f, now + i * 0.18}});
+                preview.push_back({c.x + (i - 2.5f) * 50.0f, c.y, {0, 0, 0, amounts[i], combat::Kind::Dealt, sc, (i % 3) - 1.0f, now + i * 0.18, 0, 1, now + i * 0.18, 1, elements[i]}});
             }
-            preview.push_back({c.x - 220, c.y + 80, {0, 0, 0, 35, combat::Kind::Taken, 0.95f, -1, now + 0.4}});
+            preview.push_back({c.x - 220, c.y + 80, {0, 0, 0, 35, combat::Kind::Taken, 0.95f, -1, now + 0.4, 0, 1, now + 0.4, 1, E::Poison}});
             preview.push_back({c.x + 220, c.y + 80, {0, 0, 0, 50, combat::Kind::Heal, 0.9f, 1, now + 0.7}});
-            Preview dot{c.x, c.y + 170, {0, 0, 0, 12, combat::Kind::Dealt, scratch.Rel(12), 0.3f, now + 1.2}};  // DoT: 8 ticks stack
+            Preview dot{c.x, c.y + 170, {0, 0, 0, 12, combat::Kind::Dealt, scratch.Rel(12), 0.3f, now + 1.2, 0, 1, now + 1.2, 1, E::Poison}};  // DoT: 8 ticks stack
             for (int i = 1; i < 8; i++) dot.ticks.push_back({now + 1.2 + i * 0.45, 12.0f + i});
             preview.push_back(dot);
             previewTypical = scratch.typical;

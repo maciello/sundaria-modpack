@@ -30,7 +30,21 @@ movement: ACharacter::CharacterMovement @0x288 (UArchonCharacterMovementComponen
   server_simulated: write to EVERY player character; in co-op the host's values win, clients get corrected
   unknown: whether abilities/dodge reset these each frame
 
-combat_log (unused so far; crits + own-vs-party damage):
+last_hit:   # verified in game 2026-10-08 (host): plain memory read on the render thread, no hook
+  field: AArchonCharacter::LastTakeHitInfo @0x588 (FTakeHitInfo, replicated)
+  DamageTypeClass @+0x08: one class per ability for most skills (Range_AimedShot_C vs basic Range_C, Range_ToxicArrow_C, Magic_Void_C)
+  ActualDamage @+0x00: HP lost by that hit (clamped to remaining HP on a kill)
+  EnsureReplicationByte @+0x28: changes per record; often +2 per hit
+  PawnInstigator @+0x10 (weak ptr): who hit; NPC hits on the player carry the NPC
+  same_frame: the game SUMS same-frame hits from one instigator into ActualDamage, type = the last one
+    (Void 21.9 then AimedShot 175 = 153.1 arrow + 21.9 void; HP dropped 175)
+  timing_vs_hp: render-thread sampling sees the record and the HP drop in either order, and one hit's drop can split over 2 frames
+  dots: ticks are their own classes (BP_DamageDot_C generic, BP_DamageDOT_Poison_C), ~1.0 s apart; Magic_Poison ticks as Magic_Poison
+    NOT linked to the ability that applied them: only instigator + DoT class known here
+  zero_damage: Magic_C records with ActualDamage 0 on the player (self-cast) happen
+  consumer: core/combat.hpp ledger (records claim HP loss) → damage numbers per ability, coloured by element
+
+combat_log (unused so far; crits + own-vs-party damage; whether its delegates pass ProcessEvent: UNVERIFIED):
   delegates: AArchonCharacter::OnCombatLogGeneratedDelegate_Offense / _Defense
   payload: FCombatDetailDamage {FinalDamage, BlockedDamage, CritLevel, ResistedDamage, MitigatedDamage_Armor, bIsHeal}
   cost: needs a ProcessEvent/delegate hook on the game thread, not the Present hook
@@ -40,6 +54,6 @@ damage_types: UArchonGameplayEffect::mDamageTypeClass (TSubclassOf<UDamageType>,
   colours: features/damage-numbers/colors.hpp (name → element → colour, tested)
 attack_type: EGameplayAttackType {Melee, Range, Magic} via UArchonGameplayEffect::GetAttackType (UFunction: game thread only)
 ProcessEvent: Offsets::ProcessEvent (Basic.hpp) — hookable with MinHook; see gotchas before locking in the detour
-damage_numbers_source_today: per-frame CurrentHealth diff (core/combat.hpp) → cannot tell whose hit or crits
+damage_numbers_source_today: per-frame CurrentHealth diff = amount; LastTakeHitInfo = which ability/element/instigator; no crits
 - `UArchonAttributeSet_Secondary::Health` is NOT max HP: it exceeds `CurrentHealth` on unhit enemies. Max HP = peak `CurrentHealth` seen.
 - On-screen test (behind wall = not drawn): `UPrimitiveComponent::LastRenderTimeOnScreen` at `+0x290` of `ACharacter::Mesh` (inside Dumper-7 `Pad_288` after `BoundsScale`; 0x288 LastSubmitTime, 0x28C LastRenderTime; found by scanning floats that advance with time). Compare against the newest value over all characters, not wall time. `seen=` in the debug-probe `[hp]` log.

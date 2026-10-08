@@ -17,6 +17,9 @@
 | GitHub/Steam downloads stall at ~2-5 GiB | Proton VPN free tier throttle | check the VPN before debugging the network |
 | bundled winmm.dll hash ≠ official | old/unknown ASI loader build | official Ultimate ASI Loader release, `dinput8.dll` renamed to `winmm.dll` |
 | game crash `EXCEPTION_ACCESS_VIOLATION reading 0x0` in `MSVCP140.dll` (minidump) | `std::mutex` from a newer MSVC STL (constexpr ctor) vs Proton's older msvcp140 `_Mtx_lock` | no `std::mutex`/`std::thread`/`condition_variable`: use `SRWLOCK`; check with `llvm-objdump -p DoS-Tool.dll \| grep _Mtx` → 0 |
+| damage numbers sum different abilities into one stack | stack key was target + 1 s window; HP diffs carry no source | key on `LastTakeHitInfo` damage type × instigator (`core/combat.hpp` ledger) |
+| per-frame "HP drop ↔ hit record" pairing mis-tags | render thread samples mid game tick: record before/after its drop, drop split over 2 frames, game sums same-frame hits into one record | records CLAIM up to their damage from unshown loss within 0.1 s; unclaimed loss shows untagged; never pair by frame |
+| DoT stacks split every tick | ticks ~1.0 s apart == old 1.0 s stack window | stack window 1.3 s (< 1.4 s lifetime) |
 | crash diagnosis | UE writes `<prefix>/drive_c/users/steamuser/AppData/Local/Archon/Saved/Crashes/UE4CC-*/UE4Minidump.dmp` | `scripts/minidump.py <dmp>` → fault module+offset, stack return addresses into DoS-Tool/Archon |
 | command handed to the user fails in their terminal | user shell is fish: no heredocs (`<<EOF`), no `$(...)` bash-isms | put it in a `just` recipe (or a file + recipe) and hand over `just <recipe>` |
 - Feature toggles persist as `<name>=<on>,<stage>` in `dos-tool.ini`. A choice saved under another stage (or the old `<name>=<on>` form) is ignored, so a promotion (Beta → Stable) actually turns the feature on for players who never touched it. Re-tick after a stage change if you want a non-default.
