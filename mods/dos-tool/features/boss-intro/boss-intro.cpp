@@ -4,7 +4,10 @@
 #include "logger.hpp"
 #include "draw.hpp"
 #include "imgui.h"
+#include "imgui_internal.h"  // MarkIniSettingsDirty
 
+#include <Windows.h>
+#include <set>
 #include <cstdio>
 #include <cfloat>
 #include <string>
@@ -15,9 +18,20 @@
 // boss splash. Spec: design-system.md § Boss intro camera; title constants in boss-intro.hpp.
 // The camera is the core override (game::SetFreeCam, the free camera's path): nothing of the game's is written, so
 // ending the override is the exact restore. Local to this client: co-op partners see nothing.
+// Skip (#20): the chosen key or Escape (the game's menu) ends camera and title at once; so do losing the pawn, being
+// downed and the game camera stopping. Never blocks input or other players.
 namespace {
     using namespace boss_intro;
     constexpr double kWaitForBoss = 5.0;  // s: an arena entered before the boss spawned
+    struct Key { int vk; const char* name; };
+    constexpr Key kKeys[] = {{VK_SPACE, "Space"}, {VK_RETURN, "Enter"}, {VK_BACK, "Backspace"}, {'X', "X"}, {VK_F5, "F5"}};
+
+    bool GameFocused() {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+        return pid == GetCurrentProcessId();
+    }
+    bool Down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
 
     struct Run {
         bool on = false, cam = false, haveYaw = false;
@@ -34,6 +48,10 @@ namespace {
         Run run;
         std::unordered_map<std::uintptr_t, Names> names;  // per fight, from its signals. ponytail: never pruned (a few per dungeon)
         std::string last = "none yet";
+        int key = 0;              // index into kKeys
+        bool oncePerBoss = false; // per game session
+        bool keyWas = true;       // a key held when the intro starts is not a skip
+        std::set<std::string> shown;  // boss names already introduced this session
 
         BossIntro() : Feature("Boss intro", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
 
@@ -61,8 +79,21 @@ namespace {
             return true;
         }
 
+        const char* Interrupted(const feature::Frame& f) {
+            const bool k = GameFocused() && (Down(kKeys[key].vk) || Down(VK_ESCAPE));
+            const bool pressed = k && !keyWas;
+            keyWas = k;
+            if (pressed) return "skipped";
+            const std::uintptr_t pawn = game_side::LocalPawn();
+            if (!pawn) return "ended (no local pawn)";
+            for (const combat::Sample& s : f.chars)
+                if (s.id == pawn && s.health <= 0) return "ended (downed)";
+            return nullptr;
+        }
+
         void Camera(const feature::Frame& f) {
             if (!run.on) return;
+            if (const char* why = Interrupted(f)) { End(why, f.now); return; }
             game_side::Boss b;
             const bool haveBoss = game_side::BossOf(run.fight, b);
             if (haveBoss) run.boss = b;
@@ -129,6 +160,11 @@ namespace {
                 if (v.kind == Verdict::Start && !run.on) {
                     run = {true, false, false, 0, f.now, -1, v.fight};
                     if (auto it = names.find(v.fight); it != names.end()) run.name = it->second.name, run.epithet = it->second.epithet;
+                    keyWas = true;
+                    if (oncePerBoss && !run.name.empty() && !shown.insert(run.name).second) {
+                        logger::log("[boss-intro] " + run.name + " already introduced this session");
+                        run = {};
+                    }
                 }
                 if (e.signal == Signal::Splash && run.on && run.splashAt < 0) run.splashAt = f.now;
             }
@@ -142,6 +178,26 @@ namespace {
             names.clear();
         }
 
-        void Menu() override { ImGui::TextDisabled("last signal: %s", last.c_str()); }
+        void Menu() override {
+            ImGui::SetNextItemWidth(110);
+            if (ImGui::BeginCombo("Skip key", kKeys[key].name)) {
+                for (int i = 0; i < IM_ARRAYSIZE(kKeys); i++)
+                    if (ImGui::Selectable(kKeys[i].name, i == key)) { key = i; ImGui::MarkIniSettingsDirty(); }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine(); ImGui::TextDisabled("(Escape too)");
+            if (ImGui::Checkbox("Once per boss per session", &oncePerBoss)) ImGui::MarkIniSettingsDirty();
+            ImGui::TextDisabled("last signal: %s", last.c_str());
+        }
+
+        void Load(const char* k, const char* v) override {
+            const std::string s = k;
+            if (s == "key") key = std::clamp(std::atoi(v), 0, int(IM_ARRAYSIZE(kKeys)) - 1);
+            if (s == "once") oncePerBoss = std::atoi(v) != 0;
+        }
+        void Save(std::vector<std::pair<std::string, std::string>>& out) override {
+            out.push_back({"key", std::to_string(key)});
+            out.push_back({"once", oncePerBoss ? "1" : "0"});
+        }
     } g_feature;
 }

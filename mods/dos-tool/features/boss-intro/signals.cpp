@@ -122,6 +122,11 @@ namespace boss_intro::game_side {
         game::SetEventListener(&OnEvent, on);
     }
 
+    std::uintptr_t LocalPawn() {
+        const APlayerController* pc = umg::LocalPC();
+        return pc && PtrOk(pc->Pawn) ? reinterpret_cast<std::uintptr_t>(pc->Pawn) : 0;
+    }
+
     bool BossOf(std::uintptr_t fight, Boss& out) {
         ref::Ref r;
         AcquireSRWLockShared(&g_mu);
