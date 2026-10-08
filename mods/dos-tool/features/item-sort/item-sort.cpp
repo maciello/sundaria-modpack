@@ -405,6 +405,16 @@ namespace {
 
     void Probe() {
         Where2 w = Locate();
+        // Every live item container: where the bank's items really are.
+        APlayerController* lpc = LocalPC();
+        for (int i = 0; i < UObject::GObjects->Num(); i++) {
+            UObject* o = UObject::GObjects->GetByIndex(i);
+            UBP_ItemContainerComponent_C* c = PtrOk(o) && !o->IsDefaultObject() ? Container(o) : nullptr;
+            if (!c) continue;
+            logger::log("[item-sort] probe container " + o->Class->GetName() + " " + o->GetName() + " outer " +
+                        (PtrOk(o->Outer) ? o->Outer->GetName() : "-") + ": Items " + I(c->Items.Num()) + " size " + I(c->ContainerSize) +
+                        " mine " + (c->PlayerController == lpc ? "yes" : "no"));
+        }
         logger::log(std::string("[item-sort] probe: pc ") + (w.pc ? w.pc->Class->GetName() : "-") + ", inv " + (w.inv ? "ok" : "-") + ", " + w.how);
         if (w.inv)
             logger::log("[item-sort] probe: inv.PlayerPersistentComponent " + std::string(PtrOk(w.inv->PlayerPersistentComponent) ? "set" : "null") +
