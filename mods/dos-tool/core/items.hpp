@@ -135,7 +135,7 @@ namespace items::io {
         std::vector<std::string> container, weaponType, equipSlot;  // enum value → name
         std::vector<std::string> stat;                              // Stat::type → attribute name
     };
-    void Tick();                 // render thread, any rate (self-throttled to 1 Hz): enum/attribute names, bank scan
+    void Tick();                 // render thread, any rate (self-throttled to 1 Hz): enum/attribute names until loaded
     bool Ready();                // names loaded
     const Names& GetNames();     // valid once Ready()
 
@@ -144,7 +144,7 @@ namespace items::io {
         void* pc = nullptr;      // ABP_PlayerControllerOnline_C
         void* inv = nullptr;     // UBP_InvManagerComponent_C
         void* bag = nullptr;     // UBP_ItemContainerComponent_C: bag (type 0) + equipped (type 1) + temp loot
-        void* bank = nullptr;    // UBP_ItemContainerStorage_C
+        void* bank = nullptr;    // UBP_ItemContainerStorage_C (pc.ItemContainerStorage; empty until the bank is opened)
         std::string how;
     };
     Located Locate();

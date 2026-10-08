@@ -109,38 +109,43 @@ namespace {
         return PtrOk(o) && o->IsA(UBP_ItemContainerComponent_C::StaticClass()) ? static_cast<UBP_ItemContainerComponent_C*>(o) : nullptr;
     }
 
-    // Bank candidates found by the render-thread scan: storage containers owned by the local controller.
-    SRWLOCK g_mu = SRWLOCK_INIT;  // not std::mutex (gotchas). Guards g_bankScan, g_bankCache.
-    struct Ref { UObject* o; int32 idx; };
-    std::vector<Ref> g_bankScan;
+    SRWLOCK g_mu = SRWLOCK_INIT;  // not std::mutex (gotchas). Guards g_bankCache.
     std::vector<Item> g_bankCache;
     bool g_bankSeen = false;
-    bool Alive(const Ref& r) { return PtrOk(r.o) && UObject::GObjects->GetByIndex(r.idx) == r.o; }
 
-    void ScanBank() {
-        std::vector<Ref> banks;
-        UClass* cls = UBP_ItemContainerStorage_C::StaticClass();
-        APlayerController* pc = LocalPC();
-        for (int i = 0; PtrOk(cls) && pc && i < UObject::GObjects->Num(); i++) {
-            UObject* o = UObject::GObjects->GetByIndex(i);
-            if (PtrOk(o) && o->IsA(cls) && !o->IsDefaultObject() && static_cast<UBP_ItemContainerComponent_C*>(o)->PlayerController == pc)
-                banks.push_back({o, o->Index});
-        }
-        AcquireSRWLockExclusive(&g_mu); g_bankScan = std::move(banks); ReleaseSRWLockExclusive(&g_mu);
+    double Ms(LARGE_INTEGER a) {
+        LARGE_INTEGER b, f;
+        QueryPerformanceCounter(&b);
+        QueryPerformanceFrequency(&f);
+        return double(b.QuadPart - a.QuadPart) * 1000.0 / double(f.QuadPart);
     }
 
-    // ponytail: scans GObjects for spec managers per read (game thread, ~ms); cache if it hitches
-    std::unordered_map<int, UArchonSpec*> SpecMap() {
-        std::unordered_map<int, UArchonSpec*> out;
+    // Spec id → spec, built by one GObjects walk; rebuilt only when an id misses or a cached spec died (game thread).
+    struct SpecRef { UArchonSpec* sp; int32 idx; };
+    std::unordered_map<int, SpecRef> g_specs;
+    void BuildSpecs() {
+        LARGE_INTEGER t0;
+        QueryPerformanceCounter(&t0);
+        g_specs.clear();
         UClass* cls = UArchonSpecManager::StaticClass();
         for (int i = 0; i < UObject::GObjects->Num(); i++) {
             UObject* o = UObject::GObjects->GetByIndex(i);
             if (!PtrOk(o) || !o->IsA(cls) || o->IsDefaultObject()) continue;
             ForEach(static_cast<UArchonSpecManager*>(o)->mLoadedSpecMap, [&](int32 id, UArchonSpec* sp) {
-                if (PtrOk(sp)) out[id] = sp;
+                if (PtrOk(sp)) g_specs[id] = {sp, sp->Index};
             });
         }
-        return out;
+        logger::log("[items] spec map rebuilt: " + I(g_specs.size()) + " specs, " + std::to_string(Ms(t0)).substr(0, 5) + " ms");
+    }
+    UArchonSpec* Spec(int id, bool& rebuilt) {
+        auto it = g_specs.find(id);
+        const bool ok = it != g_specs.end() && UObject::GObjects->GetByIndex(it->second.idx) == it->second.sp;
+        if (ok) return it->second.sp;
+        if (rebuilt) return nullptr;  // one rebuild per read
+        rebuilt = true;
+        BuildSpecs();
+        it = g_specs.find(id);
+        return it != g_specs.end() ? it->second.sp : nullptr;
     }
 
     UArchonAttributeSet_Secondary* AttrSet(UBP_ItemContainerComponent_C* c, const Item& it) {
@@ -162,7 +167,6 @@ namespace items::io {
         if (now < g_nextTick) return;
         g_nextTick = now + 1.0;
         if (!g_ready.load(std::memory_order_acquire)) LoadNames();
-        ScanBank();
     }
     bool Ready() { return g_ready.load(std::memory_order_acquire); }
     const Names& GetNames() { return g_names; }
@@ -172,18 +176,8 @@ namespace items::io {
         ABP_PlayerControllerOnline_C* pc = LocalPC();
         if (!pc) { w.how = "no BP_PlayerControllerOnline_C"; return w; }
         UBP_InvManagerComponent_C* inv = PtrOk(pc->InvManagerComponent) ? pc->InvManagerComponent : nullptr;
-        UBP_ItemContainerComponent_C* bank = nullptr;
-        if (inv) {
-            if ((bank = Container(inv->PlayerPersistentComponent))) w.how = "bank=inv.PlayerPersistentComponent";
-            else if (PtrOk(inv->ItemStorage) && (bank = Container(inv->ItemStorage->PlayerComponent))) w.how = "bank=inv.ItemStorage.PlayerComponent";
-        }
-        if (!bank) {
-            AcquireSRWLockShared(&g_mu);
-            for (const Ref& r : g_bankScan)
-                if (Alive(r) && !bank) { bank = static_cast<UBP_ItemContainerComponent_C*>(r.o); w.how = "bank=scan(" + r.o->GetName() + ")"; }
-            ReleaseSRWLockShared(&g_mu);
-        }
-        if (!bank) w.how = "no bank container";
+        UBP_ItemContainerComponent_C* bank = Container(pc->ItemContainerStorage);  // the bank: a component on the controller
+        w.how = bank ? "bank=pc.ItemContainerStorage" : "no bank container";
         w.pc = pc;
         w.inv = inv;
         w.bag = Container(pc->InventoryItemContainerComponent);
@@ -195,7 +189,7 @@ namespace items::io {
         std::vector<Item> out;
         auto* c = Container(static_cast<UObject*>(container));
         if (!c || !Ready()) return out;
-        const auto specs = SpecMap();
+        bool rebuilt = false;
         UClass* weapon = UBP_SpecItemWeapon_C::StaticClass();
         UClass* armor = UBP_SpecItemArmor_C::StaticClass();
         UClass* equipable = UBP_SpecItemEquipable_C::StaticClass();
@@ -211,8 +205,7 @@ namespace items::io {
             it.grade = int(r.Itemgrade_29_AE6419044A6E394815070E8A0964ED01);
             it.level = r.ItemLevel_38_C9A8FF0246A556C2B5CC17A574AB792A;
             it.changeId = r.ChangedID_43_886257FA4C990C77EF6A2AB3D3CAA822;
-            if (auto s = specs.find(it.specId); s != specs.end()) {
-                UArchonSpec* sp = s->second;
+            if (UArchonSpec* sp = Spec(it.specId, rebuilt)) {
                 it.name = sp->GetName();
                 if (sp->IsA(equipable)) it.equipSlot = int(static_cast<UBP_SpecItemEquipable_C*>(sp)->equipSlot);
                 if (sp->IsA(weapon)) {
