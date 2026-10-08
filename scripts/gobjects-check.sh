@@ -2,7 +2,7 @@
 # Fails on any GObjects walk (`GObjects->Num()`) in mods/dos-tool outside core/game.cpp, features/ui-probe/ and the
 # file:function dev probes below. Rule: .claude/rules/mod-code.md (never walk GObjects).
 set -eu
-ALLOW='features/inventory/shared/probe.cpp:ContainersReport'
+ALLOW='features/inventory/shared/probe.cpp:ContainersReport features/hub/shared/mesh_probe.cpp:MeshReport'
 cd mods/dos-tool
 bad=$(grep -rn --include='*.cpp' --include='*.hpp' 'GObjects->Num()' core features | grep -v '^core/game.cpp:' | grep -v '^features/ui-probe/' |
   while IFS=: read -r f n _; do
