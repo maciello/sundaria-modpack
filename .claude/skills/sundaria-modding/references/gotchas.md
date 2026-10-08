@@ -22,3 +22,4 @@
 - Feature toggles persist as `<name>=<on>,<stage>` in `dos-tool.ini`. A choice saved under another stage (or the old `<name>=<on>` form) is ignored, so a promotion (Beta → Stable) actually turns the feature on for players who never touched it. Re-tick after a stage change if you want a non-default.
 - `dos-tool.ini` stores only toggles that differ from the default (`Default()` in `core/overlay.cpp`). Writing every toggle froze whatever default was current at first save.
 - Native (non-UPROPERTY) field offsets: scan the object's floats twice a few seconds apart and log those that moved by the elapsed time; match against the UE source layout and the Dumper-7 `Pad_*` gap. Guess-by-order was wrong once (0x1FC read 0).
+- Skill scripts run through the `~/.claude/skills` symlink: resolve their own path (`readlink -f "$0"`, Python `Path(__file__).resolve()`), else repo-relative paths land in `$HOME` (new-feature.sh once scaffolded into `~/mods/`).

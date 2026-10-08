@@ -4,7 +4,7 @@
 # <name>.hpp + test/<name>_test.cpp that `just test` picks up. Refuses to overwrite.
 set -euo pipefail
 name=${1:?kebab-name}; title=${2:?"Menu Title"}
-here=$(cd "$(dirname "$0")/.." && pwd)
+here=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)  # resolve the ~/.claude/skills symlink to the repo copy
 dir=$(cd "$here/../../.." && pwd)/mods/dos-tool/features/$name
 [[ -e $dir ]] && { echo "exists: $dir" >&2; exit 1; }
 type=$(echo "$name" | sed -E 's/(^|-)([a-z])/\U\2/g'); var=${name//-/_}
