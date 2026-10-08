@@ -19,7 +19,7 @@ namespace {
         bool showLevel = true;
         double last = 0;
 
-        HealthBars() : Feature("Health bars", feature::Stage::Stable) {}
+        HealthBars() : Feature("Health bars", feature::Stage::Stable) { usesCombat = true; }
 
         void OnFrame(const feature::Frame& f) override {
             const double dt = last > 0 ? f.now - last : 0.0;

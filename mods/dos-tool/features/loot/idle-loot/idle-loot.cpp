@@ -39,7 +39,7 @@ namespace {
         std::unordered_map<std::uintptr_t, Mark> marks;  // key = actor address; entries leave once faded out
         double last = 0;
 
-        IdleLoot() : Feature("Idle loot sparkle", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
+        IdleLoot() : Feature("Idle loot sparkle", feature::Stage::Alpha) { optIn = true; usesCombat = true; }  // new game-thread hook
 
         void OnFrame(const feature::Frame& f) override {
             if (!g_on.load()) {

@@ -15,3 +15,4 @@ paths:
 - Per-frame and per-event cost is O(1) or O(what is on screen), never O(objects in the world). Work runs when an event says something changed, not on a timer.
 - Features of one domain share a parent: `features/<domain>/{shared,<feature>…}` (e.g. `features/inventory/{shared,item-sort,item-sell}`). Domain code (items, containers, inventory widgets) lives in its `shared/`, one responsibility per file; `core/` holds only domain-free host code. A file growing past ~300 lines gets split before anything is added to it. Features stay thin: wiring + their own UI.
 - One step per commit: move, then change behaviour, then optimise. Never in the same commit.
+- Core does per-frame or per-tick work only while an enabled feature needs it (e.g. `Feature::usesCombat` gates character sampling). With every feature off, the mod costs nothing and touches nothing in the world.

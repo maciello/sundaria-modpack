@@ -67,7 +67,7 @@ namespace {
         float previewTypical = 20;
         double lifetime = 1.4;
 
-        DamageNumbers() : Feature("Damage numbers", feature::Stage::Stable) {}
+        DamageNumbers() : Feature("Damage numbers", feature::Stage::Stable) { usesCombat = true; }
 
         void DrawNumber(ImDrawList* dl, ImFont* font, float base, float sx, float sy, const combat::Number& n, double now) {
             const double sinceBorn = now - n.born, sinceBump = now - n.bump;

@@ -34,7 +34,8 @@ namespace game {
     // Original (unmodified) values captured the first time we see the objects, so
     // the UI can seed its sliders and "reset" can restore them.
     // Damage numbers: live enemies' health + world position, and world -> screen.
-    std::vector<combat::Sample> SampleHealth();
+    // Characters with health, sampled on the game thread (#79); want=false stops the sampling.
+    std::vector<combat::Sample> SampleHealth(bool want);
     bool GetView(combat::View& out);
 
     // CharacterMovement falling params, written to EVERY player character (movement is

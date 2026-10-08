@@ -4,7 +4,7 @@
 
 namespace {
     struct DpsMeter : feature::Feature {
-        DpsMeter() : Feature("DPS meter", feature::Stage::Stable) {}
+        DpsMeter() : Feature("DPS meter", feature::Stage::Stable) { usesCombat = true; }
 
         void OnFrame(const feature::Frame& fr) override {
             const combat::Tracker& c = fr.combat;

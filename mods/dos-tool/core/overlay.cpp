@@ -275,7 +275,9 @@ static void DrawMenu(const game::Snapshot& snap) {
 static void RunFeatures(const game::Snapshot& snap) {
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
     const double now = ImGui::GetTime();
-    const std::vector<combat::Sample> chars = game::SampleHealth();
+    bool wantCombat = false;  // core work runs only for enabled features that need it
+    for (const feature::Feature* f : feature::Feature::All()) wantCombat |= f->enabled && f->usesCombat;
+    const std::vector<combat::Sample> chars = game::SampleHealth(wantCombat);
     g_combat.Update(chars, now);
     feature::Frame fr{now, screen.x, screen.y, g_fonts[g_font] ? g_fonts[g_font] : ImGui::GetFont(), snap, g_combat, chars};
     fr.mouseDX = float(g_rawDX.exchange(0));

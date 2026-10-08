@@ -184,8 +184,17 @@ void SampleOnTick(void*, void* fn, void*) {
 }
 
 // Render thread: a copy of what the game thread sampled on its last world tick (one frame behind).
-std::vector<combat::Sample> game::SampleHealth() {
-    if (!g_sampling.exchange(true)) game::SetEventListener(&SampleOnTick, true);
+std::vector<combat::Sample> game::SampleHealth(bool want) {
+    if (want != g_sampling.load()) {  // nothing enabled needs it: no listener, no actor walk
+        g_sampling = want;
+        game::SetEventListener(&SampleOnTick, want);
+        if (!want) {
+            AcquireSRWLockExclusive(&g_samplesMu);
+            g_samples.clear();
+            ReleaseSRWLockExclusive(&g_samplesMu);
+        }
+    }
+    if (!want) return {};
     AcquireSRWLockShared(&g_samplesMu);
     std::vector<combat::Sample> out = g_samples;
     ReleaseSRWLockShared(&g_samplesMu);

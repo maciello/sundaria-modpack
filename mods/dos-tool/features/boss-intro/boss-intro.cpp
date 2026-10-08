@@ -62,7 +62,7 @@ namespace {
         bool keyWas = true;       // a key held when the intro starts is not a skip
         std::set<std::string> shown;  // boss names already introduced this session
 
-        BossIntro() : Feature("Boss intro", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
+        BossIntro() : Feature("Boss intro", feature::Stage::Alpha) { optIn = true; usesCombat = true; }  // new game-thread hook
 
         void Log(const char* fmt, double a) {
             char buf[160];
