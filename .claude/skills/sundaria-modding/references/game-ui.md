@@ -103,8 +103,9 @@ SizeBox_0: {min: 100x100}
 - Pieces come from `UBP_StaticMinimapObjectComponent_C` {MinimapOrigin, MinimapImage, MinimapImageShadow, BoundsOverride, ZOrder,
   bIsRevealedByDefault}; reveal: `I_RevealStaticMinimapObject` (widget), `I_RequestStaticMinimapObjectReveal` (game state).
   Moving markers: `UBP_DynamicMinimapObjectComponent_C::SetMinimapImage`, added via `I_AddMinimapObject`.
-- world→map: piece pixel = (world − MinimapOrigin) / UnitToPixel, then the canvas scrolls so the player sits at the centre. Formula
-  from field names; unverified.
+- world→map (in game): map pixel = (Y / UnitToPixel, −X / UnitToPixel), UnitToPixel = 64; children use anchors (0,1), alignment 0.5.
+  The static/dynamic canvases translate by minus the pawn's map pixel; `CanvasPanel_Map` rotates with the view (`bAlignMapToPlayer`),
+  icons counter-rotate (render angle = −map angle).
 - Drawing ours: a child of `CanvasPanel_DynamicMinimp` scrolls with the map for free; clipped by the 250 px retainer.
 
 ## Adding a game widget to a screen (game thread only)
