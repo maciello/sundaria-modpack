@@ -136,6 +136,12 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
   each fades in over the first 16 px and out over the last 16 px before the goal. Linear, no easing: it reads as current, not as bounce.
 - Blocked: where the path stops at a locked door: 16 px `kInk` diamond plate @.85 + red X (two 11×3 bars, `kTaken`).
 - Lever (heuristic: unpulled levers in the locked door's room): 14 px `kInk` plate @.85 + `kGameHighlight` handle bar 9×3 at −60°.
+- Levers that open the way (#93): the route runs player → nearest unpulled lever → next → the locked door → on (same line and flow).
+  Minimap: a 22 px `kGameHighlight` halo diamond behind the lever plate (z of the flow), alpha 0 → .35 → 0 over `motion::kPulsePeriod` (sine).
+  World (ImGui background list, Layer::WorldBar, within 60 m, hidden at 2 m): 12·Ui `kGameHighlight` diamond with a `kInk` rim
+  (`stroke::Outline(kSm·Ui)`) 1.2 m above the lever, distance `kSm` `kTextSoft` ("12 m", ink outline) below it. Off screen: the diamond on the
+  edge (inset `space::k7`·Ui) + a chevron of two 9×3·Ui `kGameHighlight` bars pointing at the lever. In/out: `motion::kFadeIn` / `kFadeOut`.
+  Constants: `features/dungeon-map/lever.hpp` (marker), `scene.hpp` (halo).
 - Icons stay upright on screen (counter-rotate with the map). The game's own icons (party, NPCs) stay above the line (z: line 0, icons 5).
 - Constants: `features/dungeon-map/path.hpp` (path, flow), `scene.hpp` (geometry, opacity, z).
 - Don't: draw the part behind the player; own fog; textures we ship; ImGui over the minimap.

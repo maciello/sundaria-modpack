@@ -12,7 +12,13 @@ namespace dungeon_map {
     constexpr float kCapPx = 7, kCapAlpha = 0.9f, kPulsePx = 5;
     constexpr float kPlateBlocked = 16, kPlateLever = 14, kPlateAlpha = 0.85f;
     constexpr float kXLen = 11, kXW = 3, kLeverLen = 9, kLeverW = 3, kLeverAngle = -60;
+    constexpr float kHaloPx = 22, kHaloAlpha = 0.35f;  // lever on the route (#93): breathing halo behind its plate
     constexpr int kZLine = 0, kZMark = 1, kZIcon = 2;
+
+    // Halo alpha at t seconds: 0 → kHaloAlpha → 0 over one period (sine).
+    inline float Halo(double t, float period) {
+        return kHaloAlpha * 0.5f * (1 - float(std::cos(6.2831853 * std::fmod(t, double(period)) / period)));
+    }
 
     struct Quad {
         float x, y, w, h, angle;  // centre, size, degrees in canvas space
@@ -34,7 +40,7 @@ namespace dungeon_map {
     struct Marks {
         bool locked = false;  // path stops at a locked door
         V3 door;
-        std::vector<V3> levers;  // heuristic: unpulled levers in that door's room
+        std::vector<V3> levers;  // heuristic: unpulled levers in that door's room; the route runs through them
     };
 
     // path: the route (world); fromS: drawn from here to its end (< 0 = nothing); upp: minimap UnitToPixel;
@@ -59,6 +65,7 @@ namespace dungeon_map {
             for (float a : {45.f, -45.f}) out.push_back({d.x, d.y, kXLen, kXW, a - mapAngle, kTaken, 1, kZIcon + 1});
             for (const V3& l : m.levers) {
                 const Px p = ToMap(l, upp);
+                out.push_back(Diamond(p, kHaloPx, kGameHighlight, Halo(t, style::motion::kPulsePeriod), kZMark, mapAngle));
                 out.push_back(Diamond(p, kPlateLever, kInk, kPlateAlpha, kZIcon, mapAngle));
                 out.push_back({p.x, p.y, kLeverLen, kLeverW, kLeverAngle - mapAngle, kGameHighlight, 1, kZIcon + 1});
             }

@@ -34,9 +34,11 @@ namespace dungeon_map {
         int legs = 0;
     };
 
+    inline void Append(Path& p, V3 v) { if (p.empty() || Dist(p.back(), v) > 1) p.push_back(v); }
+
     inline Route PlanRoute(V3 from, V3 goal, const std::vector<Box>& rooms, const Nav& nav) {
         Route r;
-        auto add = [&](V3 v) { if (r.path.empty() || Dist(r.path.back(), v) > 1) r.path.push_back(v); };
+        auto add = [&](V3 v) { Append(r.path, v); };
         V3 a = from;
         int at = NearestRoom(rooms, from);  // never resume behind the player
         for (size_t guard = 0; guard <= rooms.size(); guard++) {
@@ -57,6 +59,25 @@ namespace dungeon_map {
             at = k;
         }
         add(goal);  // ponytail: straight to the goal past the last room; a crumb graph would route generated floors
+        return r;
+    }
+
+    // Through the waypoints in order (levers that open the way, #93), then on to the goal. A waypoint the navmesh does
+    // not reach is joined straight.
+    inline Route PlanVia(V3 from, const std::vector<V3>& via, V3 goal, const std::vector<Box>& rooms, const Nav& nav) {
+        Route r;
+        V3 a = from;
+        for (const V3& w : via) {
+            Path leg;
+            bool partial = false;
+            r.legs++;
+            if (nav.path(a, w, leg, partial)) for (const V3& v : leg) Append(r.path, v);
+            Append(r.path, a = w);
+        }
+        const Route rest = PlanRoute(a, goal, rooms, nav);
+        for (const V3& v : rest.path) Append(r.path, v);
+        r.stops = rest.stops;
+        r.legs += rest.legs;
         return r;
     }
 }
