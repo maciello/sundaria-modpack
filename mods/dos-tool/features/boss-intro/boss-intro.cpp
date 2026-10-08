@@ -164,6 +164,7 @@ namespace {
 
         void OnFrame(const feature::Frame& f) override {
             game_side::Listen(true);
+            if (detector.engaged && !game_side::Alive(detector.engaged)) detector.engaged = 0;  // left the map mid-fight
             for (const game_side::Event& e : game_side::Take()) {
                 const Verdict v = detector.On(e.signal, e.fight, f.now);
                 char buf[400];

@@ -127,13 +127,19 @@ namespace boss_intro::game_side {
         return pc && PtrOk(pc->Pawn) ? reinterpret_cast<std::uintptr_t>(pc->Pawn) : 0;
     }
 
-    bool BossOf(std::uintptr_t fight, Boss& out) {
+    static ref::Ref FightRef(std::uintptr_t fight) {
         ref::Ref r;
         AcquireSRWLockShared(&g_mu);
         for (const ref::Ref& f : g_fights)
             if (reinterpret_cast<std::uintptr_t>(f.ptr) == fight) r = f;
         ReleaseSRWLockShared(&g_mu);
-        const auto* bf = r.Get<ABP_BossFight_C>();
+        return r;
+    }
+
+    bool Alive(std::uintptr_t fight) { return FightRef(fight).Get<ABP_BossFight_C>() != nullptr; }
+
+    bool BossOf(std::uintptr_t fight, Boss& out) {
+        const auto* bf = FightRef(fight).Get<ABP_BossFight_C>();
         if (!bf || bf->BossActors.Num() < 1) return false;
         const auto* boss = ref::Ref(bf->BossActors[0]).Get<ACharacter>();
         if (!boss || !boss->IsA(ACharacter::StaticClass()) || !PtrOk(boss->RootComponent) || !PtrOk(boss->CapsuleComponent)) return false;

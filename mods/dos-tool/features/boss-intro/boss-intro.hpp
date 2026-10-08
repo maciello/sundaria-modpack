@@ -27,34 +27,46 @@ namespace boss_intro {
     constexpr double kSameEncounter = 15.0;
 
     struct Verdict {
-        enum Kind : std::uint8_t { Start, Same, Rearm } kind;
+        enum Kind : std::uint8_t { Start, Same, Rearm, Noted, Busy } kind;
         std::uintptr_t fight;  // Start: the fight to introduce (0 = unknown)
     };
-    inline const char* Name(Verdict::Kind k) { return k == Verdict::Start ? "intro start" : k == Verdict::Same ? "same encounter" : "re-armed"; }
+    inline const char* Name(Verdict::Kind k) {
+        constexpr const char* n[] = {"intro start", "same encounter", "re-armed", "noted (not a start)", "another fight engaged"};
+        return n[k];
+    }
 
-    // One intro per encounter: the first boss signal of a fight starts it; the fight's end (won or wiped) or a
-    // new instance of it re-arms. A normal elite never sends any of these signals.
+    // One intro per encounter, only when THIS fight starts: the local pawn enters its arena or its combat starts.
+    // A spawn trigger never starts one (#74: a fight's MasterSpawnTrigger volume can reach into the arena before it,
+    // so it fired for the next boss while the current one was on). No intro while another fight is engaged
+    // (combat started, not finished). The fight's end or a new instance of it re-arms.
     struct Detector {
         std::vector<std::uintptr_t> fired;
-        std::uintptr_t lastFight = 0;
+        std::uintptr_t lastFight = 0, engaged = 0;
         double lastStart = -1e9;
 
         bool Fired(std::uintptr_t f) const { return std::find(fired.begin(), fired.end(), f) != fired.end(); }
         void Rearm(std::uintptr_t f) { fired.erase(std::remove(fired.begin(), fired.end(), f), fired.end()); }
+        bool Busy(std::uintptr_t f) const { return engaged && engaged != f; }
 
         Verdict On(Signal s, std::uintptr_t fight, double now) {
             switch (s) {
                 case Signal::FightBegin:
                 case Signal::Finished:
                     Rearm(fight);
+                    if (engaged == fight) engaged = 0;
                     if (s == Signal::FightBegin) lastFight = fight;
                     return {Verdict::Rearm, fight};
+                case Signal::SpawnTrigger:
+                    return {Verdict::Noted, fight};
                 case Signal::Splash:
                 case Signal::Lens:
                     if (now - lastStart < kSameEncounter || (lastFight && Fired(lastFight))) return {Verdict::Same, lastFight};
+                    if (Busy(lastFight)) return {Verdict::Busy, lastFight};
                     fight = lastFight;
                     break;
-                default:
+                default:  // ArenaEnter, CombatStart
+                    if (Busy(fight)) return {Verdict::Busy, fight};
+                    if (s == Signal::CombatStart) engaged = fight;
                     lastFight = fight;
                     if (Fired(fight)) return {Verdict::Same, fight};
             }

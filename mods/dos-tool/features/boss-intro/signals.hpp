@@ -16,6 +16,7 @@ namespace boss_intro::game_side {
     struct Boss { float x, y, z, halfHeight; };  // capsule centre (cm), capsule half height
     // The fight's first boss actor, if spawned (render thread: memory reads only).
     bool BossOf(std::uintptr_t fight, Boss& out);
+    bool Alive(std::uintptr_t fight);  // the fight actor still exists (map travel frees it)
     std::uintptr_t LocalPawn();  // id of the local pawn (= combat::Sample::id), 0 = none (render thread: memory reads)
     void Listen(bool on);
     std::vector<Event> Take();  // render thread: events since the last call
