@@ -25,6 +25,12 @@ A swap is verified only when dev-check shows the newest `loaded<N>.dll` size equ
 re-printed `ImGui (D3D11) initialised`. How it looks in game is the user's call: say "unverified visually" until
 they confirm. A new hook can crash the user's game: ship it default-off and let the user enable it.
 
+## Push
+Only `just ship` (pull --rebase origin master + push HEAD:master; works from any worktree). Never `git push` by hand.
+The pre-push hook runs `just test` on a clean checkout of the pushed commit, so uncommitted edits can't fake a pass.
+Parallel work: one `git worktree` per task (`../wt-<task>`); set work aside with a WIP commit, never `git stash`
+(the stash is shared by every worktree and session).
+
 ## Ship to friends
 `just release vX.Y.Z` (test → dist zip rooted at the game dir → GitHub release); friends' updater installs it on
 next launch. Ask the user first: it reaches other people's machines.
