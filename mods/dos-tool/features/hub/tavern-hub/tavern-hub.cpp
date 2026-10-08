@@ -1,5 +1,6 @@
 #include "feature.hpp"
 #include "tavern-hub.hpp"
+#include "../shared/hub_ui.hpp"
 #include "logger.hpp"
 #include "imgui.h"
 
@@ -132,6 +133,8 @@ namespace {
             if (!h.found) { logger::log("[tavern] no hero in this map"); return; }
             camYaw = h.yaw;
             walking = true;
+            ui = false;
+            hub_ui::SetButtonsHidden(true);  // the hub's own indicators and click targets off while you walk
             RebuildRoom(true);  // you start in the tavern
             roomWorld = world;
             logger::log("[tavern] walk on");
@@ -139,9 +142,11 @@ namespace {
 
         void StopWalk() {
             if (walking) logger::log("[tavern] walk off");
-            walking = looking = false;
+            const bool was = walking;
+            walking = looking = ui = false;
             game::SetHubWalk(nullptr);
             game::SetFreeCam(nullptr, 0);
+            if (was) { hub_ui::SetButtonsHidden(false); hub_ui::Stop(); }
         }
 
         void Place(const game::Npc& n, float x, float y, float z, float yaw) { game::PlaceNpc(n.id, x, y, z, yaw); }
@@ -176,7 +181,23 @@ namespace {
         }
 
         // Dungeon-style controls while walking: the game sees no presses (no building selection) and no cursor.
-        bool CapturesInput() const override { return walking; }
+        // I (inventory), P (party), Enter (chat) and Esc still reach it; while one of those screens is open (`ui`)
+        // the game gets everything and the hero stands still.
+        bool ui = false;
+        bool CapturesInput() const override { return walking && !ui; }
+        bool PassesKey(unsigned vk) const override { return vk == 'I' || vk == 'P' || vk == VK_RETURN || vk == VK_ESCAPE; }
+        bool uiKeysWas[4] = {}, talkWas = false;
+
+        // the NPC within talking range (3 m) closest to the hero, or nullptr
+        const game::Npc* TalkTarget(const game::Hero& h) const {
+            const game::Npc* best = nullptr;
+            float bestD = 300.0f * 300.0f;
+            for (const game::Npc& n : npcs) {
+                const float dx = n.x - h.x, dy = n.y - h.y, dz = n.z - h.z, d = dx * dx + dy * dy + dz * dz;
+                if (n.hasButton && d < bestD) { bestD = d; best = &n; }
+            }
+            return best;
+        }
 
         double nextDiag = 0;
         void LogDiag(const game::Hero& h, const feature::Frame& f) {
@@ -214,10 +235,22 @@ namespace {
                 nextFix = f.now + 2.0;
                 game::FixCollision(h.x, h.y, h.z, 4000.0f, true);
             }
+            // I / P / Enter open a game screen (again: close it), Esc closes; E talks to the nearest NPC
+            static const int kUiKeys[4] = {'I', 'P', VK_RETURN, VK_ESCAPE};
+            for (int i = 0; i < 4; i++) {
+                const bool d = focused && !typing && Down(kUiKeys[i]);
+                if (d && !uiKeysWas[i]) ui = kUiKeys[i] == VK_ESCAPE ? false : !ui;
+                uiKeysWas[i] = d;
+            }
+            const bool e = focused && !typing && Down('E');
+            if (e && !talkWas && !ui && game::CamOwner() != 1) {  // E is up for the free camera
+                if (const game::Npc* n = TalkTarget(h)) { hub_ui::Talk(n->x, n->y, n->z); ui = true; }
+            }
+            talkWas = e;
             float fwd = 0, right = 0;
             bool jump = false;
             const bool flying = game::CamOwner() == 1;  // the free camera has the keys and the view
-            if (focused && !typing && !flying) {
+            if (focused && !typing && !flying && !ui) {
                 fwd = float(Down('W')) - float(Down('S'));
                 right = float(Down('D')) - float(Down('A'));
                 jump = Down(VK_SPACE);
@@ -226,7 +259,7 @@ namespace {
             }
             // Mouse look like in the dungeon: cursor pinned to the window centre, every move turns the camera.
             // The Insert menu frees the cursor.
-            const bool look = focused && !ImGui::GetIO().MouseDrawCursor && !flying;
+            const bool look = focused && !ImGui::GetIO().MouseDrawCursor && !flying && !ui;
             RECT r{};
             const HWND wnd = GetForegroundWindow();
             GetClientRect(wnd, &r);
