@@ -99,6 +99,11 @@ namespace {
         *reinterpret_cast<APlayerController**>(parms) = pc;
         parms[8] = on ? 1 : 0;
         button->ProcessEvent(fn, parms);
+        // the outline (rim stencil on the NPC) comes from Show/HideSelection, which only mouse hover calls
+        if (UFunction* sel = FindFn(button->Class, on ? "ShowSelection" : "HideSelection"); PtrOk(sel)) {
+            alignas(16) unsigned char sp[256] = {};  // { int32 ControllerId; } local player 0
+            button->ProcessEvent(sel, sp);
+        }
     }
 
     void ApplyFocus(bool on) {
