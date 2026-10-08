@@ -63,3 +63,10 @@ damage_numbers_source_today: per-frame CurrentHealth diff = amount; LastTakeHitI
   - "out": `UBP_GameplayAnimNotify_C::Received_Notify(MeshComp, Anim)` with `mGameplayAnimNotifyType` @0x38 = `ApplyEffect` or `ShootProjectile` (`AnimLockStart`/`AnimLockEnd` also exist). The notify also carries `HitStop` @0xA6 and `mAnimLockExpireTime` @0x60.
   - lock: `UArchonAbilitySystemComponent::CheckAnimLock` / `RemoveAnimLock` / `ApplyAnimLockEffect` (GE `BP_GameplayEffect_AnimLock`); cancel: `UGameplayAbility::K2_CancelAbility`.
   - input queue: `ABP_PlayerControllerGame_C::bDisableInputQueue` @0xCB1, `DodgeQueued` @0xCB0. Queued presses fire after the lock ends (`RetriggerDelayEmptyInputBuffer`).
+
+ability_dump (features/ability-dump, Alpha+optIn; button "Dump abilities" -> `dos-tool-abilities.yaml` next to the DLL; built, NOT yet run in game):
+  enumerate: GObjects → Flags&0x10 (CDO) → IsA(UArchonGameplayAbility); one pass, memory reads only
+  montages: soft ptrs in UBP_GameAbilityBase_C::{AnimSkeleton_OverrideWeaponAnims, OverrideAnims}, WeaponMontage::OverrideWeaponAnimsLeft/Right → path = TSoftObjectPtr.ObjectID.AssetPathName (soft ptr = 0x28); loaded iff WeakPtr.Get() (GObjects[ObjectIndex]) non-null
+  notify count: UAnimSequenceBase::Notifies[].Notify IsA UBP_GameplayAnimNotify_C → mGameplayAnimNotifyType {ApplyEffect 0, ShootProjectile 1, AnimLockStart 2, AnimLockEnd 3}; hits = type 0+1. Notifies on SlotAnimTracks' sequences are NOT counted (unverified whether the abilities use them)
+  live: AArchonCharacter(local pawn)->mAbilitySystemComponent->LocalAnimMontageInfo {AnimMontage, AnimatingAbility}
+  sdk_quirk: SDK TMap iteration/operator[] fails to compile (SetElement::Value private) → read raw: Data ptr at +0, stride = sizeof(TPair)+8, skip free slots with IsValidIndex (static_assert guards sizes)

@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "combat.hpp"
+#include "../features/ability-dump/ability-dump.hpp"
 
 // Thin, SDK-free interface over the game. game.cpp is the ONLY translation unit
 // that pulls in the (very large) generated Dumper-7 SDK headers.
@@ -56,4 +57,8 @@ namespace game {
 
     float OriginalFOV();
     float OriginalDistance();
+
+    // Ability dump (dev tool): every loaded ability class default object + the local player's playing montage.
+    // Memory reads only (no ProcessEvent), but walks all of GObjects: call once per button press.
+    void DumpAbilities(std::vector<ability_dump::Ability>& out, ability_dump::Live& live);
 }
