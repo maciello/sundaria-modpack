@@ -18,7 +18,7 @@ features/<kebab>/:   # one player-facing feature per folder; CMake globs feature
   <kebab>.cpp: one static Feature object; registers itself
   <kebab>.hpp + test/<kebab>_test.cpp: SDK-free logic + assert test (picked up by `just test`)
 features/<domain>/:  # features of one domain + their shared code (new-feature.sh <domain>/<kebab>)
-  shared/: domain code, one responsibility per file (inventory/shared/items.*: item model, profiles, reads); test/ picked up by `just test`
+  shared/: domain code, one responsibility per file (inventory/shared: model.hpp record, order.hpp profiles+order, io.hpp read api → names/spec/read/probe.cpp; items.hpp includes all three); test/ picked up by `just test`
   <kebab>/: one feature as above; includes "../shared/…", never a sibling feature
 ```
 
