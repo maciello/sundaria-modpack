@@ -45,5 +45,12 @@ int main() {
     assert(!RayToFloor(0, 0, 100, 0, 0, 0, 1000, fx, fy) && !RayToFloor(0, 0, 100, 10, 0, 0, 1000, fx, fy));
     assert(!RayToFloor(0, 0, 100, -1.5f, 0, 0, 1000, fx, fy));      // hits 3.8 km away
     assert(!RayToFloor(0, 0, -5, -45, 0, 0, 1000, fx, fy));         // camera below that floor
+        // ray pick: the nearer of two spheres on the ray wins; a miss and one behind the camera don't count
+    std::vector<Sphere> ss{{500, 0, 0, 50}, {200, 0, 0, 30}, {300, 200, 0, 50}, {-300, 0, 0, 80}};
+    assert(RayPick(0, 0, 0, 0, 0, ss, 2000) == 1);
+    assert(RayPick(0, 0, 0, 0, 0, {{500, 40, 0, 50}}, 2000) == 0);   // grazes it
+    assert(RayPick(0, 0, 0, 0, 0, {{500, 60, 0, 50}}, 2000) == -1);  // misses
+    assert(RayPick(0, 0, 0, 0, 180, ss, 2000) == 3);                 // turned around
+    assert(RayPick(0, 0, 0, 0, 0, {{5000, 0, 0, 50}}, 2000) == -1);  // too far
         std::puts("ok");
 }

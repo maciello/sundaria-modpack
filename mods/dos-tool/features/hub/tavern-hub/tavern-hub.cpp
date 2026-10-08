@@ -253,6 +253,7 @@ namespace {
         // at the height it had above the floor; R turns it 15°, Page Up/Down lifts it 5 cm, left click (E) puts it
         // down, right click (walking) / Backspace puts it back. Saved as PROP:<actor name>=x,y,z,yaw.
         bool build = false, buildWas = false, rotWas = false, pickWas = false, cancelWas = false, liftWas = false;
+        bool bringWas = false, resetWas = false, carryNearHero = false;  // T: fetch it next to you; Delete: back home
         std::vector<props::Prop> nearProps;
         float scanX = 1e9f, scanY = 1e9f;
         std::string lookedProp, carried;
@@ -263,7 +264,7 @@ namespace {
 
         bool CarrySpot(const game::Hero& h, bool flying, float& x, float& y) {
             const float feet = h.z - kCapsuleHalf;
-            if (flying) {  // where the free camera looks at the floor you stand on
+            if (flying && !carryNearHero) {  // where the free camera looks at the floor you stand on
                 combat::View v{};
                 return game::GetView(v) && tavern_hub::RayToFloor(v.x, v.y, v.z, v.pitch, v.yaw, feet, 3000.0f, x, y);
             }
@@ -280,9 +281,17 @@ namespace {
             // right mouse turns the free camera's view: cancel there is Backspace only
             const bool cancelKey = keys && ((!flying && Down(VK_RBUTTON)) || Down(VK_BACK)), cancel = cancelKey && !cancelWas;
             cancelWas = cancelKey;
-            const float dx = h.x - scanX, dy = h.y - scanY;
-            if (dx * dx + dy * dy > 200.0f * 200.0f) { props::Scan(h.x, h.y, h.z, 2000.0f); scanX = h.x; scanY = h.y; }
+combat::View v{};
+            const bool haveView = game::GetView(v);
+            // props around the eye that looks: the hero when walking, the free camera when flying
+            const float ex = flying && haveView ? v.x : h.x, ey = flying && haveView ? v.y : h.y, ez = flying && haveView ? v.z : h.z;
+            const float dx = ex - scanX, dy = ey - scanY;
+            if (dx * dx + dy * dy > 200.0f * 200.0f) { props::Scan(ex, ey, ez, 2500.0f); scanX = ex; scanY = ey; }
             nearProps = props::Near();
+            const bool bringKey = keys && Down('T'), bring = bringKey && !bringWas;
+            bringWas = bringKey;
+            const bool resetKey = keys && Down(VK_DELETE), reset = resetKey && !resetWas;
+            resetWas = resetKey;
             if (!carried.empty()) {
                 const bool rot = keys && Down('R');
                 if (rot && !rotWas) carryYaw = std::fmod(carryYaw + 15.0f, 360.0f);
@@ -297,6 +306,7 @@ namespace {
                     props::Highlight(carried, false, 0);
                     logger::log("[tavern] put back " + carried);
                     carried.clear();
+                    carryNearHero = false;
                     return;
                 }
                 props::Move(carried, lastX, lastY, lastZ, carryYaw, !pick);
@@ -306,17 +316,17 @@ namespace {
                     Save();
                     logger::log("[tavern] put down " + carried);
                     carried.clear();
+                    carryNearHero = false;
                     scanX = 1e9f;  // positions changed: rescan
                 }
                 return;
             }
-            combat::View v{};
             std::string hit;
             const props::Prop* hp = nullptr;
-            if (game::GetView(v)) {
-                std::vector<tavern_hub::Target> ts;
-                for (const props::Prop& p : nearProps) ts.push_back({p.x, p.y, p.cz});
-                const int i = tavern_hub::LookedAt(v.x, v.y, v.z, v.pitch, v.yaw, ts, 8.0f, 2000.0f, 0.0f);
+            if (haveView) {  // what the crosshair is on: the nearest prop the view ray passes through
+                std::vector<tavern_hub::Sphere> ss;
+                for (const props::Prop& p : nearProps) ss.push_back({p.x, p.y, p.cz, p.radius * 0.8f});
+                const int i = tavern_hub::RayPick(v.x, v.y, v.z, v.pitch, v.yaw, ss, 3000.0f);
                 if (i >= 0) { hp = &nearProps[i]; hit = hp->name; }
             }
             if (hit != lookedProp) {
@@ -324,15 +334,29 @@ namespace {
                 if (!hit.empty()) props::Highlight(hit, true, hub_ui::RimStencil());
                 lookedProp = hit;
             }
-            if (pick && hp) {
+            if (reset && hp) {  // back where the game had it, and forget our placement
+                props::Reset(hp->name);
+                props::Highlight(hp->name, false, 0);
+                const std::string key = "PROP:" + hp->name;
+                layout.erase(std::remove_if(layout.begin(), layout.end(), [&](const tavern_hub::Spot& s) { return s.name == key; }),
+                             layout.end());
+                Save();
+                logger::log("[tavern] reset " + hp->name);
+                lookedProp.clear();
+                scanX = 1e9f;
+                return;
+            }
+            if ((pick || bring) && hp) {
                 carried = hp->name;
                 carriedFrom = {"", hp->x, hp->y, hp->z, hp->yaw};
                 carryYaw = hp->yaw;
-                carryAbove = hp->z - (h.z - kCapsuleHalf);  // its height above the floor you both stand on
+                // its height above the floor you both stand on; fetched from elsewhere: resting on your floor
+                carryAbove = bring ? hp->base : hp->z - (h.z - kCapsuleHalf);
                 carryRadius = hp->radius;
+                carryNearHero = bring;
                 lastX = hp->x; lastY = hp->y; lastZ = hp->z;
                 lookedProp.clear();
-                logger::log("[tavern] picked up " + carried);
+                logger::log(std::string("[tavern] ") + (bring ? "fetched " : "picked up ") + carried);
             }
         }
 

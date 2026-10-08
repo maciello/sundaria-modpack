@@ -63,6 +63,25 @@ namespace tavern_hub {
         return true;
     }
 
+    // What the crosshair is on: the nearest sphere (centre + radius) the view ray passes through, within maxDist.
+    // -1 = none. (A prop behind another one along the ray loses: nearest hit wins.)
+    struct Sphere { float x, y, z, r; };
+    inline int RayPick(float cx, float cy, float cz, float pitch, float yaw, const std::vector<Sphere>& ss, float maxDist) {
+        const float cp = std::cos(pitch * kD2R), dx = cp * std::cos(yaw * kD2R), dy = cp * std::sin(yaw * kD2R), dz = std::sin(pitch * kD2R);
+        int best = -1;
+        float bestT = maxDist;
+        for (int i = 0; i < int(ss.size()); i++) {
+            const float ox = ss[i].x - cx, oy = ss[i].y - cy, oz = ss[i].z - cz;
+            const float t = ox * dx + oy * dy + oz * dz;            // along the ray to the closest point
+            if (t <= 0) continue;
+            const float d2 = ox * ox + oy * oy + oz * oz - t * t;    // squared miss distance
+            if (d2 > ss[i].r * ss[i].r) continue;
+            const float hit = t - std::sqrt(ss[i].r * ss[i].r - d2); // where the ray enters it
+            if (hit < bestT) { bestT = hit; best = i; }
+        }
+        return best;
+    }
+
     struct Spot { std::string name; float x, y, z, yaw; };
 
     inline std::vector<Spot> ParseLayout(const std::string& text) {

@@ -18,7 +18,7 @@ namespace {
     }
 
     // render thread → game thread (latest request per kind wins; moves are posted every frame while carrying)
-    struct Req { std::string name; bool highlight; bool on; int stencil; FVector at; float yaw; bool carrying; };
+    struct Req { std::string name; bool highlight; bool on; int stencil; FVector at; float yaw; bool carrying; bool reset = false; };
     SRWLOCK g_mu = SRWLOCK_INIT;
     std::vector<Req> g_queue;
     std::atomic<bool> g_pending{false}, g_listening{false};
@@ -32,12 +32,14 @@ namespace {
 
     // game thread: name → actor, resolved once per map
     std::unordered_map<std::string, ref::Ref> g_byName;
+    struct Home { FVector at; FRotator rot; };
+    std::unordered_map<std::string, Home> g_home;  // before our first move in this map
     ref::Ref g_world;
 
     AActor* Find(const std::string& name) {
         UWorld* w = UWorld::GetWorld();
         if (!PtrOk(w)) return nullptr;
-        if (!g_world.Is(w)) { g_world = ref::Ref(w); g_byName.clear(); }
+        if (!g_world.Is(w)) { g_world = ref::Ref(w); g_byName.clear(); g_home.clear(); }
         auto it = g_byName.find(name);
         if (it != g_byName.end()) return it->second.Get<AActor>();
         for (int li = 0; li < w->Levels.Num(); li++) {  // once per prop per map
@@ -68,9 +70,17 @@ namespace {
             c->SetRenderCustomDepth(r.on);
             return;
         }
-        if (PtrOk(a->RootComponent)) a->RootComponent->SetMobility(EComponentMobility::Movable);  // level props are static
+        if (!PtrOk(a->RootComponent)) return;
+        if (!g_home.count(r.name)) g_home[r.name] = {a->RootComponent->RelativeLocation, a->RootComponent->RelativeRotation};
+        a->RootComponent->SetMobility(EComponentMobility::Movable);  // level props are static
+        if (r.reset) {
+            const Home& h = g_home[r.name];
+            a->SetActorEnableCollision(true);
+            a->K2_SetActorLocationAndRotation(h.at, h.rot, false, nullptr, true);
+            return;
+        }
         a->SetActorEnableCollision(!r.carrying);  // carried: don't shove the hero around
-        const FRotator rot = PtrOk(a->RootComponent) ? a->RootComponent->RelativeRotation : FRotator{};
+        const FRotator rot = a->RootComponent->RelativeRotation;
         a->K2_SetActorLocationAndRotation(r.at, FRotator{rot.Pitch, r.yaw, rot.Roll}, false, nullptr, true);
     }
 
@@ -150,6 +160,12 @@ std::vector<props::Prop> props::Near() {
     std::vector<Prop> out = g_near;
     ReleaseSRWLockShared(&g_mu);
     return out;
+}
+
+void props::Reset(const std::string& name) {
+    Req r{name, false, false, 0, {}, 0, false};
+    r.reset = true;
+    Post(r);
 }
 
 void props::Highlight(const std::string& name, bool on, int stencil) { Post({name, true, on, stencil, {}, 0, false}); }
