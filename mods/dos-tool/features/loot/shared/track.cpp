@@ -7,6 +7,7 @@
 
 #include <Windows.h>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -29,8 +30,10 @@ using umg::PtrOk;
 
 namespace {
     struct Entry { ref::Ref a; loot::Kind kind; float x, y, z; };
-    SRWLOCK g_mu = SRWLOCK_INIT;  // not std::mutex (gotchas). Guards g_list, g_colors.
+    SRWLOCK g_mu = SRWLOCK_INIT;  // not std::mutex (gotchas). Guards g_list, g_near, g_colors.
     std::vector<Entry> g_list;
+    std::vector<loot::Actor> g_near;        // last world tick's read around the camera: plain data for the render thread
+    std::atomic<float> g_maxDist{0.0f};     // the render thread's last Read radius
     std::array<style::Rgba, 8> g_colors{};
     bool g_haveColors = false;
     ref::Ref g_world;  // game thread only
@@ -153,6 +156,26 @@ namespace {
         }
     }
 
+    // Game thread (world tick): the tracked actors near the camera, read while the game cannot free them.
+    void Sample(float cx, float cy, float cz, float maxDist) {
+        const float max2 = maxDist * maxDist;
+        std::vector<loot::Actor> found;
+        AcquireSRWLockShared(&g_mu);
+        for (const Entry& e : g_list) {
+            const float dx = e.x - cx, dy = e.y - cy, dz = e.z - cz;
+            if (dx * dx + dy * dy + dz * dz > max2) continue;
+            auto* t = e.a.Get<ABP_TriggerBase_C>();
+            if (!t) continue;
+            int grade;
+            const loot::State s = StateOf(t, e.kind, grade);
+            found.push_back({reinterpret_cast<uintptr_t>(t), e.kind, e.x, e.y, e.z, loot::Unlooted(s), grade, Seen(t, e.kind)});
+        }
+        ReleaseSRWLockShared(&g_mu);
+        AcquireSRWLockExclusive(&g_mu);
+        g_near.swap(found);
+        ReleaseSRWLockExclusive(&g_mu);
+    }
+
     void ReadColors() {
         UFunction* fn = g_gradeColor.Get();
         APlayerController* pc = umg::LocalPC();
@@ -200,19 +223,17 @@ namespace loot {
             Survey("world scan");
         }
         if (!g_haveColors) ReadColors();
+        combat::View v{};
+        if (game::GetView(v)) Sample(v.x, v.y, v.z, g_maxDist.load());
     }
 
     void Read(float cx, float cy, float cz, float maxDist, std::vector<Actor>& out) {
+        g_maxDist = maxDist;
         const float max2 = maxDist * maxDist;
         AcquireSRWLockShared(&g_mu);
-        for (const Entry& e : g_list) {
-            const float dx = e.x - cx, dy = e.y - cy, dz = e.z - cz;
-            if (dx * dx + dy * dy + dz * dz > max2) continue;
-            auto* t = e.a.Get<ABP_TriggerBase_C>();
-            if (!t) continue;
-            int grade;
-            const State s = StateOf(t, e.kind, grade);
-            out.push_back({reinterpret_cast<uintptr_t>(t), e.kind, e.x, e.y, e.z, Unlooted(s), grade, Seen(t, e.kind)});
+        for (const Actor& a : g_near) {
+            const float dx = a.x - cx, dy = a.y - cy, dz = a.z - cz;
+            if (dx * dx + dy * dy + dz * dz <= max2) out.push_back(a);
         }
         ReleaseSRWLockShared(&g_mu);
     }
@@ -235,6 +256,7 @@ namespace loot {
     void Reset() {
         AcquireSRWLockExclusive(&g_mu);
         g_list.clear();
+        g_near.clear();
         g_haveColors = false;
         ReleaseSRWLockExclusive(&g_mu);
         g_world = {};  // ponytail: written from the render thread while the listener is already off

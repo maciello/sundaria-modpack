@@ -1,5 +1,6 @@
 #pragma once
-// Loot actors in the world (items on the floor, chests): tracked from the game's own events, read on the render thread.
+// Loot actors in the world (items on the floor, chests): tracked and read on the game thread, handed to the render
+// thread as plain data (#80).
 // SDK-free API; the SDK side is track.cpp. Facts: references/game-facts.md § loot.
 #include <algorithm>
 #include <array>
@@ -43,7 +44,8 @@ namespace loot {
 
     // Game thread: feed every ProcessEvent from a feature's listener. Tracks loot actors on BeginPlay and once per world.
     void OnEvent(void* obj, void* fn);
-    // Render thread: tracked actors within maxDist (cm) of (cx, cy, cz). O(tracked) float compares + reads of the near ones.
+    // Render thread: tracked actors within maxDist (cm) of (cx, cy, cz), as the game thread read them on its last world
+    // tick around the camera (one frame behind). The game thread: O(tracked) float compares + reads of the near ones.
     void Read(float cx, float cy, float cz, float maxDist, std::vector<Actor>& out);
     // The game's own grade colours (BP_ArchonClientFunctionLibrary_C::GetItemColorForGrade), read once per world.
     // false until read: use style::rarity meanwhile.
