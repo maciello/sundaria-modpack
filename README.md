@@ -29,6 +29,6 @@ Mods read game memory at offsets from a dump of one game build. A game patch can
 
 ## Develop
 
-`just test` · `just sdk-pull` (SDK for your game build from the shared dump store, see CLAUDE.md) · `just build` (needs `SDK_DIR` = Dumper-7 CppSDK, `XWIN` = `xwin splat` output; neither is in this repo) · `just release vX.Y.Z`
+[CONTRIBUTING.md](CONTRIBUTING.md)
 
 Release zip paths are relative to the game root (`Archon/Binaries/Win64/...`, later `Archon/Content/Paks/~mods/...`).
