@@ -9,11 +9,14 @@ set(SDK_DIR ""
 set(TP "${CMAKE_SOURCE_DIR}/third_party")
 set(IMGUI "${TP}/imgui")
 
+file(GLOB FEATURES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/features/*/*.cpp")
+
 add_library(${PROJECT_NAME} SHARED
-    # our code
-    src/dllmain.cpp
-    src/game.cpp
-    src/overlay.cpp
+    # our code: core host + every features/<name>/<name>.cpp (each registers itself)
+    core/dllmain.cpp
+    core/game.cpp
+    core/overlay.cpp
+    ${FEATURES}
 
     # generated SDK: only the units whose function bodies we actually reference
     "${SDK_DIR}/SDK/Basic.cpp"
@@ -42,15 +45,15 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     CXX_STANDARD_REQUIRED ON
     PREFIX ""          # no "lib" prefix
     OUTPUT_NAME "DoS-Tool"
-    SUFFIX ".dll"      # loaded by DoS-Tool.asi (src/loader.cpp)
+    SUFFIX ".dll"      # loaded by DoS-Tool.asi (core/loader.cpp)
 )
 
 # Ultimate ASI Loader loads *.asi; this one loads (and in dev mode hot-reloads) DoS-Tool.dll.
-add_library(DoS-Loader SHARED src/loader.cpp)
+add_library(DoS-Loader SHARED core/loader.cpp)
 set_target_properties(DoS-Loader PROPERTIES PREFIX "" OUTPUT_NAME "DoS-Tool" SUFFIX ".asi")
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    src
+    core
     "${SDK_DIR}"
     "${SDK_DIR}/SDK"
     "${IMGUI}"

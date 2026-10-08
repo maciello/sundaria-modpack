@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-#include "dmgnum.hpp"
+#include "combat.hpp"
 
 // Thin, SDK-free interface over the game. game.cpp is the ONLY translation unit
 // that pulls in the (very large) generated Dumper-7 SDK headers.
@@ -34,8 +34,14 @@ namespace game {
     // Original (unmodified) values captured the first time we see the objects, so
     // the UI can seed its sliders and "reset" can restore them.
     // Damage numbers: live enemies' health + world position, and world -> screen.
-    std::vector<dmgnum::Sample> SampleHealth();
-    bool GetView(dmgnum::View& out);
+    std::vector<combat::Sample> SampleHealth();
+    bool GetView(combat::View& out);
+
+    // CharacterMovement falling params, written to EVERY player character (movement is
+    // server-simulated: the host's values decide in co-op). nullptr = restore each original.
+    struct Movement { float airControl, boostMultiplier, boostThreshold, lateralFriction, brakingFalling; };
+    void ApplyMovement(const Movement* m);
+    bool OriginalMovement(Movement& out);  // local player's vanilla values, once seen
 
     float OriginalFOV();
     float OriginalDistance();

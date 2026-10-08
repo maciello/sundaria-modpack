@@ -7,8 +7,7 @@ win64 := env_var_or_default("GAME_WIN64", env_var("HOME") / ".steam/steam/steama
 
 test:
     python3 updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
-    mkdir -p build && c++ -std=c++20 -Imods/dos-tool/src mods/dos-tool/test/dmgnum_test.cpp -o build/dmgnum_test
-    build/dmgnum_test
+    mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); c++ -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp) && build/$(basename $t .cpp) || exit 1; done
 
 build:
     SDK_DIR={{sdk}} XWIN={{xwin}} mods/dos-tool/build.sh
