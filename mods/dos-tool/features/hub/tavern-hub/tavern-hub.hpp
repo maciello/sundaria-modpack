@@ -33,6 +33,25 @@ namespace tavern_hub {
     // Yaw that makes something at (fx,fy) face (tx,ty).
     inline float FaceYaw(float fx, float fy, float tx, float ty) { return std::atan2(ty - fy, tx - fx) / kD2R; }
 
+    // Index of the target the camera looks at: smallest angle between the view direction and the direction to it,
+    // within maxDeg and maxDist; aimZ lifts each target point (feet/centre → chest). -1 = none.
+    struct Target { float x, y, z; };
+    inline int LookedAt(float cx, float cy, float cz, float pitch, float yaw, const std::vector<Target>& ts,
+                        float maxDeg, float maxDist, float aimZ) {
+        const float cp = std::cos(pitch * kD2R), fx = cp * std::cos(yaw * kD2R), fy = cp * std::sin(yaw * kD2R), fz = std::sin(pitch * kD2R);
+        const float minCos = std::cos(maxDeg * kD2R);
+        int best = -1;
+        float bestCos = minCos;
+        for (int i = 0; i < int(ts.size()); i++) {
+            const float dx = ts[i].x - cx, dy = ts[i].y - cy, dz = ts[i].z + aimZ - cz;
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (d < 1.0f || d > maxDist) continue;
+            const float c = (dx * fx + dy * fy + dz * fz) / d;
+            if (c > bestCos) { bestCos = c; best = i; }
+        }
+        return best;
+    }
+
     struct Spot { std::string name; float x, y, z, yaw; };
 
     inline std::vector<Spot> ParseLayout(const std::string& text) {

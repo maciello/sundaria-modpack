@@ -39,6 +39,9 @@ namespace {
     std::atomic<int> g_hideReq{-1};        // -1 none, 0 show, 1 hide
     std::atomic<bool> g_talkReq{false};
     float g_talkAt[3] = {};                // written before g_talkReq is set
+    std::atomic<int> g_focusReq{-1};       // -1 none, 0 unfocus, 1 focus g_focusAt
+    float g_focusAt[3] = {};
+    AActor* g_focused = nullptr;           // game thread
     std::atomic<bool> g_listening{false};
 
     // game thread
@@ -67,7 +70,7 @@ namespace {
             return;
         }
         ForEachButton(w, [](AActor* a) {
-            if (a->bHidden) return;  // already hidden by the hub: not ours to bring back
+            if (a->bHidden || a->Class->GetName() == "BP_TriggerVolumeButton_Character_C") return;  // NPC zones stay; hub-hidden ones aren't ours
             a->SetActorHiddenInGame(true);
             a->SetActorEnableCollision(false);
             g_hidden.push_back(a);
@@ -75,19 +78,44 @@ namespace {
         logger::log("[hub-ui] hub buttons hidden: " + std::to_string(g_hidden.size()));
     }
 
-    void ApplyTalk() {
-        UWorld* w = UWorld::GetWorld();
-        APlayerController* pc = LocalPC();
-        if (!PtrOk(w) || !PtrOk(pc)) return;
+    AActor* NpcButtonNear(UWorld* w, const float at[3]) {
         AActor* best = nullptr;
         float bestD = 500.0f * 500.0f;
         ForEachButton(w, [&](AActor* a) {
             if (a->Class->GetName() != "BP_TriggerVolumeButton_Character_C" || !PtrOk(a->RootComponent)) return;
             const FVector p = a->RootComponent->RelativeLocation;
-            const float dx = p.X - g_talkAt[0], dy = p.Y - g_talkAt[1], dz = p.Z - g_talkAt[2];
+            const float dx = p.X - at[0], dy = p.Y - at[1], dz = p.Z - at[2];
             const float d = dx * dx + dy * dy + dz * dz;
             if (d < bestD) { bestD = d; best = a; }
         });
+        return best;
+    }
+
+    void SetFocused(AActor* button, APlayerController* pc, bool on) {
+        UFunction* fn = FindFn(button->Class, "I_HubTriggerSetGamepadFocused");
+        if (!PtrOk(fn)) return;
+        alignas(16) unsigned char parms[256] = {};  // { APlayerController* PlayerController; bool IsFocused; }
+        *reinterpret_cast<APlayerController**>(parms) = pc;
+        parms[8] = on ? 1 : 0;
+        button->ProcessEvent(fn, parms);
+    }
+
+    void ApplyFocus(bool on) {
+        UWorld* w = UWorld::GetWorld();
+        APlayerController* pc = LocalPC();
+        if (!PtrOk(w) || !PtrOk(pc)) return;
+        AActor* next = on ? NpcButtonNear(w, g_focusAt) : nullptr;
+        if (next == g_focused) return;
+        if (Alive(g_focused)) SetFocused(g_focused, pc, false);
+        g_focused = next;
+        if (next) SetFocused(next, pc, true);
+    }
+
+    void ApplyTalk() {
+        UWorld* w = UWorld::GetWorld();
+        APlayerController* pc = LocalPC();
+        if (!PtrOk(w) || !PtrOk(pc)) return;
+        AActor* best = NpcButtonNear(w, g_talkAt);
         if (!best) { logger::log("[hub-ui] talk: no NPC click zone near"); return; }
         UFunction* fn = FindFn(best->Class, "I_HubTriggerGamepadSelect");
         if (!PtrOk(fn)) { logger::log("[hub-ui] talk: " + best->GetName() + " has no I_HubTriggerGamepadSelect"); return; }
@@ -101,6 +129,8 @@ namespace {
         if (!game::OnGameThread()) return;
         const int h = g_hideReq.exchange(-1);
         if (h >= 0) ApplyHide(h == 1);
+        const int fo = g_focusReq.exchange(-1);
+        if (fo >= 0) ApplyFocus(fo == 1);
         if (g_talkReq.exchange(false)) ApplyTalk();
     }
 
@@ -109,6 +139,12 @@ namespace {
 
 void hub_ui::SetButtonsHidden(bool hidden) { g_hideReq = hidden ? 1 : 0; Listen(); }
 
+void hub_ui::Focus(bool on, float x, float y, float z) {
+    g_focusAt[0] = x; g_focusAt[1] = y; g_focusAt[2] = z;
+    g_focusReq = on ? 1 : 0;
+    Listen();
+}
+
 void hub_ui::Talk(float x, float y, float z) {
     g_talkAt[0] = x; g_talkAt[1] = y; g_talkAt[2] = z;
     g_talkReq = true;
@@ -116,6 +152,6 @@ void hub_ui::Talk(float x, float y, float z) {
 }
 
 void hub_ui::Stop() {
-    for (int i = 0; i < 50 && (g_hideReq.load() >= 0 || g_talkReq.load()); i++) Sleep(2);  // let queued work run
+    for (int i = 0; i < 50 && (g_hideReq.load() >= 0 || g_talkReq.load() || g_focusReq.load() >= 0); i++) Sleep(2);  // let queued work run
     if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);
 }

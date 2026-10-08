@@ -146,7 +146,8 @@ namespace {
             walking = looking = ui = false;
             game::SetHubWalk(nullptr);
             game::SetFreeCam(nullptr, 0);
-            if (was) { hub_ui::SetButtonsHidden(false); hub_ui::Stop(); }
+            if (was) { hub_ui::Focus(false, 0, 0, 0); hub_ui::SetButtonsHidden(false); hub_ui::Stop(); }
+            focusedName.clear();
         }
 
         void Place(const game::Npc& n, float x, float y, float z, float yaw) { game::PlaceNpc(n.id, x, y, z, yaw); }
@@ -187,6 +188,26 @@ namespace {
         bool CapturesInput() const override { return walking && !ui; }
         bool PassesKey(unsigned vk) const override { return vk == 'I' || vk == 'P' || vk == VK_RETURN || vk == VK_ESCAPE; }
         bool uiKeysWas[4] = {}, talkWas = false;
+        std::string focusedName;  // NPC the camera looks at: focused like the gamepad does (its name shows)
+
+        // the NPC under the camera's aim (12°, 15 m), focused through its own click zone when it changes
+        const game::Npc* UpdateFocus() {
+            combat::View v{};
+            const game::Npc* hit = nullptr;
+            if (game::GetView(v)) {
+                std::vector<tavern_hub::Target> ts;
+                std::vector<const game::Npc*> who;
+                for (const game::Npc& n : npcs) if (n.hasButton) { ts.push_back({n.x, n.y, n.z}); who.push_back(&n); }
+                const int i = tavern_hub::LookedAt(v.x, v.y, v.z, v.pitch, v.yaw, ts, 12.0f, 1500.0f, 0.0f);
+                if (i >= 0) hit = who[i];
+            }
+            const std::string name = hit ? hit->name : "";
+            if (name != focusedName) {
+                focusedName = name;
+                if (hit) hub_ui::Focus(true, hit->x, hit->y, hit->z); else hub_ui::Focus(false, 0, 0, 0);
+            }
+            return hit;
+        }
 
         // the NPC within talking range (3 m) closest to the hero, or nullptr
         const game::Npc* TalkTarget(const game::Hero& h) const {
@@ -242,9 +263,12 @@ namespace {
                 if (d && !uiKeysWas[i]) ui = kUiKeys[i] == VK_ESCAPE ? false : !ui;
                 uiKeysWas[i] = d;
             }
+            const game::Npc* looked = ui ? nullptr : UpdateFocus();
             const bool e = focused && !typing && Down('E');
             if (e && !talkWas && !ui && game::CamOwner() != 1) {  // E is up for the free camera
-                if (const game::Npc* n = TalkTarget(h)) { hub_ui::Talk(n->x, n->y, n->z); ui = true; }
+                // like Space on the focused NPC before; standing right next to one works without aiming
+                const game::Npc* n = looked ? looked : TalkTarget(h);
+                if (n) { hub_ui::Talk(n->x, n->y, n->z); ui = true; }
             }
             talkWas = e;
             float fwd = 0, right = 0;
