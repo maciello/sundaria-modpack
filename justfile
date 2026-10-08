@@ -47,6 +47,19 @@ ship:
     git push
 
 # repo admin, once: apply .github/rulesets/*.json to GitHub (skips names that already exist)
+# type/prio labels + one mod:<folder> label per feature folder (idempotent)
+labels:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mk() { gh label create "$1" -R {{repo}} --color "$2" --description "$3" --force >/dev/null && echo "label: $1"; }
+    mk type:epic 3E4B9E "player goal spanning several mods"
+    mk type:feature 0E8A16 "one mod / one capability"
+    mk type:task C5DEF5 "commit-sized step of a feature"
+    mk type:bug D73A4A "something behaves wrong"
+    for p in 0 1 2 3; do mk prio:P$p FBCA04 "priority $p (0 = now)"; done
+    mk mod:core 5319E7 "mods/dos-tool/core"
+    for d in $(find mods/dos-tool/features -name '*.cpp' -not -path '*/test/*' -exec dirname {} \; | sort -u); do mk "mod:$(basename $d)" 5319E7 "${d#mods/dos-tool/}"; done
+
 protect:
     #!/usr/bin/env bash
     set -euo pipefail

@@ -14,7 +14,7 @@ updater/                     launch-option updater (py + ps1), shared by all mod
 ```
 
 ## Rules
-`.claude/rules/`: collaboration (trunk-based, flags), public repo, SDK/toolchain, mod code (loaded for `mods/**`).
+`.claude/rules/`: issues (all work starts as a GitHub issue), collaboration (trunk-based, flags), public repo, SDK/toolchain, mod code (loaded for `mods/**`).
 
 ## Dev loop
 `just dev-install` once with the game closed, then `just dev` hot-reloads `DoS-Tool.dll` into the running game.

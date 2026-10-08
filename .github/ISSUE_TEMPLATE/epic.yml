@@ -1,0 +1,29 @@
+name: Epic
+description: "Player goal spanning several mods; Features hang under it as sub-issues. Rules: .claude/rules/issues.md"
+labels: ["type:epic"]
+body:
+  - type: textarea
+    id: story
+    attributes: {label: Story, value: "As a <player|developer>, I want <capability>, so that <outcome>."}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes: {label: Acceptance criteria, value: "- [ ] Given … When … Then … (checked by: test / log line / screenshot)"}
+    validations: {required: true}
+  - type: textarea
+    id: scope
+    attributes: {label: Out of scope}
+  - type: dropdown
+    id: size
+    attributes: {label: Size, options: [S, M, L]}
+  - type: textarea
+    id: source
+    attributes: {label: Source, description: "Who asked, verbatim, and where (chat date, link). Quote, don't summarise."}
+    validations: {required: true}
+  - type: textarea
+    id: context
+    attributes: {label: Context, description: "Files, SDK classes + offsets, skill refs, related issues, evidence. Mark unverified facts."}
+    validations: {required: true}
+  - type: textarea
+    id: unknowns
+    attributes: {label: Unknowns / risks}

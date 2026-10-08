@@ -24,6 +24,7 @@ Maintenance contract:
 | build/compile errors, hot-reload internals, SDK re-dump, updater | `references/toolchain.md` |
 | something fails or crashed | `references/gotchas.md` |
 | new machine (SDK, MSVC kit), working together, trunk/flags | repo `CLAUDE.md` → `just sdk-pull` |
+| new work, idea, bug: file / claim / close an issue | `.claude/rules/issues.md` |
 
 ## Tools
 | path | does |

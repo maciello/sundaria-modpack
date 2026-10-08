@@ -1,0 +1,29 @@
+name: Bug
+description: "Something behaves wrong in the game or a mod. Rules: .claude/rules/issues.md"
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: repro
+    attributes: {label: Steps to reproduce, value: "1. \n2. \n"}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: Expected vs actual}
+    validations: {required: true}
+  - type: input
+    id: version
+    attributes: {label: Modpack version / commit, placeholder: "v0.2.0 or dev @ abc1234"}
+  - type: textarea
+    id: logs
+    attributes: {label: Log excerpt (dos-tool.log), render: text}
+  - type: textarea
+    id: source
+    attributes: {label: Source, description: "Who asked, verbatim, and where (chat date, link). Quote, don't summarise."}
+    validations: {required: true}
+  - type: textarea
+    id: context
+    attributes: {label: Context, description: "Files, SDK classes + offsets, skill refs, related issues, evidence. Mark unverified facts."}
+    validations: {required: true}
+  - type: textarea
+    id: unknowns
+    attributes: {label: Unknowns / risks}
