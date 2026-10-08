@@ -5,26 +5,36 @@
 
 int main() {
     health_bars::Bars b;
-    combat::Sample e{1, 0, 0, 0, 100, false, 100}, p{2, 0, 0, 0, 50, true, 100};
-    assert(b.Update({e, p}, 0.0, 0.016).empty());                  // full HP enemy, player: no bar
+    combat::Sample e{1, 0, 0, 0, 100, false, 100, 12}, p{2, 0, 0, 0, 50, true, 100};
+    assert(b.Update({e, p}, 0.0, 0.016).empty());                  // full-HP enemy, player: no bar
     e.health = 60;
     auto v = b.Update({e, p}, 1.0, 0.016);
     assert(v.size() == 1 && v[0].frac == 0.6f && v[0].chip == 1.0f); // hit: chip holds
+    assert(v[0].alpha == 0.0f && v[0].flash == 1.0f && v[0].level == 12); // fades in from 0, flashes
     v = b.Update({e}, 1.3, 0.3);
-    assert(v[0].chip == 1.0f);                                      // within chipDelay
+    assert(v[0].chip == 1.0f && v[0].alpha == 1.0f && v[0].flash == 0.0f);
     v = b.Update({e}, 1.8, 0.25);
     assert(v[0].chip < 1.0f && v[0].chip > 0.6f);                   // draining
     v = b.Update({e}, 3.0, 1.0);
     assert(v[0].chip == 0.6f);                                      // caught up, never below fill
-    // unknown max attribute: peak HP seen is the max
-    health_bars::Bars u;
+    // healed to full: lingers, then fades out, then gone
+    e.health = 100;
+    assert(b.Update({e}, 4.0, 0.016).size() == 1);
+    assert(b.Update({e}, 6.9, 0.016)[0].alpha == 1.0f);             // still within linger (3 s)
+    assert(b.Update({e}, 7.2, 0.016)[0].alpha == 1.0f);             // linger over: fade-out starts
+    v = b.Update({e}, 7.4, 0.016);
+    assert(v.size() == 1 && v[0].alpha < 1.0f && v[0].alpha > 0.0f); // fading out
+    assert(b.Update({e}, 7.7, 0.016).empty());                      // gone
+    // death fades out instead of vanishing
+    health_bars::Bars d;
     combat::Sample m{3, 0, 0, 0, 200, false, 0};
-    u.Update({m}, 0.0, 0.016);
+    d.Update({m}, 0.0, 0.016);
     m.health = 50;
-    assert(u.Update({m}, 1.0, 0.016)[0].frac == 0.25f);
-    // dead: no bar; despawn forgets state
+    assert(d.Update({m}, 1.0, 0.016)[0].frac == 0.25f);            // unknown max attribute: peak HP seen
     m.health = 0;
-    assert(u.Update({m}, 2.0, 0.016).empty());
-    assert(u.Update({}, 3.0, 0.016).empty() && u.st.empty());
+    v = d.Update({m}, 2.0, 0.016);
+    assert(v.size() == 1 && v[0].frac == 0.0f);
+    assert(d.Update({m}, 2.5, 0.016).empty());
+    assert(d.Update({}, 3.0, 0.016).empty() && d.st.empty());       // despawn forgets state
     std::puts("ok");
 }

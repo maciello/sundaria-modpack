@@ -131,7 +131,7 @@ std::vector<combat::Sample> game::SampleHealth() {
             if (!status) continue;
             const FVector& p = root->RelativeLocation;  // capsule center; unattached root: relative == world
             out.push_back({reinterpret_cast<uintptr_t>(c), p.X, p.Y, p.Z, status->CurrentHealth,
-                           PtrOk(c->PlayerState), secondary ? secondary->Health : 0.0f});
+                           PtrOk(c->PlayerState), secondary ? secondary->Health : 0.0f, status->CurrentLevel});
         }
     }
     return out;
