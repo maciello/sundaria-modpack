@@ -18,9 +18,11 @@
 #include "Archon_classes.hpp"
 #include "GameplayAbilities_classes.hpp"
 #include "BP_GameplayAnimNotify_classes.hpp"
+#include "BP_GameAbility_ShootArrow_classes.hpp"
 
-// Cast indicator, game thread: reads the hero's playing montage (hit notify times, section, position, play rate) and
-// publishes a plain Montage for the render thread. Called from cast-indicator.cpp's ProcessEvent listener.
+// Cast indicator, game thread: reads the hero's playing montage (sections, hit notifies; then each tick its section,
+// position, play rate) and publishes a plain Montage for the render thread. Called from cast-indicator.cpp's listener.
+// Model: timeline.hpp. Per tick O(notifies of the montage).
 using namespace SDK;
 
 namespace {
@@ -34,8 +36,11 @@ namespace {
     ref::Ref g_lastAbility, g_lastMontage;  // the ASC's montage info last seen
     bool g_lastBit = false;
     Montage g_mon;
-    std::vector<float> g_hits;  // the tracked cast's hit times (montage s)
-    bool g_aiming = false;      // wind-up ring: first hit still ahead
+    Timeline g_tl;              // the tracked cast's montage
+    int g_release = -1;         // hold abilities: the section the release jumps to (ReleaseAnimInfo)
+    bool g_live = false;        // a shown cast is playing: follow it each tick
+    int g_lastSec = -2;         // section and position at the last tick (fired = notifies crossed since)
+    float g_lastPos = 0;
     std::unordered_set<std::string> g_dumped;  // montages whose notifies were logged
 
     // Game thread -> render thread.
@@ -62,13 +67,13 @@ namespace {
 
     std::uint64_t Id(const FName& n) { std::uint64_t v = 0; std::memcpy(&v, &n, std::min(sizeof v, sizeof n)); return v; }
 
-    // Hit times of this cast: hit notifies of the section the montage starts in and the sections it chains into
-    // (AimedShot cycles one section per cast). O(notifies + sections²) once per montage start. Game thread: calls
-    // UAnimInstance::Montage_GetCurrentSection.
-    std::vector<float> HitList(AArchonCharacter* hero, UAnimMontage* m) {
+    // The montage as plain data + the section the cast starts in. O(notifies + sections) once per montage start.
+    int Load(AArchonCharacter* hero, UGameplayAbility* ab, UAnimMontage* m) {
+        g_tl = {};
+        g_tl.length = m->SequenceLength;
+        g_release = -1;
         UClass* cls = g_notifyCls.Get();
-        if (!cls) return {};
-        std::vector<Notify> ns;
+        if (!cls) return -1;
         const bool dump = g_dumped.insert(m->GetName()).second;  // evidence for #81/#85: once per montage per load
         std::string line = "[cast-indicator] notifies " + m->GetName() + " (time type ApplyEffectID):";
         for (int i = 0; i < m->Notifies.Num(); i++) {
@@ -76,7 +81,7 @@ namespace {
             UAnimNotify* a = e.Notify;
             const auto* g = PtrOk(a) && a->IsA(cls) ? static_cast<UBP_GameplayAnimNotify_C*>(a) : nullptr;
             const float t = LinkTime(int(e.LinkMethod), e.SegmentBeginTime, e.SegmentLength, e.LinkValue) + e.TriggerTimeOffset;
-            ns.push_back({t, g && IsHit(int(g->mGameplayAnimNotifyType))});
+            g_tl.ns.push_back({t, g && IsHit(int(g->mGameplayAnimNotifyType))});
             if (dump && g) {
                 char b[48];
                 std::snprintf(b, sizeof b, " %.2f/%d/%d", t, int(g->mGameplayAnimNotifyType), int(g->ApplyEffectID));
@@ -84,23 +89,32 @@ namespace {
             }
         }
         if (dump) logger::log(line);
-        std::vector<Section> secs;
         for (int i = 0; i < m->CompositeSections.Num(); i++) {
             const FCompositeSection& c = m->CompositeSections[i];
-            secs.push_back({Id(c.SectionName), Id(c.NextSectionName), LinkTime(int(c.LinkMethod), c.SegmentBeginTime, c.SegmentLength, c.LinkValue)});
+            g_tl.secs.push_back({Id(c.SectionName), Id(c.NextSectionName), LinkTime(int(c.LinkMethod), c.SegmentBeginTime, c.SegmentLength, c.LinkValue)});
         }
-        int start = -1;
-        if (UAnimInstance* ai = Anim(hero)) {
-            const std::uint64_t cur = Id(ai->Montage_GetCurrentSection(m));
-            for (int i = 0; cur && i < int(secs.size()); i++) if (secs[i].name == cur) start = i;
+        if (ab->IsA(UBP_GameAbility_ShootArrow_C::StaticClass())) {
+            const auto* sa = static_cast<const UBP_GameAbility_ShootArrow_C*>(ab);
+            if (sa->CanHold) g_release = g_tl.Find(Id(sa->ReleaseAnimInfo.mSectionName));
         }
-        return HitTimes(secs, ns, m->SequenceLength, start);
+        UAnimInstance* ai = Anim(hero);
+        return ai ? g_tl.Find(Id(ai->Montage_GetCurrentSection(m))) : -1;
     }
 
-    // Seconds until the tracked cast's first hit (live position and play rate = attack speed); < 0 = fired or unknown.
-    float FireIn(AArchonCharacter* hero, UAnimMontage* m) {
+    // Each tick while the cast plays: hit notifies passed (fired) and when the next one fires (live play rate).
+    void Follow(AArchonCharacter* hero, UAnimMontage* m) {
         UAnimInstance* ai = Anim(hero);
-        return ai ? cast_indicator::FireIn(g_hits, ai->Montage_GetPosition(m), ai->Montage_GetPlayRate(m)) : -1;
+        if (!ai) return;
+        const int cur = g_tl.Find(Id(ai->Montage_GetCurrentSection(m)));
+        const float pos = ai->Montage_GetPosition(m);
+        const float from = cur != g_lastSec || pos < g_lastPos ? g_tl.Begin(cur) - 1e-3f : g_lastPos;
+        g_mon.fired += g_tl.Crossed(cur, from, pos);
+        g_lastSec = cur;
+        g_lastPos = pos;
+        const Timeline::Aim a = g_tl.Ahead(cur, pos, ai->Montage_GetPlayRate(m), g_release);
+        g_mon.held = a.held;
+        if (a.in >= 0) g_mon.fireAt = Steady() + a.in;
+        Publish();
     }
 
     // The hero's montage info changed: the old cast's montage ended, maybe a new one starts.
@@ -114,31 +128,37 @@ namespace {
         if (!ab) m = nullptr;  // AnimatingAbility is cleared when the montage ends; AnimMontage may stay
         auto same = [](const ref::Ref& r, const void* o) { return o ? r.Is(o) : !r.ptr; };
         if (same(g_lastAbility, ab) && same(g_lastMontage, m) && g_lastBit == li.PlayBit) {
-            if (!g_aiming || !m) return;
-            const float in = FireIn(hero, m);  // O(1) per tick while the wind-up runs
-            g_aiming = in >= 0;
-            if (g_aiming) { g_mon.fireAt = Steady() + in; Publish(); }
+            if (g_live && m) Follow(hero, m);
             return;
         }
+        // The cast's ability ends in the frame its arrow spawns (ShootArrow: SpawnProjectile → EndAbility), often before a
+        // tick sees the notify pass: SpawnedArrow (reset per activation) says it fired.
+        if (g_live && !g_mon.fired)
+            if (const auto* sa = g_lastAbility.Get<UBP_GameAbility_ShootArrow_C>(); sa && sa->IsA(UBP_GameAbility_ShootArrow_C::StaticClass()) && sa->SpawnedArrow)
+                g_mon.fired = 1;
         g_lastAbility = ref::Ref(ab);
         g_lastMontage = ref::Ref(m);
         g_lastBit = li.PlayBit;
+        g_live = false;
 
-        g_hits = m ? HitList(hero, m) : std::vector<float>{};
-        const float in = m ? FireIn(hero, m) : -1;
+        const int start = m ? Load(hero, ab, m) : -1;
+        const int hits = m ? int(g_tl.Hits(start, g_release).size()) : 0;
+        UAnimInstance* ai = m ? Anim(hero) : nullptr;
+        const float in = ai ? g_tl.Ahead(start, ai->Montage_GetPosition(m), ai->Montage_GetPlayRate(m), g_release).in : -1;
         const float windup = std::max(in, 0.0f);
-        const int pips = m ? PipsFor(int(g_hits.size()), windup, Spread(ab->Class->GetName())) : 0;
-        g_aiming = windup >= kWindupMin;
-        if (pips > 0 || g_aiming) {
+        const int pips = m ? PipsFor(hits, windup, Spread(ab->Class->GetName())) : 0;
+        if (pips > 0 || windup >= kWindupMin) {
             g_mon = {g_mon.cast + 1, pips, false, reinterpret_cast<std::uintptr_t>(hero), ab->Class->GetName(), m->GetName(),
-                     windup, Steady() + windup};
+                     windup, Steady() + windup, false, 0};
             g_casts++;
-            cast_trace::Begin((g_mon.ability + " montage " + g_mon.name + " hits " + std::to_string(g_hits.size())).c_str());
-        } else {
-            g_mon.ended = true;  // render thread: arrows in flight still count for kLateHits
-            g_aiming = false;
-            cast_trace::End();
+            g_live = true;
+            g_lastSec = -2;
+            cast_trace::Begin((g_mon.ability + " montage " + g_mon.name + " hits " + std::to_string(hits)).c_str());
+            Follow(hero, m);  // notifies already passed (RapidShot's first arrow at 0.01 s)
+            return;
         }
+        g_mon.ended = true;  // render thread: arrows in flight still count for kLateHits
+        cast_trace::End();
         Publish();
     }
 }
@@ -156,8 +176,9 @@ namespace cast_montage {
     void Reset() {
         g_lastAbility = g_lastMontage = {};
         g_mon = g_pub = {};
-        g_hits.clear();
-        g_aiming = false;
+        g_tl = {};
+        g_release = -1;
+        g_live = false;
         g_dumped.clear();
     }
 }

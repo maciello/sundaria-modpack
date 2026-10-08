@@ -59,7 +59,8 @@ namespace {
         void Log() {
             char b[48];
             std::snprintf(b, sizeof b, ", windup %.2fs", windup);
-            last = ability + " montage " + montage + " hits " + std::to_string(tr.c.hits) + ", landed " + std::to_string(tr.c.landed) + b;
+            last = ability + " montage " + montage + " hits " + std::to_string(tr.c.hits) + ", fired " + std::to_string(tr.c.fired) +
+                   ", landed " + std::to_string(tr.c.landed) + b;
             logger::log("[cast-indicator] " + last);
         }
 
@@ -70,6 +71,7 @@ namespace {
                 tr.Begin(m.cast, m.hits);
                 ability = m.ability; montage = m.name; windup = m.windup;
             }
+            if (m.cast == tr.c.cast) tr.Fire(m.fired);
             if (m.ended) tr.End(f.now);
             std::vector<const combat::Sample*> fresh;
             const bool trace = cast_trace::Active();
@@ -102,7 +104,7 @@ namespace {
             const Montage m = cast_montage::Published();
             Count(m, f);
             pips.Update(tr.c, f.now);
-            ring.Update(m.cast, m.windup, f.now + (m.fireAt - cast_montage::Steady()), m.ended, f.now);  // steady → render clock
+            ring.Update(m.cast, m.windup, f.now + (m.fireAt - cast_montage::Steady()), m.held, m.fired > 0, m.ended, f.now);  // steady → render clock
             ImDrawList* dl = ImGui::GetForegroundDrawList();  // Layer::Hud
             if (pips.Visible(f.now)) Draw(dl, f);
             if (ring.Visible(f.now)) DrawRing(dl, f);
@@ -117,9 +119,15 @@ namespace {
             const float w = stroke::kBarEdge * ui;
             const Rgba tone = ring.Cancelled() ? color::kTextMuted : color::kTextSoft;
             const float rt = kRingR * ui * ring.Punch(f.now);
+            if (ring.Armed(f.now)) {  // met, waiting for the shot: one bright ring with a glow, no motion
+                dl->AddCircle(c, rt, Pack(color::kText, stroke::kGlowAlpha * alpha), 0, w * stroke::kGlowWidth);
+                dl->AddCircle(c, rt, Pack(color::kInk, stroke::kOutlineAlpha * alpha), 0, w + 2);
+                dl->AddCircle(c, rt, Pack(color::kText, alpha), 0, w);
+                return;
+            }
             dl->AddCircle(c, rt, Pack(color::kInk, stroke::kOutlineAlpha * alpha), 0, w + 2);
             dl->AddCircle(c, rt, Pack(Mix(tone, color::kText, ring.Flash(f.now)), alpha), 0, w * 0.5f + 0.5f);
-            if (ring.Fired(f.now) || ring.Cancelled()) return;
+            if (ring.Fired() || ring.Cancelled()) return;
             const float ra = ring.Approach(f.now) * ui;
             dl->AddCircle(c, ra, Pack(tone, stroke::kGlowAlpha * alpha), 0, w * stroke::kGlowWidth);
             dl->AddCircle(c, ra, Pack(color::kInk, stroke::kOutlineAlpha * alpha), 0, w + 2);
@@ -137,6 +145,7 @@ namespace {
                 for (int i = 0; i < pips.hits; i++) {
                     const ImVec2 a{x0 + seg * i, y0}, b{x0 + seg * (i + 1), y0 + h};
                     if (pips.Filled(i)) dl->AddRectFilled(a, b, Pack(Mix(fill, color::kText, pips.Flash(i, f.now)), alpha));
+                    else if (pips.Fired(i)) dl->AddRectFilled(a, b, Pack(fill, kFiredAlpha * alpha));
                     else if (pips.Muted(i)) dl->AddRectFilled(a, b, Pack(color::kTextMuted, .55f * alpha));
                 }
                 for (int i = 1; i < pips.hits; i++)
@@ -152,6 +161,11 @@ namespace {
                     dl->AddCircleFilled(p, kGlowR * k, Pack(fill, stroke::kGlowAlpha * alpha));
                     dl->AddQuadFilled({p.x, p.y - k}, {p.x + k, p.y}, {p.x, p.y + k}, {p.x - k, p.y},
                                       Pack(Mix(fill, color::kText, pips.Flash(i, f.now)), alpha));
+                } else if (pips.Fired(i)) {  // shot out, no hit confirmed: hollow in the hit colour
+                    const float k = r * pips.PipScale(i, f.now);
+                    dl->AddQuadFilled({p.x, p.y - k}, {p.x + k, p.y}, {p.x, p.y + k}, {p.x - k, p.y}, Pack(fill, kFiredAlpha * alpha));
+                    dl->AddQuad({p.x, p.y - k}, {p.x + k, p.y}, {p.x, p.y + k}, {p.x - k, p.y}, Pack(color::kInk, stroke::kOutlineAlpha * alpha), 3);
+                    dl->AddQuad({p.x, p.y - k}, {p.x + k, p.y}, {p.x, p.y + k}, {p.x - k, p.y}, Pack(fill, alpha), 1.5f);
                 } else {
                     const Rgba edge = pips.Muted(i) ? color::kTextMuted : color::kTextSoft;
                     dl->AddQuadFilled({p.x, p.y - r}, {p.x + r, p.y}, {p.x, p.y + r}, {p.x - r, p.y},

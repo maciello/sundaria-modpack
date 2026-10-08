@@ -88,28 +88,25 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - States: hidden until first hit; hidden while occluded; near bars on top (sort by distance). Boss bar: not specified (request it).
 
 ### Hit pips (cast indicator, #3)
-- Anchor (HUD): row centred at (w/2, 0.62h), above the character's feet in the default camera.
-- Pip: diamond, half-diagonal 6·Ui, edge gap `space::k2`·Ui. Empty: `kInk` @.55 + 1 px outline `kTextSoft` @.6. Filled: ability element colour (Physical `kText`) + glow disc radius 1.8× at `kGlowAlpha`.
-- Cast timer (optional): 2·Ui line, `space::k2` below the row, row width, `kTextSoft` @.8 fill left → right.
+- Anchor (HUD): row centred at (w/2, `hud::kPipsY`·h), above the character's feet in the default camera.
+- Pip: diamond, half-diagonal 6·Ui, edge gap `space::k2`·Ui. Three states, each one step brighter:
+  - empty (not shot yet): `kInk` @.55 + 1 px outline `kTextSoft` @.6.
+  - **fired** (its hit notify passed: arrow out / swing done, no hit confirmed): hit colour @`kFiredAlpha` .35 fill + 1.5 px outline in the hit colour over a 3 px `kInk` outline. No glow, no flash. A miss stays fired: every shot always fills something.
+  - **hit** (a record by the hero landed): ability element colour (Physical `kText`) solid + glow disc radius 1.8× at `kGlowAlpha`.
 - Size: every pip the same. A bigger pip needs a deterministic per-hit difference (e.g. an empowered last shot) read from game data; landed damage is not one (crits, same-frame sums, multi-target), so learned weights were removed (#85).
-- N > 10: one segmented bar (w = 120·Ui, h = 6·Ui, `Pill`) with N−1 ink ticks, segments fill like pips.
+- N > 10: one segmented bar (w = `hud::kBarW`·Ui, h = `hud::kBarH`·Ui, `Pill`) with N−1 ink ticks; segments fired (hit colour @.35) / hit (solid) like pips.
 - Spread abilities (cone/volley, today Salvo): no pips; their notify count is not hits per target (#81). Volley pips once the notify dump shows how ApplyEffectID groups the notifies.
-- Motion: row fades in `kFadeIn`; each hit: pip scales 0.4 → 1 with `kPipFill` + white flash `kFlash`; all filled: row punch 1.15 → 1 over 0.25 s OutCubic, hold 0.5 s, fade `kFadeOut`. Cast ended with empty pips: those turn `kTextMuted`, row fades. No red, no shake.
+- Motion: row fades in `kFadeIn`; fired: pip scales 0.4 → 1 with `kPipFill`; hit: the same pop again + white flash `kFlash` (upgrade reads as a second beat); all hit: row punch 1.15 → 1 over 0.25 s OutCubic, hold 0.5 s, fade `kFadeOut`. Cast ended: pips never shot turn `kTextMuted`, row fades after the late-hit window (`kLateHits`). No red, no shake.
 
-### Wind-up ring (cast indicator, #92)
-- When: the first hit notify of the cast comes ≥ `kWindupMin` (0.3 s) after the montage starts, at the cast's live play rate (attack speed). Shorter wind-ups: no ring.
-- Anchor (HUD): centred on the first pip (row centre for N > 10 or no pips). A single-hit cast with a wind-up shows one pip inside the ring; it fills when the hit lands.
+### Wind-up ring (cast indicator, #92) — the one "when does it fire" cue
+- When: the next hit of the cast is ≥ `kWindupMin` (0.3 s) away at its start, at the live play rate (attack speed). Covers plain wind-ups (Paralysing Shot, AimedShot) and hold abilities (PoisonArrow, Hemlock, DeadlyAim …⊇: ShootArrow with CanHold), where it closes over the draw (Pull section) and meets at "armed". Shorter wind-ups: no ring. No other bar shows this moment (charge bar retired).
+- Anchor (HUD): centred on the first pip (row centre for N > 10 or no pips). A single-hit cast with a wind-up shows one pip inside the ring.
 - Target ring: r `kRingR` 11·Ui (clears the pip glow), line `kBarEdge`/2 ·Ui `kTextSoft` over a `kInk` underlay (+2 px) at `kOutlineAlpha`.
-- Approach ring: r `kApproachR` 44·Ui → `kRingR`, **linear in time** (constant closing speed reads as a timing, not progress), meets the target ring at the hit notify. Line `kBarEdge`·Ui `kTextSoft` + ink underlay + same-hue glow (`kGlowWidth`, `kGlowAlpha`).
-- Release (hit notify reached): approach ring gone; target ring punches 1 → `kReleasePunch` 1.35 OutCubic over `kRelease` 0.25 s, white flash `kFlash`, alpha 1 → 0 over the same 0.25 s. Pips take over.
-- Cancelled (montage ended before the notify): both rings `kTextMuted`, fade `kFadeOut`. Fade in `kFadeIn`.
-- Don't: a second "when it fires" bar (charge bar shows hold levels only), pulsing, red, shake.
-
-### Charge bar (hold levels, #82)
-- Shows only hold abilities (`kMaxHoldLevel` > 0, level ≥ 1). Cast time / wind-up is the wind-up ring above, never both.
-- Anchor (HUD): bar centred at (w/2, `hud::kChargeY`·h), just below the hit pips. Size `hud::kBarW` × `hud::kBarH` ·Ui, `Pill`.
-- Track `kTrack`; fill left → right `kTextSoft`; 1 px outline `kTextSoft` @.6; `kMaxHoldLevel` segments, N−1 `kInk` ticks; the current level fills over `mHoldInterval`.
-- Motion: fade in `kFadeIn`; full = armed: white flash `kFlash` + punch 1.1 → 1 over 0.25 s OutCubic; stays full until release, then fades `kFadeOut`. Released before full: fill turns `kTextMuted`, fades. No red, no shake.
+- Approach ring: r `kApproachR` 44·Ui → `kRingR`, **linear in time** (constant closing speed reads as a timing, not progress), meets the target ring when the shot can first fire. Line `kBarEdge`·Ui `kTextSoft` + ink underlay + same-hue glow (`kGlowWidth`, `kGlowAlpha`).
+- Armed (met, not fired: holding, or the notify is a tick away): one ring at `kRingR`, line `kBarEdge`·Ui `kText` + ink underlay + `kText` glow. Static: no pulse while held.
+- Fired (the hit notify passed / the arrow spawned): target ring punches 1 → `kReleasePunch` 1.35 OutCubic over `kRelease` 0.25 s, white flash `kFlash`, alpha 1 → 0 over the same 0.25 s. The pip turns fired at the same moment.
+- Cancelled (ability ended before firing, e.g. dodge, also while held): both rings `kTextMuted`, fade `kFadeOut`. Fade in `kFadeIn`.
+- Don't: a second bar for the same moment, pulsing, red, shake.
 
 ### Loot marker: rarity glow, beam, idle shimmer (#25, #27)
 - Anchor: projected item position. depth as above; cull beyond 30 m, fade 25–30 m.

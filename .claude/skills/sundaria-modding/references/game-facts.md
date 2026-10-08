@@ -160,6 +160,13 @@ ability_hits (verified in game 2026-10-08, dump removed after: read the montage 
   example: BP_GameAbility_RapidShot_C, Mon_RapidShot_H_M_Crossbow2H: 1.65 s, ShootProjectile ×8 → 8 hits
   landed_projectile_hit: UArchonGameplayAbility::OnProjectileHit is a BlueprintEvent, but a ProcessEvent listener matching it (by FName, obj = the animating ability) counted 0 over ~90 archer casts in game (#81, 2026-10-09); likely called Blueprint-to-Blueprint, which skips ProcessEvent (unverified). Landed hits = new LastTakeHitInfo records with PawnInstigator = hero (core Sample.hitBy); features/cast-indicator
   wind_up: first hit notify time - UAnimInstance::Montage_GetPosition(m), / Montage_GetPlayRate(m) (UFunctions, game thread); features/cast-indicator (#92, unverified in game)
+  hold:   # from the pak (just data bp/show BP_GameAbility_ShootArrow, Mon_DeadlyAim_H_M_Crossbow2H), 2026-10-09
+    abilities: BP_GameAbility_ShootArrow_C children with CanHold @0x9E0 true: PoisonArrow, Hemlock, DeadlyAim, ParalysingShot (AimedShot: HoldToRepeatAbility instead)
+    montage: Pull (0-1.07 s) → Hold (NextSection = Hold: loops, no hit) → Shoot (2.40, ShootProjectile at its start); ParalysingShot has one section (HoldAnimInfo None), shot at 1.07
+    release: K2_OnInputReleased → InputReleased=true → PlayCustomAnimation(ReleaseAnimInfo @0x9B8 = "Shoot"): in Hold = Montage_JumpToSection, during Pull = Montage_SetNextSection(Pull → Shoot)
+    fire: SpawnProjectile → SpawnedArrow @0x9D4 = true → K2_EndAbility (AnimatingAbility clears the same frame); SpawnedArrow/InputReleased reset in K2_OnActivateTasks
+    not_hold_levels: mHoldLevel is set to 1 on reset and only climbs in the cast-time path (mStartedCast, AutoActivateOnCastFinish false); archer abilities logged "hold 1/5" every cast, so hold levels are not the archer hold
+    consumer: features/cast-indicator timeline.hpp (Timeline::Hits/Ahead/Crossed)
   salvo: UBP_GameAbility_Salvo_C has ConeDegree @0x91C, HitActors @0x940, LastApplyEffectId @0x934 (cone trace, de-dup per target): its 20 hit notifies are not 20 hits per target; logged "hits 20, landed 4/9" (#81). Grouping by ApplyEffectID unverified: `[cast-indicator] notifies <montage>` log line
   landed_vs_records: one record per target per frame (same-frame hits sum), several targets = several records: landed counts records, not arrows
   landed_0: "RapidShot ... hits 8, landed 0" after a reload (2026-10-09, 1_Crypt_of_Horrors) came with no enemy HP change in the [hpt] trace: shots at nothing, not a regression
