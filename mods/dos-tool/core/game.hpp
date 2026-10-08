@@ -61,6 +61,10 @@ namespace game {
     // or any listener is on. Up to 8 listeners; a 9th is logged and dropped.
     using EventListener = void (*)(void* obj, void* fn, void* parms);
     void SetEventListener(EventListener l, bool on);
+    // Runs before the original call; true = the game's own call is skipped (listeners still run after).
+    // One filter at a time. Replace a game action only where doing it twice is the alternative.
+    using EventFilter = bool (*)(void* obj, void* fn, void* parms);
+    void SetEventFilter(EventFilter f, bool on);
 
     // Gameplay effects (game thread only: these call UFunctions). asc = UAbilitySystemComponent*,
     // ability = UGameplayAbility*. Cooldown effects of one ability: class IsA its cooldown GE (often one

@@ -278,6 +278,7 @@ namespace {
     struct Fired { UFunction* fn; UClass* cls; ULONGLONG t; };
     std::vector<Fired> g_fresh;
     std::atomic<game::EventListener> g_listeners[8] = {};  // 6 users today; full = logged, never silent
+    std::atomic<game::EventFilter> g_filter{nullptr};  // ponytail: one slot (item-sort); a table when a second user comes
 
     // Free camera: render thread writes the pose, the game thread's BlueprintUpdateCamera call reads it.
     std::atomic<bool> g_freeOn{false};
@@ -688,7 +689,8 @@ namespace {
                 g_fresh.push_back({fn, PtrOk(obj) ? obj->Class : nullptr, GetTickCount64()});
             ReleaseSRWLockExclusive(&g_probeMu);
         }
-        g_oPE(obj, fn, parms);
+        const game::EventFilter skip = g_filter.load(std::memory_order_relaxed);
+        if (!skip || !skip(const_cast<UObject*>(obj), fn, parms)) g_oPE(obj, fn, parms);
         for (auto& l : g_listeners)
             if (game::EventListener f = l.load(std::memory_order_relaxed)) f(const_cast<UObject*>(obj), fn, parms);
         if (g_freeOn.load(std::memory_order_relaxed) && PtrOk(fn) && PtrOk(parms)
@@ -730,6 +732,7 @@ namespace {
         bool want = g_probeOn.load() || g_freeOn.load() || g_camMoved.load() || g_walkOn.load()
                  || g_walkHeld.load() || g_placePending.load() || g_colPending.load() || g_roomPending.load();
         for (auto& l : g_listeners) want |= l.load() != nullptr;
+        want |= g_filter.load() != nullptr;
         if (want && !g_peTarget) {
             MH_Initialize();  // already initialised by kiero: harmless
             void* target = reinterpret_cast<void*>(InSDKUtils::GetImageBase() + Offsets::ProcessEvent);
@@ -748,6 +751,13 @@ namespace {
             logger::log("[hook] ProcessEvent unhooked");
         }
     }
+}
+
+void game::SetEventFilter(EventFilter f, bool on) {
+    EventFilter want = on ? nullptr : f;
+    if (!g_filter.compare_exchange_strong(want, on ? f : nullptr) && on && want != f) logger::log("[game] event filter taken: not installed");
+    if (!on) for (int i = 0; i < 200 && g_inPE.load() > 0; i++) Sleep(10);  // in-flight calls may still be inside f
+    UpdatePEHook();
 }
 
 void game::SetEventProbe(bool on) {
