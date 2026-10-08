@@ -34,4 +34,9 @@ combat_log (unused so far; crits + own-vs-party damage):
   payload: FCombatDetailDamage {FinalDamage, BlockedDamage, CritLevel, ResistedDamage, MitigatedDamage_Armor, bIsHeal}
   cost: needs a ProcessEvent/delegate hook on the game thread, not the Present hook
 
+damage_types: UArchonGameplayEffect::mDamageTypeClass (TSubclassOf<UDamageType>, the Effect arg of the combat-log delegate)
+  classes: `sdk.py subs UDamageType` → UBP_DamageType_Magic_Ice_C, _Burn_, UBP_DamageDOT_Poison_C, …⊇
+  colours: features/damage-numbers/colors.hpp (name → element → colour, tested)
+attack_type: EGameplayAttackType {Melee, Range, Magic} via UArchonGameplayEffect::GetAttackType (UFunction: game thread only)
+ProcessEvent: Offsets::ProcessEvent (Basic.hpp) — hookable with MinHook; see gotchas before locking in the detour
 damage_numbers_source_today: per-frame CurrentHealth diff (core/combat.hpp) → cannot tell whose hit or crits
