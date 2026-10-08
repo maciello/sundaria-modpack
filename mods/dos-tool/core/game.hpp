@@ -68,6 +68,45 @@ namespace game {
     struct EffectRef { int handle; float duration; };
     int CooldownEffects(void* asc, void* ability, EffectRef* out, int max);
     bool RemoveEffect(void* asc, int handle);
+    // Free camera: while set, every camera manager's BlueprintUpdateCamera result (hub, lobby and gameplay
+    // cameras all override it) is replaced with this pose on the game thread. nullptr = off.
+    struct CamPose { float x, y, z, pitch, yaw; };
+    // priority 1 (free camera) outranks 0 (a follow camera): while both are set, the priority-1 pose shows.
+    void SetFreeCam(const CamPose* pose, int priority = 1);
+    int CamOwner();  // highest priority currently set, -1 = none
+    int FreeCamOverrides();  // BlueprintUpdateCamera calls replaced so far (0 while on = that path never runs here)
+    // Hub walk: possess the hub's hero (the player character standing in the village) and drive it.
+    // Runs on the game thread; the render thread posts input every frame. nullptr = stop, give possession back.
+    struct WalkInput { float moveX, moveY; bool jump; };  // world-space XY direction, length 0..1
+    void SetHubWalk(const WalkInput* in);
+    struct Hero { bool found = false, possessed = false; float x = 0, y = 0, z = 0, yaw = 0; int moveMode = -1, possessTries = 0, modeFixes = 0; };
+    Hero HubHero();  // memory reads
+
+    // Characters you can talk to (class name starts with "NPC_") + the click zone next to each, paired at first sight.
+    struct Npc { uintptr_t id; std::string name; float x, y, z, yaw; bool hasButton; };
+    std::vector<Npc> ListNpcs();  // memory reads; name = class without "NPC_"/"_C"
+    // Move an NPC and its click zone (same offset as in vanilla); runs on the game thread.
+    void PlaceNpc(uintptr_t id, float x, float y, float z, float yaw);
+
+    // The hub was built to be looked at: many meshes have no collision. Within `radius` of (x,y,z), on the game thread:
+    // log each static mesh's collision setup once, and with fix=true switch collision on (blocking everything;
+    // meshes without simple collision use their triangles). Each component is handled once per map.
+    void FixCollision(float x, float y, float z, float radius, bool fix);
+
+    // Closed room: the building (collision-less hub mesh) around world point (x,y) gets an invisible floor at
+    // z (feet height if zIsFeet, else a character centre: minus the hub hero's capsule half height) and four walls
+    // `inset` inside its bounds. Replaces that building's previous room; teleportHero puts the hub hero onto the
+    // floor at (x,y). Game thread; result text via RoomStatus().
+    // insets: world units each wall moves in from the building bounds, in the building's own axes (-X, +X, -Y, +Y)
+    struct RoomInsets { float minX, maxX, minY, maxY; };
+    void MakeRoom(float x, float y, float z, bool zIsFeet, const RoomInsets& insets, float wallHeight, bool teleportHero);
+    std::string RoomStatus();
+    void ShowRoom(bool show);  // draw the room's invisible boxes as outlines
+
+    // Survey: log "class name @ x y z" of every actor in the loaded levels (memory reads only). Returns the count.
+    int LogActors();
+    // Debug readout: camera manager class + its view target class ("-" when missing).
+    void CameraClasses(std::string& manager, std::string& target);
 
     float OriginalFOV();
     float OriginalDistance();

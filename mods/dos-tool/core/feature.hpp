@@ -18,6 +18,8 @@ namespace feature {
         const game::Snapshot& snap;    // refreshed every 100 ms
         const combat::Tracker& combat; // updated every frame
         const std::vector<combat::Sample>& chars; // every character with health, this frame
+        float mouseDX = 0, mouseDY = 0;  // raw mouse motion since last frame while a feature captures input (cursor-independent)
+        bool rawMouse = false;           // raw mouse input is arriving (else fall back to the cursor position)
     };
 
     // Kubernetes feature-gate stages. Default on only when Stable; Alpha is shown only with dos-tool.dev.
@@ -39,6 +41,8 @@ namespace feature {
         // ImGui::MarkIniSettingsDirty().
         virtual void Load(const char* key, const char* value) {}
         virtual void Save(std::vector<std::pair<std::string, std::string>>& out) {}
+        // true = the game gets no key/mouse presses and no cursor (the feature reads keys itself); ignored while the menu is open
+        virtual bool CapturesInput() const { return false; }
         static std::vector<Feature*>& All() { static std::vector<Feature*> v; return v; }
     };
 }

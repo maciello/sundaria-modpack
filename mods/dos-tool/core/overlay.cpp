@@ -10,6 +10,8 @@
 #include <cstring>
 #include <algorithm>
 #include <cfloat>
+#include <atomic>
+#include <vector>
 
 #include "kiero.h"
 #include "fonts.h"
@@ -43,6 +45,36 @@ static char                    g_ini[MAX_PATH] = {};
 
 static combat::Tracker g_combat;
 
+static bool InputCaptured() {
+    for (const feature::Feature* f : feature::Feature::All())
+        if (f->enabled && f->CapturesInput()) return true;
+    return false;
+}
+
+// Raw mouse motion while input is captured: the hidden cursor can be frozen by the game, raw deltas can't.
+// Registered on the window's (game) thread only if the game hasn't registered the mouse itself; removed after.
+static std::atomic<long> g_rawDX{0}, g_rawDY{0};
+static std::atomic<bool> g_rawSeen{false};
+static bool g_rawOurs = false;
+
+static void UpdateRawMouse(bool want) {
+    if (want == g_rawOurs) return;
+    if (want) {
+        UINT n = 0;
+        GetRegisteredRawInputDevices(nullptr, &n, sizeof(RAWINPUTDEVICE));
+        std::vector<RAWINPUTDEVICE> regs(n);
+        if (n && GetRegisteredRawInputDevices(regs.data(), &n, sizeof(RAWINPUTDEVICE)) == UINT(-1)) n = 0;
+        for (UINT i = 0; i < n; i++)
+            if (regs[i].usUsagePage == 1 && regs[i].usUsage == 2) return;  // the game already gets raw mouse: just listen
+        RAWINPUTDEVICE rid{1, 2, 0, g_hwnd};
+        g_rawOurs = RegisterRawInputDevices(&rid, 1, sizeof(rid)) == TRUE;
+    } else {
+        RAWINPUTDEVICE rid{1, 2, RIDEV_REMOVE, nullptr};
+        RegisterRawInputDevices(&rid, 1, sizeof(rid));
+        g_rawOurs = false;
+    }
+}
+
 static LRESULT WINAPI hkWndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     if (msg == WM_KEYDOWN && w == VK_INSERT)
         g_showMenu = !g_showMenu;
@@ -51,6 +83,45 @@ static LRESULT WINAPI hkWndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         const ImGuiIO& io = ImGui::GetIO();
         if (io.WantCaptureMouse || io.WantCaptureKeyboard)
             return true;
+    }
+    const bool captured = !g_showMenu && InputCaptured();
+    UpdateRawMouse(captured);
+    if (msg == WM_INPUT && captured) {
+        RAWINPUT ri{};
+        UINT size = sizeof(ri);
+        if (GetRawInputData(reinterpret_cast<HRAWINPUT>(l), RID_INPUT, &ri, &size, sizeof(RAWINPUTHEADER)) != UINT(-1)
+            && ri.header.dwType == RIM_TYPEMOUSE && !(ri.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+            g_rawDX += ri.data.mouse.lLastX;
+            g_rawDY += ri.data.mouse.lLastY;
+            g_rawSeen = true;
+        }
+    }
+    // A release is swallowed exactly when its press was: the game never sees half a key (hub buttons fire on
+    // release), and keys it saw go down (e.g. the one that started the capture) still come up for it.
+    static bool swallowedKey[256] = {}, swallowedButton[3] = {};
+    const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP) ? 0 : (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) ? 1
+                     : (msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP) ? 2 : -1;
+    if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) && w < 256 && swallowedKey[w]) { swallowedKey[w] = false; return 0; }
+    if ((msg == WM_LBUTTONUP || msg == WM_RBUTTONUP || msg == WM_MBUTTONUP) && swallowedButton[button]) {
+        swallowedButton[button] = false;
+        return 0;
+    }
+    if (captured) {
+        switch (msg) {
+            case WM_KEYDOWN: case WM_SYSKEYDOWN:
+                if (w == VK_INSERT) break;
+                if (w < 256) swallowedKey[w] = true;
+                return 0;
+            case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
+                swallowedButton[button] = true;
+                return 0;
+            case WM_CHAR: case WM_SYSCHAR: case WM_XBUTTONDOWN:
+            case WM_LBUTTONDBLCLK: case WM_RBUTTONDBLCLK: case WM_MOUSEWHEEL: case WM_MOUSEMOVE:
+                return 0;
+            case WM_SETCURSOR:
+                SetCursor(nullptr);
+                return TRUE;
+        }
     }
     return CallWindowProc(g_oWndProc, h, msg, w, l);
 }
@@ -187,7 +258,10 @@ static void RunFeatures(const game::Snapshot& snap) {
     const double now = ImGui::GetTime();
     const std::vector<combat::Sample> chars = game::SampleHealth();
     g_combat.Update(chars, now);
-    const feature::Frame fr{now, screen.x, screen.y, g_fonts[g_font] ? g_fonts[g_font] : ImGui::GetFont(), snap, g_combat, chars};
+    feature::Frame fr{now, screen.x, screen.y, g_fonts[g_font] ? g_fonts[g_font] : ImGui::GetFont(), snap, g_combat, chars};
+    fr.mouseDX = float(g_rawDX.exchange(0));
+    fr.mouseDY = float(g_rawDY.exchange(0));
+    fr.rawMouse = g_rawSeen.load();
     for (feature::Feature* f : feature::Feature::All()) {
         if (f->wasEnabled && !f->enabled) f->Off();
         f->wasEnabled = f->enabled;
@@ -248,6 +322,7 @@ void overlay::Shutdown() {
     // unload = vanilla; only after the hook is gone, else a frame in between re-applies what Off() restored
     for (feature::Feature* f : feature::Feature::All()) if (f->enabled) f->Off();
     if (g_oWndProc) { SetWindowLongPtr(g_hwnd, GWLP_WNDPROC, (LONG_PTR)g_oWndProc); g_oWndProc = nullptr; }
+    if (g_rawOurs) { RAWINPUTDEVICE rid{1, 2, RIDEV_REMOVE, nullptr}; RegisterRawInputDevices(&rid, 1, sizeof(rid)); g_rawOurs = false; }
     if (g_imguiReady) {
         ImGui_ImplDX11_Shutdown();
         ImGui_ImplWin32_Shutdown();
