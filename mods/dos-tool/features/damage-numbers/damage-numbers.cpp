@@ -51,11 +51,12 @@ namespace {
             if (an.flash > 0)  // soft glow while hot
                 draw::OutlinedText(dl, font, sz, pos, IM_COL32(0, 0, 0, 0), IM_COL32(int(r), int(g), int(b), int(90 * an.flash * an.alpha)), ow * 3.0f, buf);
             draw::OutlinedText(dl, font, sz, pos, IM_COL32(int(r), int(g), int(b), a), outline, ow, buf);
-            if (n.hits > 1) {  // hit counter, sits on the top-right shoulder
+            if (n.hits > 1) {  // hit counter: small, bottom-right, on the number's baseline
                 char cnt[16];
                 std::snprintf(cnt, sizeof(cnt), "x%d", n.hits);
-                const float cs = std::max(14.0f, unit * 0.42f);
-                draw::OutlinedText(dl, font, cs, ImVec2(pos.x + ts.x + 2, pos.y - cs * 0.15f), IM_COL32(255, 210, 120, a), outline, std::max(1.0f, cs / 14.0f), cnt);
+                const float cs = std::max(12.0f, sz * 0.34f);
+                const float ch = font->CalcTextSizeA(cs, FLT_MAX, 0.0f, cnt).y;
+                draw::OutlinedText(dl, font, cs, ImVec2(pos.x + ts.x + 2, pos.y + ts.y - ch), IM_COL32(255, 210, 120, a), outline, std::max(1.0f, cs / 14.0f), cnt);
             }
         }
 
