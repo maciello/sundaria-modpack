@@ -984,9 +984,10 @@ namespace {
             } else if (g_walkHeld.load(std::memory_order_relaxed)) {
                 WalkRelease();
             }
-            if (g_placePending.load(std::memory_order_relaxed)) PlaceTick();
-            if (g_colPending.load(std::memory_order_relaxed)) CollisionTick();
+            // floors first: NPCs placed onto a room whose collision isn't there yet fall through it
             if (g_roomPending.load(std::memory_order_relaxed)) RoomTick();
+            if (g_colPending.load(std::memory_order_relaxed)) CollisionTick();
+            if (g_placePending.load(std::memory_order_relaxed)) PlaceTick();
             g_inCamMove = false;
         }
         g_inPE--, t_inHook--;
