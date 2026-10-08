@@ -58,7 +58,7 @@ namespace game {
 
     // Game-thread ProcessEvent listener for a feature with its own SDK-including .cpp; runs after
     // the original call (obj = UObject*, fn = UFunction*). The hook stays installed while the probe
-    // or any listener is on. Up to 4 listeners.
+    // or any listener is on. Up to 8 listeners; a 9th is logged and dropped.
     using EventListener = void (*)(void* obj, void* fn, void* parms);
     void SetEventListener(EventListener l, bool on);
 

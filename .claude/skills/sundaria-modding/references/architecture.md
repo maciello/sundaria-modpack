@@ -8,7 +8,7 @@ runtime: Windows build under Proton; launch option WINEDLLOVERRIDES="winmm=n,b" 
 
 core/:   # shared; features never include each other
   game.hpp/.cpp: the ONLY core SDK translation unit; add a small SDK-free function here for any new game read/write. Never includes a feature header (core → feature is the wrong direction)
-  game::SetEventListener(fn, on): game-thread ProcessEvent listener for a feature with its own SDK .cpp (≤4; hook installed while any is on). The only place UFunction calls are allowed
+  game::SetEventListener(fn, on): game-thread ProcessEvent listener for a feature with its own SDK .cpp (≤8, a full table is logged; hook installed while any is on). The only place UFunction calls are allowed
   style.hpp: design tokens (colours, sizes, easing) → design-system.md
   combat.hpp: health-diff → stacked hit events, typical hit, fight/DPS (Frame.combat)
   feature.hpp: Feature {name, stage (Alpha|Beta|Stable|Deprecated), enabled, OnFrame(Frame), Menu(), Off()}; on/off + font persist in dos-tool.ini (local); Frame {now, w, h, font, snap, combat, chars}

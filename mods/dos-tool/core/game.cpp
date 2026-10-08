@@ -277,7 +277,7 @@ namespace {
     std::unordered_set<UFunction*> g_seen;
     struct Fired { UFunction* fn; UClass* cls; ULONGLONG t; };
     std::vector<Fired> g_fresh;
-    std::atomic<game::EventListener> g_listeners[4] = {};
+    std::atomic<game::EventListener> g_listeners[8] = {};  // 6 users today; full = logged, never silent
 
     // Free camera: render thread writes the pose, the game thread's BlueprintUpdateCamera call reads it.
     std::atomic<bool> g_freeOn{false};
@@ -763,6 +763,7 @@ void game::SetEventListener(EventListener l, bool on) {
     }
     for (auto& s : g_listeners)
         if (on && !have && !s.load()) { s = l; have = true; }
+    if (on && !have) logger::log("[game] event listener table full: a feature gets no game events");
     if (!on) for (int i = 0; i < 200 && g_inPE.load() > 0; i++) Sleep(10);  // in-flight calls may still be inside l
     UpdatePEHook();
 }
