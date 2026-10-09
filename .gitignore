@@ -5,3 +5,4 @@ dist/
 .claude/worktrees/
 __pycache__/
 scripts/data/obj/
+mods/*/local/

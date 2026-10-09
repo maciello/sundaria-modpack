@@ -12,6 +12,7 @@ mods/<mod>/                  one shippable mod (today: dos-tool = one .asi loade
   assets/                    fonts etc. + their licence files
 updater/                     launch-option updater (py + ps1), shared by all mods
 libs/<lib>/                   SDK-free C++ shared by the DLL and offline hosts: include/ (API), src/ (in the DLL), host/ (offline only), test/
+mods/<mod>/local/<feature>/    per-machine features, gitignored; compiled only by `just dev` / `dev-install` (DOS_LOCAL=ON), never by `dist` / `release`
 ```
 
 ## Rules

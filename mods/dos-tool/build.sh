@@ -27,7 +27,8 @@ cmake -S "$HERE" -B "$BUILD" -G "$GEN" \
   -DCMAKE_TOOLCHAIN_FILE="$HERE/msvc-clang-toolchain.cmake" \
   -DXWIN_SDK="$XWIN" \
   -DSDK_DIR="$SDK_DIR" \
-  -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_BUILD_TYPE=Release \
+  -DDOS_LOCAL="${DOS_LOCAL:-OFF}"  # ON only for this machine's dev builds (just dev / dev-install)
 
 cmake --build "$BUILD" --config Release -j"$(nproc 2>/dev/null || echo "${NUMBER_OF_PROCESSORS:-4}")"
 

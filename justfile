@@ -127,7 +127,9 @@ build:
     SDK_DIR="{{sdk}}" XWIN="{{xwin}}" mods/dos-tool/build.sh
 
 # release layout = paths relative to the game root
-dist: build
+dist:
+    DOS_LOCAL=OFF just build
+    grep -q "^DOS_LOCAL:BOOL=OFF" mods/dos-tool/build/CMakeCache.txt || { echo "dist: local/ features compiled in, refusing"; exit 1; }
     rm -rf dist && mkdir -p dist/Archon/Binaries/Win64
     cp mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/build/DoS-Tool.dll dist/Archon/Binaries/Win64/
     mkdir -p dist/Archon/Binaries/Win64/dos-mods/abilities && cp mods/dos-tool/abilities/_*.lua dist/Archon/Binaries/Win64/dos-mods/abilities/
@@ -150,8 +152,9 @@ release:
     just test dist
     gh release create "$tag" build/modpack.zip -R {{repo}} --title "$tag" --notes-file build/notes.md --target "$(git rev-parse HEAD)"
 
-# once, game closed: hot-reload loader + dev flag
-dev-install: build
+# once, game closed: hot-reload loader + dev flag (dev builds also compile gitignored mods/dos-tool/local/)
+dev-install:
+    DOS_LOCAL=ON just build
     install -m 644 mods/dos-tool/build/DoS-Tool.asi mods/dos-tool/vendor/winmm.dll mods/dos-tool/build/DoS-Tool.dll mods/dos-tool/build/DoS-Tool.pdb "{{win64}}/"
     touch "{{win64}}/dos-tool.dev"
     mkdir -p "{{win64}}/dos-mods/abilities" && install -m 644 mods/dos-tool/abilities/_*.lua "{{win64}}/dos-mods/abilities/"
@@ -167,6 +170,7 @@ ui *classes:
     sleep 0.3; echo "$out"
 
 # game running: rebuild; the loader swaps DoS-Tool.dll in within ~1 s
-dev: build
+dev:
+    DOS_LOCAL=ON just build
     install -m 644 mods/dos-tool/build/DoS-Tool.pdb mods/dos-tool/build/DoS-Tool.dll "{{win64}}/"  # PDB first: minidump.py pairs it with the DLL
     mkdir -p "{{win64}}/dos-mods/abilities" && install -m 644 mods/dos-tool/abilities/_*.lua "{{win64}}/dos-mods/abilities/"
