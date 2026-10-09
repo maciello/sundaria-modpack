@@ -13,6 +13,10 @@ namespace items::marks {
     void SetVisible(void* widget, bool on);  // HitTestInvisible / Collapsed
     void SetText(void* textBlock, const std::string& utf8);
     void SetTexture(void* image, void* texture);
+    void SetColor(void* textBlock, style::Rgba c);  // sRGB token → the text block's linear colour
+
+    struct Chip { float font, padL, padT, padR, padB, inset; };  // UMG units (slot = 100)
+    struct ChipWidgets { void* box = nullptr; void* text = nullptr; };  // UBorder (show/hide this), its UTextBlock
 
     // Widgets one feature put into game screens.
     class Set {
@@ -26,6 +30,9 @@ namespace items::marks {
         void Release(const char* who);
         // UImage in the slot's top-left corner, hidden. Adopts one a previous DLL left whose texture is in `ours`.
         void* Icon(void* slot, void* texture, std::initializer_list<const void*> ours, float size, float pad);
+        // The game's count chip look (WidgetItemIcon_C::Border_Count: brush, tint, font, shadow) in the slot's bottom-left
+        // corner, hidden. Adopts one a previous DLL left. Empty: the slot shows no item icon to copy the style from yet.
+        ChipWidgets ChipIn(void* slot, const Chip& spec);
         // TextBlock under the details panel's text, styled like its "Learned" line, hidden. null: its layout has no room.
         void* Line(void* detail);
     };
