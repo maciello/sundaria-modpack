@@ -6,6 +6,7 @@
 #include "logger.hpp"
 #include "game.hpp"
 #include "overlay.hpp"
+#include "unwind.hpp"
 
 // Crash recorder: fatal-looking exceptions (any module) go to dos-tool.log as module+offset, because some
 // crashes leave no UE crash report and no Windows event. First-chance: a handled one is logged too, hence "maybe".
@@ -18,18 +19,25 @@ static LONG CALLBACK CrashRecorder(EXCEPTION_POINTERS* ep) {
         && code != EXCEPTION_PRIV_INSTRUCTION && code != 0xC0000409 /* fast fail */)
         return EXCEPTION_CONTINUE_SEARCH;
     if (InterlockedIncrement(&g_vehLogged) > 8) return EXCEPTION_CONTINUE_SEARCH;
-    void* at = ep->ExceptionRecord->ExceptionAddress;
-    HMODULE mod = nullptr;
-    char name[MAX_PATH] = "?";
-    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           static_cast<LPCSTR>(at), &mod))
-        GetModuleFileNameA(mod, name, MAX_PATH);
-    const char* base = strrchr(name, '\\');
+    const EXCEPTION_RECORD* er = ep->ExceptionRecord;
+    void* at = er->ExceptionAddress;
+    const char* access = "-";
+    uintptr_t target = 0;
+    if (code == EXCEPTION_ACCESS_VIOLATION && er->NumberParameters >= 2) {
+        access = er->ExceptionInformation[0] == 1 ? "write" : er->ExceptionInformation[0] == 8 ? "execute" : "read";
+        target = (uintptr_t)er->ExceptionInformation[1];
+    }
+    const uint32_t tid = GetCurrentThreadId();
+    const uint32_t gameTid = game::GameThreadId();
     char buf[400];
-    std::snprintf(buf, sizeof(buf), "[crash maybe] code=%08lx at %s+%llx thread=%lu addr=%llx", code, base ? base + 1 : name,
-                  (unsigned long long)((uintptr_t)at - (uintptr_t)mod), GetCurrentThreadId(),
-                  (unsigned long long)(ep->ExceptionRecord->NumberParameters > 1 ? ep->ExceptionRecord->ExceptionInformation[1] : 0));
+    std::snprintf(buf, sizeof(buf), "[crash maybe] code=%08lx at %s thread=%lu access=%s addr=%llx on-game-thread=%s",
+                  code, unwind::where(at).c_str(), (unsigned long)tid, access, (unsigned long long)target,
+                  gameTid ? (gameTid == tid ? "yes" : "no") : "?");
     logger::log(buf);
+    // The frames under the fault: the innermost ones name what walked into the wall, ours or the game's.
+    void* frames[24];
+    const size_t n = unwind::walk(ep->ContextRecord, frames, 24);
+    for (size_t i = 0; i < n; ++i) logger::log("[crash maybe]   #" + std::to_string(i) + " " + unwind::where(frames[i]));
     return EXCEPTION_CONTINUE_SEARCH;
 }
 

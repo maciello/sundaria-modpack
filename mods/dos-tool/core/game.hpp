@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 #include "combat.hpp"
@@ -75,6 +76,7 @@ namespace game {
     using EventFilter = bool (*)(void* obj, void* fn, void* parms);
     void SetEventFilter(EventFilter f, bool on);
     bool OnGameThread();  // for listeners: ProcessEvent also runs on worker threads; UFunction calls only here
+    uint32_t GameThreadId();  // its id (0 = not yet known); the crash recorder places a fault against the game thread
 
     // Gameplay effects (game thread only: these call UFunctions). asc = UAbilitySystemComponent*,
     // ability = UGameplayAbility*. Cooldown effects of one ability: class IsA its cooldown GE (often one

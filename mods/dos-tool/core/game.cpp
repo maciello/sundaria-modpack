@@ -1075,6 +1075,8 @@ int game::FreeCamOverrides() { return g_freeHits.load(); }
 
 bool game::OnGameThread() { return EnsureGameTid() && GetCurrentThreadId() == g_gameTid.load(); }
 
+uint32_t game::GameThreadId() { return g_gameTid.load(std::memory_order_relaxed); }
+
 bool game::GameCamPose(CamPose& out) {
     CamFnKnown();  // the hook captures the game's pose once it knows the function's name
     AcquireSRWLockShared(&g_gameCamMu);
