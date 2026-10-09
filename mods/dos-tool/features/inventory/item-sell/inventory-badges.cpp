@@ -309,17 +309,26 @@ namespace {
     }
 }
 
+namespace {
+    // Any call on a bag or a bag screen (finds the bags), the detail panel's Tick (its lines); + the world tick.
+    void Listen(bool on) {
+        for (const char* cls : {"WidgetItemBag_C", "WidgetItemInventory_C", "WidgetItemStorage_C"}) game::OnClass(cls, &OnEvent, on);
+        game::On("WidgetItemDisplayDetail_C", "Tick", &OnEvent, on);
+        game::OnWorldTick(&OnEvent, on);
+    }
+}
+
 namespace item_sell::badges {
     void Frame() {
         if (g_on.load()) return;
         g_on = true;  // game functions resolve on use (ref::Fn; Blueprint classes are null at the main menu, #54)
-        game::SetEventListener(&OnEvent, true);
+        Listen(true);
     }
     // Runs with the ProcessEvent hook alive (#84): the next world tick removes the badges and lines.
     void Off() {
         g_drain.Request(!g_badges.empty() || !g_lines.empty(), "item-sell", RemoveAll);
         g_on = false;
-        game::SetEventListener(&OnEvent, false);
+        Listen(false);
         g_badges.clear();
         g_lines.clear();
         g_bags.clear();

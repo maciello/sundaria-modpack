@@ -196,17 +196,26 @@ namespace {
     }
 }
 
+namespace {
+    // The bag header's own calls, the bag screens that own one, our button's click; + the world tick.
+    void Listen(bool on) {
+        for (const char* cls : {"WidgetitemBagHeaderMenu_C", "WidgetItemInventory_C", "WidgetItemStorage_C"}) game::OnClass(cls, &OnEvent, on);
+        game::On("WidgetButton01_C", "BndEvt__WidgetButton01_Button_K2Node_ComponentBoundEvent_0_OnButtonClickedEvent__DelegateSignature", &OnEvent, on);
+        game::OnWorldTick(&OnEvent, on);
+    }
+}
+
 namespace item_sort::ui {
     void Frame() {
         if (g_on.load()) return;
         g_on = true;  // game functions resolve on use (ref::Fn)
-        game::SetEventListener(&OnEvent, true);
+        Listen(true);
     }
     // Runs with the ProcessEvent hook alive (#84): the next world tick removes the buttons.
     void Off() {
         g_drain.Request(!g_placed.empty(), "item-sort", RemoveAll);
         g_on = false;
-        game::SetEventListener(&OnEvent, false);
+        Listen(false);
         g_placed.clear();
         g_pending.clear();
     }

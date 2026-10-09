@@ -223,6 +223,17 @@ namespace {
         if (!names.empty()) logger::log("[item-sort] sort triggers:" + names);
     }
 
+    void OnEvent(void* objp, void* fnp, void* parms);
+
+    // The sort triggers (g_trigCls): the header's Sort button event (BndEvt__Button_Sort*, K2Node number changes with
+    // game builds: every call on the header, matched in Triggers()), SortItem, RequestSortItems; + the world tick.
+    void Listen(bool on) {
+        game::OnClass("WidgetitemBagHeaderMenu_C", &OnEvent, on);
+        game::On("BP_HUDInventoryComponent_C", "SortItem", &OnEvent, on);
+        game::On("BP_InvManagerComponent_C", "RequestSortItems", &OnEvent, on);
+        game::OnWorldTick(&OnEvent, on);
+    }
+
     void OnEvent(void* objp, void* fnp, void* parms) {
         if (t_busy || !g_on.load(std::memory_order_relaxed) || !game::OnGameThread()) return;  // shared state, UFunction calls and ref resolution: game thread only
         Triggers();
@@ -262,7 +273,7 @@ namespace {
         void Off() override {
             g_on = false;
             game::SetEventFilter(&SkipVanillaSort, false);
-            game::SetEventListener(&OnEvent, false);
+            Listen(false);
             item_sort::ui::Off();
         }
 
@@ -310,7 +321,7 @@ namespace {
             }
             io::Tick();
             if (!io::Ready()) return;
-            if (!g_on) { g_on = true; game::SetEventListener(&OnEvent, true); game::SetEventFilter(&SkipVanillaSort, true); }
+            if (!g_on) { g_on = true; Listen(true); game::SetEventFilter(&SkipVanillaSort, true); }
             item_sort::ui::Frame();  // game buttons in the inventory/bank header (inventory-ui.cpp)
 
             if (TakeFile("item-sort.probe")) g_probe = g_verbose = true;
