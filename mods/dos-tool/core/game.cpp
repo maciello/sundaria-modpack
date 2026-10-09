@@ -210,11 +210,12 @@ int LogActorsNow();
 std::atomic<bool> g_logActorsReq{false};
 std::atomic<int> g_loggedActors{0};
 
-// Core's game-thread work: one listener slot for everything core reads or writes in the world.
-void CoreTick(void*, void* fn, void*) {
+// Core's game-thread work: everything core reads or writes in the world.
+void CoreGameTick(void*, void*, void*) {
+    HubTick();  // game tick, not the world tick: whether the hub's controller has a world tick is unverified
+}
+void CoreTick(void*, void*, void*) {  // world tick
     if (!game::OnGameThread()) return;
-    HubTick();  // any game-thread event: whether the hub's controller has a world tick is unverified
-    if (!umg::IsWorldTick(fn)) return;
     if (g_sampling.load()) {
         std::vector<combat::Sample> s = SampleNow();
         AcquireSRWLockExclusive(&g_samplesMu);
@@ -231,7 +232,7 @@ void CoreTick(void*, void* fn, void*) {
 void UpdateCoreTick() {
     const bool want = g_sampling.load() || g_moving.load() || GetTickCount64() - g_camPostedAt.load() < 500 || g_logActorsReq.load()
                    || GetTickCount64() - g_hubWantedAt.load() < 1000;
-    if (want != g_coreTick.exchange(want)) game::SetEventListener(&CoreTick, want);
+    if (want != g_coreTick.exchange(want)) game::OnWorldTick(&CoreTick, want), game::OnGameTick(&CoreGameTick, want);
 }
 }
 
