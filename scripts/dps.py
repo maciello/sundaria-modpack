@@ -165,7 +165,7 @@ def main():
     elif a.cmd == "bench":
         snap = load(a.target or snapshots(chars)[0])
         cands = items_of(files)
-        cands = (cands * (300 // max(len(cands), 1) + 1))[:300]   # a full bag + bank
+        cands = [dict(it, slot=-1) for it in (cands * (300 // max(len(cands), 1) + 1))[:300]]   # a full bag + bank, none worn
         req = ["cmd bench", *sc, *hero_lines(snap), f"reps {a.reps}"] + [x for it in cands for x in item_lines("cand", it)]
         print(yaml.safe_dump(lib.call(req), sort_keys=False))
 
