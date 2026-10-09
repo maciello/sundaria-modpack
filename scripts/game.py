@@ -6,6 +6,7 @@
   trace <regex> [seconds]          UFunctions through ProcessEvent matching Class::Function, counted
   shot [path] [x y w h]            PNG of the current frame (default: <Win64>/dos-tool-shots/<ms>.png)
   log [n]                          last n lines of dos-tool.log
+  feature [<name> on|off]          list features (name, stage, enabled, optIn), or toggle one like the Insert menu
   ping
 Output: YAML (JSON without PyYAML). Exit 1 on an error answer. Env: GAME_WIN64 (shot paths), GAME_BRIDGE_PORT."""
 import json
@@ -96,6 +97,7 @@ def self_test():
     assert to_windows("/tmp/x.png") == "Z:\\tmp\\x.png"
     assert line_for(["shot", "/tmp/a.png", "0", "0", "10", "10"]) == "shot Z:\\tmp\\a.png 0 0 10 10"
     assert line_for(["get", "pawn.Health"]) == "get pawn.Health"
+    assert line_for(["feature", "Character snapshot", "on"]) == "feature Character snapshot on"
     assert timeout_for(["trace", "Hit", "30"]) == 40
     srv = socket.socket()
     srv.bind(("127.0.0.1", 0))

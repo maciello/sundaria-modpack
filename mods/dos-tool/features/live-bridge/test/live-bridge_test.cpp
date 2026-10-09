@@ -12,6 +12,13 @@ int main(int argc, char** argv) {
     assert(w.size() == 6 && w[0] == "call" && w[2] == "Foo");
     assert(std::string("  call pawn Foo  [1, \"a b\"]").substr(at[2]) == "Foo  [1, \"a b\"]");
 
+    assert(ParseFeature("feature").on == -1 && ParseFeature("feature").err.empty());
+    FeatureCmd fc = ParseFeature("feature  Character snapshot  on ");
+    assert(fc.err.empty() && fc.on == 1 && fc.name == "Character snapshot");
+    assert(ParseFeature("feature X off").on == 0 && ParseFeature("feature X off").name == "X");
+    assert(!ParseFeature("feature X").err.empty() && !ParseFeature("feature off").err.empty() && !ParseFeature("feature X maybe").err.empty());
+    assert(FindName({"Live bridge", "Character snapshot"}, "character SNAPSHOT") == 1 && FindName({"Live bridge"}, "Live") == -1);
+
     Path p = ParsePath("pawn.mAbilitySystemComponent.SpawnedAttributes[1].RAP");
     assert(p.err.empty() && p.root == "pawn" && p.steps.size() == 3);
     assert(p.steps[1].name == "SpawnedAttributes" && p.steps[1].index == 1 && p.steps[2].index == -1);

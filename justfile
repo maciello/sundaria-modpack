@@ -86,7 +86,7 @@ test:
 data *args:
     @PAKS="{{win64}}/../../Content/Paks" {{python}} scripts/data.py "$@"
 
-# game running (dev install): ask the live game, YAML out: get <path> | find <class> | call | trace <regex> <s> | shot | log | ping
+# game running (dev install): ask the live game, YAML out: get <path> | find <class> | call | trace <regex> <s> | shot | log | feature [<name> on|off] | ping
 [positional-arguments]
 game *args:
     @GAME_WIN64="{{win64}}" {{python}} scripts/game.py "$@"

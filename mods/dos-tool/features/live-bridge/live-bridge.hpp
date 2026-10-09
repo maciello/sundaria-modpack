@@ -40,6 +40,30 @@ namespace live_bridge {
         return w;
     }
 
+    // "feature" (list) | "feature <name> on|off"; the name may hold spaces. on: -1 = list.
+    struct FeatureCmd { std::string name; int on = -1; std::string err; };
+    inline FeatureCmd ParseFeature(const std::string& line) {
+        std::vector<size_t> at;
+        const std::vector<std::string> w = Words(line, &at);
+        FeatureCmd c;
+        if (w.size() < 2) return c;
+        if (w.size() < 3 || (w.back() != "on" && w.back() != "off")) { c.err = "feature [<name> on|off]"; return c; }
+        c.on = w.back() == "on";
+        c.name = line.substr(at[1], at.back() - at[1]);
+        while (!c.name.empty() && (c.name.back() == ' ' || c.name.back() == '\t')) c.name.pop_back();
+        return c;
+    }
+    // Case-insensitive exact name; -1 = none.
+    inline int FindName(const std::vector<std::string>& names, const std::string& q) {
+        for (size_t i = 0; i < names.size(); i++) {
+            if (names[i].size() != q.size()) continue;
+            size_t k = 0;
+            while (k < q.size() && std::tolower(static_cast<unsigned char>(names[i][k])) == std::tolower(static_cast<unsigned char>(q[k]))) k++;
+            if (k == q.size()) return int(i);
+        }
+        return -1;
+    }
+
     // "root.Name.Arr[2].Field": root = first segment ("pawn", "@3", "obj:Name" …⊇), then reflect steps.
     struct Path { std::string root; std::vector<reflect::Step> steps; std::string err; };
     inline Path ParsePath(const std::string& s) {

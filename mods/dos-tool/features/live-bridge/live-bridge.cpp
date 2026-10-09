@@ -115,6 +115,36 @@ namespace {
         return Ok(s + "]");
     }
 
+    // ponytail: reads enabled/optIn racily off the render thread (plain bools, dev only); a lock if it ever matters.
+    std::string FeatureJson(const feature::Feature* f) {
+        static const char* const kStage[] = {"Alpha", "Beta", "Stable", "Deprecated"};
+        return "{\"name\":" + reflect::Esc(f->name) + ",\"stage\":\"" + kStage[int(f->stage)] + "\",\"enabled\":" +
+               (f->enabled ? "true" : "false") + ",\"optIn\":" + (f->optIn ? "true" : "false") + "}";
+    }
+
+    // feature [<name> on|off]: list, or toggle through the menu checkbox's path (overlay::RequestEnabled).
+    std::string Features(const std::string& line) {
+        const FeatureCmd c = ParseFeature(line);
+        if (!c.err.empty()) return Err(c.err);
+        const auto& all = feature::Feature::All();
+        if (c.on < 0) {
+            std::string s = "[";
+            for (const feature::Feature* f : all) s += (s.size() > 1 ? "," : "") + FeatureJson(f);
+            return Ok(s + "]");
+        }
+        std::vector<std::string> names;
+        for (const feature::Feature* f : all) names.push_back(f->name);
+        const int i = FindName(names, c.name);
+        if (i < 0) {
+            std::string list;
+            for (const std::string& n : names) list += (list.empty() ? "" : ", ") + n;
+            return Err("unknown feature '" + c.name + "'; features: " + list);
+        }
+        if (!overlay::RequestEnabled(all[i], c.on == 1, kJobTimeoutMs, g_stop))
+            return Err(g_stop ? "unloading" : "no frame within " + std::to_string(kJobTimeoutMs) + " ms (minimised?)");
+        return Ok(FeatureJson(all[i]));
+    }
+
     std::string Handle(const std::string& line) {
         const std::vector<std::string> w = Words(line);
         if (w.empty()) return Err("empty command");
@@ -123,9 +153,10 @@ namespace {
         if (c == "trace") return Trace(w);
         if (c == "shot") return Shot(w, g_stop);
         if (c == "log") return LogTail(w);
+        if (c == "feature") return Features(line);
         if (c == "ping") return Ok("{\"listening\":" + std::string(g_listening ? "true" : "false") + ",\"port\":" + std::to_string(kPort) + "}");
         return Err("commands: get <path> [depth] | find <class> [near <m>] | call <path> <Function> [json args] | "
-                   "trace <regex> [s] | shot [path] [x y w h] | log [n] | ping");
+                   "trace <regex> [s] | shot [path] [x y w h] | log [n] | feature [<name> on|off] | ping");
     }
 
     bool Readable(SOCKET s, int ms) {
