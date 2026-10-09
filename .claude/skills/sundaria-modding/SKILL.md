@@ -19,7 +19,7 @@ Maintenance contract:
 ## Ask the game before guessing
 Unsure how the game works? Look it up first (≤1 s each); guesses + probe builds cost hours.
 - game logic (who calls / writes / reads X, what an event triggers, why our hook never sees a call): `just data callers|writers|readers|calls|events|ast <name>`, offline
-- running game (live values, nearby actors, what fires now, the screen): `just game get|find|call|trace|shot|log`, dev install
+- running game (live values, nearby actors, what fires now, the screen): `just game get|find|call|trace|shot|log|feature`, dev install
 
 ## Route by task
 | task | read / run |
@@ -29,7 +29,7 @@ Unsure how the game works? Look it up first (≤1 s each); guesses + probe build
 | any game object: paths, offsets, verified or not, combat-log, damage types | `references/game-facts.md` |
 | build/compile errors, hot-reload internals, SDK re-dump, updater | `references/toolchain.md` |
 | something fails or crashed | `references/gotchas.md` |
-| a question about the RUNNING game (live values, actors nearby, what fires, how it looks now): `just game get/find/call/trace/shot/log` | `references/live-bridge.md` |
+| a question about the RUNNING game (live values, actors nearby, what fires, how it looks now): `just game get/find/call/trace/shot/log`; switch a feature on/off without the Insert menu: `just game feature` | `references/live-bridge.md` |
 | new machine (SDK, MSVC kit), working together, trunk/flags | repo `CLAUDE.md` → `just sdk-pull` |
 | extend a game screen (inventory, bank, menus): its UMG widgets, styles, how to add ours; `just ui <Class>` dumps live trees | `references/game-ui.md` |
 | any visual: colours, sizes, motion, icons, component specs (numbers, bars, loot, cards, menu) | `references/design-system.md` + tokens `core/style.hpp`; rule `.claude/rules/design.md`; reference images (local only, never commit) `../design-refs/<topic>/index.yaml` |
@@ -42,7 +42,7 @@ Unsure how the game works? Look it up first (≤1 s each); guesses + probe build
 |---|---|
 | `scripts/sdk.py` | query the SDK: `class`, `chain`, `field <regex>`, `subs` |
 | `just data` (repo `scripts/data.py`) | offline pak data: `find`, `show` JSON, `table` YAML, `bp` bytecode, `grep` values; Blueprint xref index: `callers`, `writers`/`readers`, `calls`, `events`, `ast` → `references/game-data.md` |
-| `just game` (repo `scripts/game.py`) | live game over 127.0.0.1 (dev install): `get` path, `find` actors, `call`, `trace` ProcessEvent, `shot` PNG, `log` → `references/live-bridge.md` |
+| `just game` (repo `scripts/game.py`) | live game over 127.0.0.1 (dev install): `get` path, `find` actors, `call`, `trace` ProcessEvent, `shot` PNG, `log`, `feature` list/toggle → `references/live-bridge.md` |
 | `scripts/new-feature.sh` | scaffold `features/<kebab>/` (+ `--logic`: header + test) |
 | `scripts/dev-check.sh` | game alive? hot-swap happened? log tail |
 | `scripts/minidump.py` | crash dump → fault module+offset + stack, ours as function file:line (`--dll` for a rebuild) |

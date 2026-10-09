@@ -17,6 +17,8 @@ just game trace 'OnProjectileHit|Montage' 10          # UFunctions through Proce
 just game shot                                        # PNG of the current frame -> prints its host path
 just game shot /tmp/hud.png 0 0 640 360               # host path + crop x y w h
 just game log 60                                      # last 60 lines of dos-tool.log
+just game feature                                     # every feature: name, stage, enabled, optIn
+just game feature "Character snapshot" on             # switch one on/off exactly like the Insert menu checkbox
 ```
 
 ```yaml
@@ -35,6 +37,12 @@ trace: pattern = regex subset (a|b, ^, $, ., x*), case-insensitive, matched agai
   at most 60 s; script-to-script calls that skip ProcessEvent never show (cast-indicator #81: OnProjectileHit)
 shot: back buffer after our overlay drew (what the player sees); default file <Win64>/dos-tool-shots/<ms>.png;
   host paths are passed as Z:\... (Proton maps Z: to /); formats RGBA8, BGRA8, RGB10A2 (others: error with the format)
+feature: "use it instead of editing dos-tool.ini: the mod rewrites the ini from its in-memory toggles on unload, so a
+  hand edit while the game runs is lost. Name case-insensitive, may hold spaces; unknown name = error listing all.
+  Toggle = the menu checkbox's path (overlay SetEnabled: enabled flag + ini marked dirty), applied at the start of the
+  next frame; Off() runs in that frame on the render thread, as after a click. Works on any stage, Alpha and optIn
+  included. Answer = the feature's new state. No frame in 3 s (minimised) = error, nothing changed.
+  'Live bridge off' answers, then closes the bridge"
 ```
 
 ## How it works
@@ -46,7 +54,8 @@ reachable_from_linux: "Proton + pressure-vessel keep the host network namespace:
   equals the host shell's, and the game's own loopback LISTEN sockets show in the host's `ss -tlnp`. A Wine named pipe
   would not be reachable from Linux; that is why it is TCP"
 threads:
-  bridge: "own thread, select() 250 ms; socket, log, shot (PNG encode + write), trace window"
+  bridge: "own thread, select() 250 ms; socket, log, shot (PNG encode + write), trace window, feature list;
+    feature on/off waits for overlay::RequestEnabled (render thread applies it)"
   game: "get/find/call: posted as one job, run by our ProcessEvent listener on the next world tick
     (umg::IsWorldTick); 3 s without a world tick = error (main menu, loading screen)"
   render: "OnFrame starts the thread once and (un)registers the listener; shot copies the back buffer in the
