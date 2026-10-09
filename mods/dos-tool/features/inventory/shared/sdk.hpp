@@ -19,5 +19,6 @@ namespace items::sdk {
     ABP_PlayerControllerOnline_C* LocalPC();          // read.cpp
     UBP_ItemContainerComponent_C* Container(UObject* o);  // read.cpp: o if it is an item container
     const std::vector<int32>& AttrOffsets();          // names.cpp: parallel to GetNames().stat; valid once Ready()
+    std::vector<std::string> EnumNames(UEnum* e);  // names.cpp: value → display name (BP enums are dumped as NewEnumeratorN; UUserDefinedEnum keeps the names)
     UArchonSpec* Spec(int id, bool& rebuilt);         // spec.cpp: one map rebuild per read (pass rebuilt=false per read)
 }

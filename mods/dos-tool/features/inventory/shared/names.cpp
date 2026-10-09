@@ -10,26 +10,8 @@ using namespace items::sdk;
 using namespace items::io;
 
 namespace {
-    // Enum value → display name (BP enums are dumped as NewEnumeratorN; UUserDefinedEnum keeps the names).
     std::vector<std::string> EnumNames(const char* name) {
-        std::vector<std::string> out;
-        UEnum* e = UObject::FindObjectFast<UEnum>(name, EClassCastFlags::Enum);  // flag None never matches (HasTypeFlag)
-        if (!PtrOk(e)) return out;
-        std::unordered_map<std::string, std::string> display;
-        if (e->IsA(UUserDefinedEnum::StaticClass()))
-            ForEach(static_cast<UUserDefinedEnum*>(e)->DisplayNameMap, [&](const FName& k, const FText& t) {
-                if (PtrOk(t.TextData)) display[k.ToString()] = t.ToString();
-            });
-        for (int i = 0; i < e->Names.Num(); i++) {
-            std::string n = e->Names[i].Key().ToString();
-            if (auto p = n.rfind("::"); p != std::string::npos) n = n.substr(p + 2);
-            const int64 v = e->Names[i].Value();
-            if (v < 0 || v > 255 || n.ends_with("_MAX")) continue;
-            if (int(out.size()) <= v) out.resize(v + 1);
-            auto it = display.find(n);
-            out[v] = it != display.end() && !it->second.empty() ? it->second : n;
-        }
-        return out;
+        return items::sdk::EnumNames(UObject::FindObjectFast<UEnum>(name, EClassCastFlags::Enum));  // flag None never matches (HasTypeFlag)
     }
     std::vector<std::string> EquipSlotNames() {
         std::vector<std::string> n = EnumNames("EBP_ItemEquipmentSlotEnum");
@@ -62,6 +44,25 @@ namespace {
 
 namespace items::sdk {
     const std::vector<int32>& AttrOffsets() { return g_attrOffset; }
+    std::vector<std::string> EnumNames(UEnum* e) {
+        std::vector<std::string> out;
+        if (!PtrOk(e)) return out;
+        std::unordered_map<std::string, std::string> display;
+        if (e->IsA(UUserDefinedEnum::StaticClass()))
+            ForEach(static_cast<UUserDefinedEnum*>(e)->DisplayNameMap, [&](const FName& k, const FText& t) {
+                if (PtrOk(t.TextData)) display[k.ToString()] = t.ToString();
+            });
+        for (int i = 0; i < e->Names.Num(); i++) {
+            std::string n = e->Names[i].Key().ToString();
+            if (auto p = n.rfind("::"); p != std::string::npos) n = n.substr(p + 2);
+            const int64 v = e->Names[i].Value();
+            if (v < 0 || v > 255 || n.ends_with("_MAX")) continue;
+            if (int(out.size()) <= v) out.resize(v + 1);
+            auto it = display.find(n);
+            out[v] = it != display.end() && !it->second.empty() ? it->second : n;
+        }
+        return out;
+    }
 }
 
 namespace items::io {
