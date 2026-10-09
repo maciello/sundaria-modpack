@@ -100,7 +100,7 @@ void mesh_probe::Tick() {
     const ULONGLONG now = GetTickCount64();
     if (now < next || g_asked.load()) return;
     next = now + 2000;
-    if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);  // the report ran
+    if (g_listening.exchange(false)) game::OnGameTick(OnEvent, false);  // the report ran
     UWorld* w = UWorld::GetWorld();
     if (!PtrOk(w) || seen.Is(w)) return;
     std::vector<std::string> terms = ReadTerms();
@@ -110,5 +110,5 @@ void mesh_probe::Tick() {
     g_world = w->GetName();
     g_asked = true;
     g_listening = true;
-    game::SetEventListener(OnEvent, true);
+    game::OnGameTick(OnEvent, true);
 }

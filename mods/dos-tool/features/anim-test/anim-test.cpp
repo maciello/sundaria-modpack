@@ -90,13 +90,13 @@ namespace {
             g_reqLoop = loop;
             g_done = false;
             g_req = r;
-            if (!listening) { game::SetEventListener(&OnEvent, true); listening = true; }
+            if (!listening) { game::OnGameTick(&OnEvent, true); listening = true; }
             status = "...";
         }
 
         void OnFrame(const feature::Frame&) override {
             if (listening && g_done.exchange(false)) {
-                game::SetEventListener(&OnEvent, false);
+                game::OnGameTick(&OnEvent, false);
                 listening = false;
                 status = g_result;
                 logger::log(("[anim-test] " + status).c_str());
@@ -108,10 +108,10 @@ namespace {
                 g_reqSlot = slots[slot];
                 g_done = false;
                 g_req = Req::Stop;
-                game::SetEventListener(&OnEvent, true);
+                game::OnGameTick(&OnEvent, true);
                 for (int i = 0; i < 100 && !g_done; i++) Sleep(10);
             }
-            game::SetEventListener(&OnEvent, false);
+            game::OnGameTick(&OnEvent, false);
             listening = false;
             g_req = Req::None;
         }

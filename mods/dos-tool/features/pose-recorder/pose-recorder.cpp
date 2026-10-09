@@ -100,7 +100,7 @@ namespace {
 
         void OnFrame(const feature::Frame&) override {
             if (listening && g_done.exchange(false)) {
-                game::SetEventListener(&OnEvent, false);
+                game::OnGameTick(&OnEvent, false);
                 listening = false;
                 status = g_error.empty() ? Write() : g_error;
                 logger::log(("[pose-recorder] " + status).c_str());
@@ -109,7 +109,7 @@ namespace {
 
         void Off() override {
             g_rec = false;
-            if (listening) game::SetEventListener(&OnEvent, false);
+            if (listening) game::OnGameTick(&OnEvent, false);
             listening = false;
         }
 
@@ -119,7 +119,7 @@ namespace {
                 g_names.clear(); g_nameStr.clear(); g_data.clear(); g_error.clear();
                 g_samples = 0; g_next = 0; g_until = GetTickCount64() + ULONGLONG(seconds) * 1000;
                 g_done = false; g_rec = true;
-                game::SetEventListener(&OnEvent, true);
+                game::OnGameTick(&OnEvent, true);
                 listening = true;
                 status = "recording: walk, run, jump, attack, turn...";
             }

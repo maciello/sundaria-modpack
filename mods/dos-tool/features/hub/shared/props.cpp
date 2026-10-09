@@ -93,7 +93,7 @@ namespace {
 
     void Wake() {
         g_pending = true;
-        if (!g_listening.exchange(true)) game::SetEventListener(OnEvent, true);
+        if (!g_listening.exchange(true)) game::OnGameTick(OnEvent, true);
     }
 
     void Post(Req r) {
@@ -160,5 +160,5 @@ void props::Move(const std::string& name, float x, float y, float z, float yaw, 
 
 void props::Stop() {
     for (int i = 0; i < 50 && g_pending.load(); i++) Sleep(2);
-    if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);
+    if (g_listening.exchange(false)) game::OnGameTick(OnEvent, false);
 }

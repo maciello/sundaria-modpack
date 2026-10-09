@@ -22,7 +22,7 @@ namespace {
     SRWLOCK g_mu = SRWLOCK_INIT;
     std::string g_who, g_anim;            // guarded by g_mu
     float g_volume = 1.0f;
-    std::atomic<bool> g_dirty{false};     // apply on the next game-thread event
+    std::atomic<bool> g_dirty{false};     // apply on the next game tick
     std::atomic<bool> g_listening{false};
 
     bool Contains(const std::string& s, const std::string& part) { return !part.empty() && s.find(part) != std::string::npos; }
@@ -84,7 +84,7 @@ void npc_audio::Set(const char* who, const char* anim, float volume) {
     g_volume = volume;
     ReleaseSRWLockExclusive(&g_mu);
     g_dirty = true;
-    if (!g_listening.exchange(true)) game::SetEventListener(OnEvent, true);
+    if (!g_listening.exchange(true)) game::OnGameTick(OnEvent, true);
 }
 
 void npc_audio::Tick() {
@@ -93,6 +93,6 @@ void npc_audio::Tick() {
     if (!(w == seen)) { seen = w; g_dirty = true; }
     if (!g_dirty.load() && g_listening.load() && g_who.empty()) {  // restored: listener no longer needed
         g_listening = false;
-        game::SetEventListener(OnEvent, false);
+        game::OnGameTick(OnEvent, false);
     }
 }

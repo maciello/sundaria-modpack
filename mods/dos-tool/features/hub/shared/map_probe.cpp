@@ -97,11 +97,11 @@ void map_probe::Tick() {
     if (now < next) return;
     next = now + 2000;
     if (g_asked.load()) return;
-    if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);  // the survey ran
+    if (g_listening.exchange(false)) game::OnGameTick(OnEvent, false);  // the survey ran
     const std::string f = GamePath("dos-tool-mapsurvey.txt");
     if (GetFileAttributesA(f.c_str()) == INVALID_FILE_ATTRIBUTES) return;
     MoveFileExA(f.c_str(), (f + ".done").c_str(), MOVEFILE_REPLACE_EXISTING);
     g_asked = true;
     g_listening = true;
-    game::SetEventListener(OnEvent, true);
+    game::OnGameTick(OnEvent, true);
 }

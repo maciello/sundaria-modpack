@@ -189,14 +189,14 @@ namespace {
         SkeletonProbe() : Feature("Skeleton probe", feature::Stage::Alpha) {}
         void OnFrame(const feature::Frame&) override {
             if (listening && g_verifyDone.exchange(false)) {
-                game::SetEventListener(&OnEvent, false);
+                game::OnGameTick(&OnEvent, false);
                 listening = false;
                 status = "verify: " + g_verifyResult;
                 logger::log(("[bones] " + status).c_str());
             }
         }
         void Off() override {
-            if (listening) game::SetEventListener(&OnEvent, false);
+            if (listening) game::OnGameTick(&OnEvent, false);
             listening = false;
             g_verifyAsked = false;
         }
@@ -205,7 +205,7 @@ namespace {
                 status = "verifying...";
                 g_verifyDone = false;
                 g_verifyAsked = true;
-                game::SetEventListener(&OnEvent, true);
+                game::OnGameTick(&OnEvent, true);
                 listening = true;
             }
             ImGui::SameLine();

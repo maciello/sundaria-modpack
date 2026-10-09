@@ -201,7 +201,7 @@ namespace {
         UiProbe() : Feature("UI probe", feature::Stage::Alpha) {}  // Alpha: dev installs only; idle until requested
 
         void Listen(bool on) {
-            if (listening != on) game::SetEventListener(&OnEvent, listening = on);
+            if (listening != on) game::OnGameTick(&OnEvent, listening = on);
         }
 
         void OnFrame(const feature::Frame& f) override {

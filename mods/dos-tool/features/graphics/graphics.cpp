@@ -10,7 +10,7 @@
 
 // Graphics: engine console variables for sharper models (LOD distances, sharpening, anisotropy) and
 // smoother frames (motion blur off, less input lag, FPS cap). Console calls are UFunctions, so they
-// run on the game thread through core's ProcessEvent listener; the menu only edits kRows.
+// run on the game thread on core's game tick (game::OnGameTick); the menu only edits kRows.
 // Shipping builds reject cheat-flagged cvars: such a row shows "not applied".
 using namespace SDK;
 
@@ -76,7 +76,7 @@ namespace {
         Graphics() : Feature("Graphics", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
 
         void OnFrame(const feature::Frame&) override {
-            if (!g_on) { g_restore = false; g_on = true; game::SetEventListener(&OnEvent, true); }
+            if (!g_on) { g_restore = false; g_on = true; game::OnGameTick(&OnEvent, true); }
         }
 
         // Restore runs on the game thread: ask, wait for it (≤ 1.5 s), then unhook.
@@ -85,7 +85,7 @@ namespace {
             g_restored = false;
             g_restore = true;
             for (int i = 0; i < 150 && !g_restored; i++) Sleep(10);
-            game::SetEventListener(&OnEvent, false);
+            game::OnGameTick(&OnEvent, false);
             g_on = false;
             g_restore = false;
         }

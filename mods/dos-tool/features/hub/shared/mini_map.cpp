@@ -163,7 +163,7 @@ namespace {
         if (const int r = g_req.exchange(0)) Apply(r);
     }
 
-    void Listen() { if (!g_listening.exchange(true)) game::SetEventListener(OnEvent, true); }
+    void Listen() { if (!g_listening.exchange(true)) game::OnGameTick(OnEvent, true); }
 }
 
 void mini_map::Place(const Desk& d) {
@@ -185,5 +185,5 @@ std::vector<mini_map::Target> mini_map::Targets() {
 
 void mini_map::Stop() {
     for (int i = 0; i < 50 && g_req.load() != 0; i++) Sleep(2);
-    if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);
+    if (g_listening.exchange(false)) game::OnGameTick(OnEvent, false);
 }

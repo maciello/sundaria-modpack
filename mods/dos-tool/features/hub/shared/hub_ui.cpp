@@ -153,7 +153,7 @@ namespace {
         if (g_talkReq.exchange(false)) ApplyTalk();
     }
 
-    void Listen() { if (!g_listening.exchange(true)) game::SetEventListener(OnEvent, true); }
+    void Listen() { if (!g_listening.exchange(true)) game::OnGameTick(OnEvent, true); }
 }
 
 void hub_ui::SetButtonsHidden(bool hidden) { g_hideReq = hidden ? 1 : 0; Listen(); }
@@ -172,7 +172,7 @@ void hub_ui::Talk(float x, float y, float z) {
 
 void hub_ui::Stop() {
     for (int i = 0; i < 50 && (g_hideReq.load() >= 0 || g_talkReq.load() || g_focusReq.load() >= 0); i++) Sleep(2);  // let queued work run
-    if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);
+    if (g_listening.exchange(false)) game::OnGameTick(OnEvent, false);
 }
 
 int hub_ui::RimStencil() { return g_rim.load() < 0 ? 1 : g_rim.load(); }
