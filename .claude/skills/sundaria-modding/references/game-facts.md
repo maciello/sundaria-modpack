@@ -219,20 +219,23 @@ dps_probe (#89, Alpha optIn, features/inventory/dps-probe): file trigger `dps-pr
   not in it: tables, curves, bytecode (offline pak extractor), active gameplay effects (buffs)   # unverified in game
 
 dps_mechanics:   # pak bytecode/CDOs via `just data`, 2026-10-09 (dps-sim, outer repo). Facts and locations only; values stay in the pak
-  item_affixes:
-    stat_list: FItemCreation::GetStatPriority (`just data bp FItemCreation GetStatPriority`); table StatPriority row <Armor|Weapon|Trinket|Shield>_<Class>   # verified (bytecode)
-      mandatory: Mandatory1 + Mandatory2 always, plus one random pick of Stat3 not already used
-      potential: Stat4..Stat10 each RemoveDuplicate(used) then one random pick → distinct potential stats
-    picks: FItemCreation::NewItem_Armor_RandStats → GetAttributeFromList(AdditionalAttributesMax of ITEMGRADE_Table, potential, random)   # verified
-      no_repeats: the picked stat is removed with RemoveItem (all occurrences) → picks are distinct
-      dup: a pick already on the item (the class AP stat from GenerateItemAP) goes to the Bonus list → GetStatBonusFactor(stat, isDup); DisabledStatTypeBonus (CDO_ItemCreation) excluded
-      addon: AddOnStatTypes minus bonus, count max(N_add − (final + bonus), 0)   # unverified that it is ever > 0
-      uniform_pick: SelectRandomStat / random=true assumed uniform   # unverified (no weights found)
-    factor: StatFactor = SelectFloat(1 if stat in StatTypeIgnoredDistribution else SLOT_TABLE[slot]) × GetRandomStatBonusFactor(fromCraft) × GetStatBonusFactor × class/armor factor (ClassGearRatio, ARMOR_EQUIVALENCY_TABLE)   # verified
-    final: BP_ItemContainerComponent::Finalize Attribute Set → StatFactor × MASTER_ITEM_STAT_TABLE[stat](item level) × max(ItemGrade.Quality, floor) [× Weapon_Stats.DamageModifier for WeaponDamage] [× ElementalMagicMod for WeaponDamage_<elem>] [× EndGameTier curve if ItemTier ≠ 0]   # verified (bytecode)
-    rounding: BP_ItemContainerComponent::RoundUpAttributeValues → FCeil to 1, or to 0.01 when DataTable_AttributeSetUI.InPercentageValue   # verified
-    not_from_pools: CriticalChance, *_Bonus, Ability_<X>_Damage, Damage_<elem> appear on live gear but in no StatPriority list; source unknown (unique/set items?)   # unverified
-    check: live WeaponDamage on a Rare L10 crossbow matches the formula within the roll range (`just game get pawn.ItemContainerEquip.AttributeSetSum 2`)
+  item_affixes:   # verified 2026-10-09: a 17-item char snapshot (dos-tool-chars) predicted stat-for-stat from (spec, slot, grade, level), 146/146 exact
+    dispatch: BP_ItemContainerComponent::CreateItemAttributeSet switches on the spec's EnableRandomStats (ItemTable_Armor/_Weapon) → 0-3 InitAttributeSet_Random (StatPriority path), 4 fixed spec set, 5 ScalableStats, 6/8 InitAttributeSet_ScalableCraftBonus, 7 ScalableRandom; then Finalize Attribute Set   # `just data bp BP_ItemContainerComponent CreateItemAttributeSet`
+    which_path: nearly every armor/weapon spec has EnableRandomStats 8 → the crafting-bonus path below; the StatPriority path (GetStatPriority, NewItem_Armor_RandStats) only serves the few 0-3 specs   # `just data table ItemTable_Armor`
+    pools: FItemDataTableFunctionLibrary::GetStatCraftBonus → table by ItemGenerationVersion (0 CraftingBonus_Gen0, 1 _Gen1, 2 _Gen2, 3 CraftingBonus), row = spec ScalableCraftingTag (+GenIndex suffix when > 0, GenerateCraftBonusIndex): Mandatory1 (always), <Grade> (additional), Filler_<Grade>, Mandatory_Bonus_<Grade>; mandatory stats are removed from the other lists
+    counts: per list Min + Round((Max − Min) × seed) from ITEMGRADE_Table (AdditionalAttributes / Filler / MandatoryByGrade Min/Max; GetAdditionalAttributeNumBySeed etc.); pick order additional → filler → mandatory-by-grade
+    pick: index = Round(LastIndex × u) into the remaining list, then Array_Remove → no repeats; first and last entries are half as likely as the others; AddUnique into the item   # InitAttributeSet_ScalableCraftBonus @2879..6611; u from a seeded RandomStream / static seed table
+    value: no roll; stat pre-value = ARMOR_EQUIVALENCY column (MAP/RAP/SP, ArmorFactor → BaseToPlate, MagicResistance → ResistElementalBaseToCloth; row = armor type name, or weapon type name with struct default 1.0 when absent) × (1 if StatTypeIgnoredDistribution else SLOT_TABLE[slot]; WeaponAny reads the WeaponLeft row)   # ScalableCraftBonus @6612..9462, GetEquipSlotDistribution
+    final: Finalize Attribute Set: pre × MASTER_ITEM_STAT_TABLE[stat](item level) × max(ItemGrade.Quality, 0.7) [× ElementalMagicMod for WeaponDamage_<elem>] [× Weapon_Stats.DamageModifier for WeaponDamage] [× EndGameTier curve when ItemTier ≠ 0], in float32
+    rounding: BP_ItemContainerComponent::RoundUpAttributeValues → FCeil to 1, or to 0.01 when DataTable_AttributeSetUI.InPercentageValue; float32 error can lift an exact 0.01 to 0.02 (seen on a weapon CriticalDamage_Melee)
+    grades: item grade byte = EItemGrade (3 Rare, 4 Epic, 6 Legendary, …⊇); quality and pick counts by grade row of ITEMGRADE_Table (Gen1 table for generation versions 0/1)
+    gap: one Legendary ring carries 5 picks from its additional list where the grade allows fewer; cause not found (upgrade path / other generation version: unverified)
+  weapon_elements: BP_GameplayCombatLibrary::GetWeaponDamage loops EMagicDamageType 0..7 over the attacking weapon's attribute set and keeps only the first element with a value (array stops at length 1); ApplyTransientDamageInfoGE @8404 clones one elemental hit from it → a weapon with Fire + Nature + Holy deals only its Fire part   # verified (bytecode)
+    hero_sheet: weapon elements are not summed into the hero's Secondary set (live: WeaponDamage_* 0 with elemental weapons equipped)
+  attack_power: AP attribute = (1stMod × 1stStat + 2ndMod × 2ndStat + (L div maxLevel + 1) × L × LevelMod  [AttackPowerTable row <Class><Melee|Ranged|Spell>] + gear AP) × (1 + <X>Power_Bonus); damage AP term = AP / 220   # verified live to 0.01 (dual-wield Ranger L10, no class-weapon AP buff active)
+  armor_mitigation: 1 − A / (A + 700 + 4 × L_target) with A = ArmorFactor (physical) or MagicResistance (magic)   # verified live: TransientDamageMultiplier_ArmorMitigation of a hero hit on a wolf and of the wolf's hit on the hero both match to 6 digits
+    damage_by_attack_type: 1 + OutgoingDamageMod (+ Damage_<type>); resist_by_attack_type: 1 + target IncomingDamageMod (− Resist_<type>)   # verified live on the wolf's hit
+  crit_chance: c = (0.05 + CriticalChance) × (1 + BaseCritChance_Bonus) → CriticalChance adds, BaseCritChance_Bonus scales the sum (ApplyTransientDamageInfoGE, GetCritChance)   # verified (bytecode)
   crit: crit damage multiplier reads CriticalDamage_Melee for every attack type; CriticalDamage_Range/_Spell roll on items but have no reader in the damage path (`just data bp BP_GameAbilityBase ApplyTransientDamageInfoGE` @1626..4952, GetCriHitMultiplier)   # verified (bytecode); `readers` lists only the equip copy BP_CharacterBase::UpdateSecondaryStats-CriticalDamage, GameplayAttribute reads are not indexed
   cooldown: CooldownReduction_Bonus → AbilitySystemAttributeSet.CooldownDurationMultiplier = 1 − CDR   # verified live (bridge), mapping GE not traced
     commit: BP_GameAbilityBase K2_CommitAbilityCooldown by CooldownMode (`just data bp BP_GameAbilityBase | grep CooldownMode`); duration = curve row <Class>_<Ability>.CoolDown
