@@ -21,8 +21,8 @@
 // holds the animation lock:
 //   windup (effect not fired yet) -> the current ability is cancelled, the new one starts on the next tick
 //   out    (effect already fired) -> only the recovery animation is cut, the new one starts on the next tick
-// Trigger: the controller's K2_OnAbilityFailed with AbilityFailureReason.AnimLock. The game raises it when its input
-// queue (FlushInputs, every tick) tries the press; the queue retries the press next tick, now without the lock.
+// Trigger: the controller's K2_OnAbilityFailed with AbilityFailureReason.AnimLock, raised inside FlushInputs (every tick).
+// The cancel itself runs after FlushInputs (world tick) and only if the game retries B first next tick (#112).
 // The press event itself (InpActEvt_Ability*) only enqueues, so it cannot tell which ability the press is for.
 // Hold abilities: pressing B releases A first (ProcessAbilityInput), A's release then blocks B, so B cancels A.
 // "Out" = the montage's ApplyEffect/ShootProjectile notify fired in this montage play.
@@ -45,8 +45,8 @@ namespace {
     ref::Fn g_fnCheckLock{UArchonAbilitySystemComponent::StaticClass, "ArchonAbilitySystemComponent", "CheckAnimLock"};
     ref::Fn g_fnRemoveLock{UArchonAbilitySystemComponent::StaticClass, "ArchonAbilitySystemComponent", "RemoveAnimLock"};
     ref::Fn g_fnCancel{UGameplayAbility::StaticClass, "GameplayAbility", "K2_CancelAbility"};
+    ref::Fn g_fnInputId{UArchonAbilitySystemComponent::StaticClass, "ArchonAbilitySystemComponent", "FindAbilityInputIDFromHandle"};
     ref::Fn g_fnFailed{ABP_PlayerControllerGame_C::StaticClass, "BP_PlayerControllerGame_C", "K2_OnAbilityFailed"};
-    ref::Fn g_fnActivated{AArchonPlayerController::StaticClass, "ArchonPlayerController", "K2_OnAbilityActivated"};  // no BP override
     ref::Cached<UClass> g_pcCls{[] { return ABP_PlayerControllerGame_C::StaticClass(); }};
     ref::Ref g_inputFrom;           // the controller class g_abilityInput was read from; its functions die with it
     ref::Ref g_abilityInput[32];    // its InpActEvt_Ability<N>_* (press + release)
@@ -57,8 +57,12 @@ namespace {
     ref::Ref g_outAbility, g_outMontage;  // the montage play whose effect already fired
     bool g_outBit = false;
     input_feel::Gate g_gate;  // one action per real key press
-    ref::Ref g_cancelled;     // g_gate.cancelled, kept as a live-checked ref
-    std::atomic<int> g_presses{0}, g_blocks{0}, g_windupCancels{0}, g_recoveryCuts{0}, g_outs{0}, g_refunds{0}, g_ghosts{0};
+    // Decided in K2_OnAbilityFailed, done after FlushInputs (world tick), see input_feel::ActNow.
+    struct Pending { ref::Ref cur, pressed; int handle = 0; input_feel::Action action; } g_pend;
+    bool g_pendOn = false;
+    ref::Ref g_expect;    // B, to check on the next world ticks that it started
+    int g_expectTicks = 0;
+    std::atomic<int> g_presses{0}, g_blocks{0}, g_windupCancels{0}, g_recoveryCuts{0}, g_outs{0}, g_refunds{0}, g_noStart{0};
     std::atomic<bool> g_queueOff{false};
     thread_local bool t_busy = false;  // our own UFunction calls re-enter ProcessEvent
 
@@ -118,8 +122,7 @@ namespace {
         g_ready = true;
         const bool notify = fn == notifyFn;
         const bool failed = !notify && g_fnFailed.Is(fn);
-        const bool activated = !notify && !failed && g_fnActivated.Is(fn);
-        if (!notify && !failed && !activated) {
+        if (!notify && !failed) {
             if (IsAbilityInput(fn) && parms && PtrOk(objp)) {
                 auto* pc = static_cast<APlayerController*>(objp);
                 if (pc->IsInputKeyDown(*static_cast<FKey*>(parms))) { g_presses++; g_gate.Press(); }  // press, not release
@@ -151,18 +154,6 @@ namespace {
                 g_outBit = info.PlayBit;
                 g_outs++;
             }
-        } else if (activated && objp == pc && parms) {
-            // K2_OnAbilityActivated(Handle, Ability): the ability we cancelled restarting with no new press is a
-            // stale queue copy of its old press (the refund passes its cooldown check): cancel it again, bounded.
-            auto* p = static_cast<Params::ArchonPlayerController_K2_OnAbilityActivated*>(parms);
-            UGameplayAbility* started = PtrOk(p->Ability) ? p->Ability : nullptr;
-            g_gate.cancelled = g_cancelled.Get<void>();
-            if (started && g_gate.IsGhost(started)) {
-                g_gate.ghosts++; g_ghosts++;
-                Call(started, g_fnCancel.Get(), nullptr);
-                if (g_opt.refundCooldown) RefundCooldown(asc, started);
-                logger::log("[input-feel] ghost " + started->Class->GetName() + " restarted from the queue without a press: cancelled");
-            }
         } else if (failed && objp == pc && parms && pc->IsA(ABP_PlayerControllerGame_C::StaticClass())) {
             // K2_OnAbilityFailed(Handle, Ability, FailureReason): the game already ran its handler (queued the retry).
             auto* p = static_cast<Params::BP_PlayerControllerGame_C_K2_OnAbilityFailed*>(parms);
@@ -180,18 +171,10 @@ namespace {
                     const bool same = pressed == cur;  // mashing / combos: the game's own queue handles it
                     const input_feel::Action a = input_feel::Decide(phase, true, same, g_opt);
                     g_blocks++;
-                    g_gate.Acted(a.cancelCurrent ? cur : nullptr);  // this press is used up, acted on or not
-                    g_cancelled = a.cancelCurrent ? ref::Ref(cur) : ref::Ref{};
-                    if (a.cancelCurrent) { Call(cur, g_fnCancel.Get(), nullptr); g_windupCancels++; }
-                    if (a.refundCooldown) RefundCooldown(asc, cur);
-                    if (a.removeLock) { Call(asc, g_fnRemoveLock.Get(), nullptr); if (!a.cancelCurrent) g_recoveryCuts++; }
+                    g_gate.Acted();  // this press is used up, acted on or not
                     if (a.cancelCurrent || a.removeLock) {
-                        const bool free = CallBool(asc, g_fnCheckLock.Get());  // CheckAnimLock: true = no anim lock
-                        const UGameplayAbility* now = PtrOk(asc->LocalAnimMontageInfo.AnimatingAbility) ? asc->LocalAnimMontageInfo.AnimatingAbility : nullptr;
-                        logger::log(std::string("[input-feel] ") + (a.cancelCurrent ? "windup cancel " : "recovery cut ") + cur->Class->GetName()
-                                    + " for " + pressed->Class->GetName() + (a.refundCooldown ? ", cooldown refunded" : "")
-                                    + ", lock " + (free ? "gone" : "STILL ON")
-                                    + (a.cancelCurrent ? std::string(", montage ") + (now == cur ? "STILL PLAYING" : "stopped") : ""));
+                        g_pend = {ref::Ref(cur), ref::Ref(pressed), p->Handle.Handle, a};
+                        g_pendOn = true;
                     } else {
                         logger::log("[input-feel] " + pressed->Class->GetName() + " blocked by anim lock of " + cur->Class->GetName()
                                     + (same ? " (same ability)" : phase == input_feel::Phase::Out ? " (out, cut off)" : " (windup, cancel off)"));
@@ -202,11 +185,61 @@ namespace {
         t_busy = false;
     }
 
+    // After the controller's ReceiveTick, i.e. after FlushInputs ran the queue for this tick.
+    void OnTick(void*, void*, void*) {
+        if (t_busy || !g_on.load(std::memory_order_relaxed) || !game::OnGameThread()) return;
+        if (!g_pendOn && !g_expectTicks) return;
+        APlayerController* pc = nullptr;
+        AArchonCharacter* hero = LocalHero(&pc);
+        UArchonAbilitySystemComponent* asc = hero ? hero->mAbilitySystemComponent : nullptr;
+        if (!PtrOk(asc) || !pc->IsA(ABP_PlayerControllerGame_C::StaticClass())) { g_pendOn = false; g_expectTicks = 0; return; }
+        auto* gpc = static_cast<ABP_PlayerControllerGame_C*>(pc);
+        UGameplayAbility* now = PtrOk(asc->LocalAnimMontageInfo.AnimatingAbility) ? asc->LocalAnimMontageInfo.AnimatingAbility : nullptr;
+        t_busy = true;
+        if (g_expectTicks) {  // did B take the lock we freed?
+            auto* b = g_expect.Get<UGameplayAbility>();
+            if (b && now == b) g_expectTicks = 0;
+            else if (--g_expectTicks == 0) {
+                g_noStart++;
+                logger::log("[input-feel] " + (b ? b->Class->GetName() : std::string("?")) + " did NOT start after the cancel (animating "
+                            + (now ? now->Class->GetName() : std::string("nothing")) + ")");
+            }
+        }
+        if (g_pendOn) {
+            g_pendOn = false;
+            auto* cur = g_pend.cur.Get<UGameplayAbility>();
+            auto* pressed = g_pend.pressed.Get<UGameplayAbility>();
+            const input_feel::Action a = g_pend.action;
+            Params::ArchonAbilitySystemComponent_FindAbilityInputIDFromHandle q{};
+            q.Handle.Handle = g_pend.handle;
+            q.ReturnValue = gpc->kNoOpAbilityInputID;
+            if (pressed) Call(asc, g_fnInputId.Get(), &q);
+            const int pressedId = q.ReturnValue;
+            if (!input_feel::ActNow(true, cur && now == cur, gpc->lastFailureAbilityInputID, pressedId, gpc->kNoOpAbilityInputID)) {
+                logger::log("[input-feel] skip: " + (pressed ? pressed->Class->GetName() : std::string("?"))
+                            + " is not next in the game's queue (or the current ability ended)");
+            } else {
+                if (a.cancelCurrent) { Call(cur, g_fnCancel.Get(), nullptr); g_windupCancels++; }
+                if (a.refundCooldown) RefundCooldown(asc, cur);
+                if (a.removeLock) { Call(asc, g_fnRemoveLock.Get(), nullptr); if (!a.cancelCurrent) g_recoveryCuts++; }
+                const bool free = CallBool(asc, g_fnCheckLock.Get());  // CheckAnimLock: true = no anim lock
+                const UGameplayAbility* after = PtrOk(asc->LocalAnimMontageInfo.AnimatingAbility) ? asc->LocalAnimMontageInfo.AnimatingAbility : nullptr;
+                logger::log(std::string("[input-feel] ") + (a.cancelCurrent ? "windup cancel " : "recovery cut ") + cur->Class->GetName()
+                            + " for " + pressed->Class->GetName() + (a.refundCooldown ? ", cooldown refunded" : "")
+                            + ", lock " + (free ? "gone" : "STILL ON")
+                            + (a.cancelCurrent ? std::string(", montage ") + (after == cur ? "STILL PLAYING" : "stopped") : ""));
+                g_expect = ref::Ref(pressed); g_expectTicks = 3;
+            }
+        }
+        t_busy = false;
+    }
+
     // Received_Notify + every call on the hero's controller: its ability inputs (InpActEvt_Ability*, K2Node numbers
     // change with game builds, so matched in IsAbilityInput), K2_OnAbilityFailed and K2_OnAbilityActivated.
     void Listen(bool on) {
         game::On("BP_GameplayAnimNotify_C", "Received_Notify", &OnEvent, on);
         game::OnClass("BP_PlayerControllerGame_C", &OnEvent, on);
+        game::OnWorldTick(&OnTick, on);
     }
 
     struct InputFeel : feature::Feature {
@@ -219,7 +252,7 @@ namespace {
         void Off() override {
             g_on = false;
             Listen(false);
-            g_outAbility = {}; g_outMontage = {}; g_cancelled = {}; g_gate = {};
+            g_outAbility = {}; g_outMontage = {}; g_gate = {}; g_pendOn = false; g_pend = {}; g_expect = {}; g_expectTicks = 0;
         }
 
         void Menu() override {
@@ -227,8 +260,8 @@ namespace {
             ImGui::Checkbox("Cut recovery once the ability is out", &g_opt.cancelRecovery);
             ImGui::Checkbox("Refund cooldown of a cancelled ability", &g_opt.refundCooldown);
             if (!g_ready) { ImGui::TextDisabled("waiting for game classes"); return; }
-            ImGui::TextDisabled("presses %d  out %d  lock blocks %d  windup cancels %d  refunds %d  recovery cuts %d  ghosts %d", g_presses.load(),
-                                g_outs.load(), g_blocks.load(), g_windupCancels.load(), g_refunds.load(), g_recoveryCuts.load(), g_ghosts.load());
+            ImGui::TextDisabled("presses %d  out %d  lock blocks %d  windup cancels %d  refunds %d  recovery cuts %d  no start %d", g_presses.load(),
+                                g_outs.load(), g_blocks.load(), g_windupCancels.load(), g_refunds.load(), g_recoveryCuts.load(), g_noStart.load());
             if (g_queueOff) ImGui::TextWrapped("Note: the game setting 'Disable input queue' is on. Turn it off: cancels need the queue.");
         }
     } g_input_feel;
