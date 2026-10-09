@@ -231,6 +231,12 @@ static bool InitImGui(IDXGISwapChain* sc) {
     return true;
 }
 
+// The one on/off path (menu checkbox, live bridge): render thread. RunFeatures calls Off() on the next pass.
+static void SetEnabled(feature::Feature* f, bool on) {
+    f->enabled = on;
+    ImGui::MarkIniSettingsDirty();
+}
+
 static void DrawMenu(const game::Snapshot& snap) {
     ImGui::GetIO().MouseDrawCursor = g_showMenu;
     if (!g_showMenu) return;
@@ -262,7 +268,8 @@ static void DrawMenu(const game::Snapshot& snap) {
             if (f->stage != stage) continue;
             ImGui::SeparatorText(f->name);
             ImGui::PushID(f->name);
-            if (ImGui::Checkbox("Enabled", &f->enabled)) ImGui::MarkIniSettingsDirty();
+            bool on = f->enabled;
+            if (ImGui::Checkbox("Enabled", &on)) SetEnabled(f, on);
             if (*kStage[st]) { ImGui::SameLine(); ImGui::TextColored(kStageColor[st], "%s", kStage[st]); }
             if (f->enabled) f->Menu();
             ImGui::PopID();
