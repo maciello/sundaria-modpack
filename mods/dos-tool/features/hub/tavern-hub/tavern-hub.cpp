@@ -253,7 +253,7 @@ namespace {
             if (k && !keyWas) walking ? StopWalk() : StartWalk();
             keyWas = k;
             const bool up = focused && !typing && Down(VK_PRIOR), dn = focused && !typing && Down(VK_NEXT);
-            if (!hub_state::carrying && ((up && !nudgeWas) || (dn && !nudgeWas))) NudgeFloor(up ? 10.0f : -10.0f);
+            if (!hub_state::build && ((up && !nudgeWas) || (dn && !nudgeWas))) NudgeFloor(up ? 10.0f : -10.0f);  // build mode owns them
             nudgeWas = up || dn;
             const bool rk = focused && !typing && Down(VK_F10);
             if (rk && !roomWas) CloseRoom();

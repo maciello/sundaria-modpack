@@ -35,7 +35,7 @@ void build_hud::Draw(const feature::Frame& f, const State& s) {
     } else {
         std::snprintf(buf, sizeof(buf), "%s  pick up    T  fetch here    C  copy", pick);
         lines.push_back({buf, body, type::kXs * ui, muted});
-        lines.push_back({"[ ]  catalog    N  place new    Del  reset    B  leave", body, type::kXs * ui, muted});
+        lines.push_back({"PgUp PgDn  catalog    N  place new    Del  reset    B  leave", body, type::kXs * ui, muted});
     }
 
     float w = 0, h = 0;

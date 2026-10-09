@@ -19,7 +19,7 @@
 // Build mode for the hub (B while walking with the tavern hub, also when flying the free camera): what the crosshair
 // is on - a prop or an NPC - gets outlined; pick it up, carry it (in front of you, or where the free camera's view
 // meets your floor) at its height above the floor, turn it (R), lift it (wheel, Page Up/Down), put it down or cancel.
-// T fetches it next to you, C copies a prop, [ ] + N place a new one from the map's catalog, Del resets.
+// T fetches it next to you, C copies a prop, Page Up/Down + N place a new one from the map's catalog, Del resets.
 // Saved: props as PROP:<actor>=x,y,z,yaw, NPCs under their name (the tavern hub's layout), copies in the spawn list.
 namespace {
     bool Down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
@@ -261,8 +261,9 @@ namespace {
             const bool bring = bringKey(keys && Down('T')), reset = resetKey(keys && Down(VK_DELETE));
             const bool dup = dupKey(keys && Down('C')), make = newKey(keys && Down('N'));  // D strafes
             const std::vector<props_spawn::Item> catalog = props_spawn::Catalog();
-            if (prevKey(keys && Down(VK_OEM_4)) && !catalog.empty()) catalogIndex = (catalogIndex + int(catalog.size()) - 1) % int(catalog.size());
-            if (nextKey(keys && Down(VK_OEM_6)) && !catalog.empty()) catalogIndex = (catalogIndex + 1) % int(catalog.size());
+            // Page Up / Page Down browse the catalog while nothing is carried ([ ] sit badly on German keyboards)
+            if (prevKey(keys && Down(VK_PRIOR)) && !catalog.empty()) catalogIndex = (catalogIndex + int(catalog.size()) - 1) % int(catalog.size());
+            if (nextKey(keys && Down(VK_NEXT)) && !catalog.empty()) catalogIndex = (catalogIndex + 1) % int(catalog.size());
             if (make && !catalog.empty()) {
                 SpawnCopy(catalog[catalogIndex % catalog.size()].mesh, hub_state::camYaw + 180.0f, 1.0f, 0.0f, 60.0f, h);
                 return;
