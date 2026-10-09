@@ -164,10 +164,14 @@ loot_fx:   # pak, offline (`just data show <asset>`, 2026-10-09; summaries of al
   colour_route: per-component material instance (UPrimitiveComponent::CreateDynamicMaterialInstance(0, null) + SetMaterial) and a vector param of the emitter's material. Particle-sprite materials with a colour vector param: fx_fireFlies (Emissive Thorax), M_GPP_RadialGlow_Tint / M_GPBAR_RadialGlow_Tint (Color A, Color B; additive radial glow) …⊇. Sparkle materials M_FlickeringSparkle_01/02/03, M_ky_starDust, fx_base_flareBASE take colour only from the particle colour (no vector param)
   cooked_material_params: `just data show <Material>` → CachedExpressionData.Parameters."RuntimeEntries" = scalars, "RuntimeEntries[1]" = vectors, "[2]" = textures (expressions are stripped)
 
-combat_log (unused so far; crits + own-vs-party damage; whether its delegates pass ProcessEvent: UNVERIFIED):
+combat_log (no use for crits):
   delegates: AArchonCharacter::OnCombatLogGeneratedDelegate_Offense / _Defense
   payload: FCombatDetailDamage {FinalDamage, BlockedDamage, CritLevel, ResistedDamage, MitigatedDamage_Armor, bIsHeal}
-  cost: needs a ProcessEvent/delegate hook on the game thread, not the Present hook
+  broadcast_by: BP_CharacterBase_C::FAnyDamage @962/@1322 with CritLevel 0, Blocked/Resisted/Mitigated 0 always; bound only by the debug BP_CombatLogger (`just data bp BP_CharacterBase FAnyDamage`, `just data callers OnCombatLogGeneratedDelegate_Offense`)   # verified (bytecode)
+damage_event:   # features/inventory/dps-probe (#111)
+  hit: BP_CharacterBase_C::ReceiveAnyDamage(Damage, DamageType CDO, InstigatedBy controller, DamageCauser) on the damaged character, via ProcessEvent (AActor::TakeDamage → ubergraph → FAnyDamage)   # seen on the hero being hit: `just game trace 'ReceiveAnyDamage|OnExecute' 30` 2026-10-09; on enemies hit by the hero UNVERIFIED; server side (TakeDamage), co-op client UNVERIFIED
+  crit: GameplayCue OnExecute declared by BP_GameplayCueNotifyStatic_HitImpact_C, object class BP_GameplayCueNotifyStatic_HitImpact_Critical_Damage_C on a crit (instead of _HitImpact_C / _HitImpact_Melee_C), params {MyTarget, FGameplayCueParameters}   # trace 2026-10-09: 1 crit cue of 8 HitImpact cues, 7 ReceiveAnyDamage; same tick as the damage UNVERIFIED
+  crit_math: BP_GameAbilityBase CritHitLevel / GetAbilityCritLevel / GetCriHitMultiplier are BP-to-BP (no ProcessEvent)
 
 damage_types: UArchonGameplayEffect::mDamageTypeClass (TSubclassOf<UDamageType>, the Effect arg of the combat-log delegate)
   classes: `sdk.py subs UDamageType` → UBP_DamageType_Magic_Ice_C, _Burn_, UBP_DamageDOT_Poison_C, …⊇
@@ -226,6 +230,7 @@ weapon_types (SDK only, values unread in game; probe: features/weapon-probe, `we
 dps_probe (#89, Alpha optIn, features/inventory/dps-probe): file trigger `dps-probe.probe` next to the exe -> `dos-tool-dps-state.yaml`
   content: hero + 3 nearest non-player characters: every float of each SpawnedAttributes set (Primary/Secondary/Heroism/Status/Config), hero's equipped items with rolled stats (items::io::Read)
   not in it: tables, curves, bytecode (offline pak extractor), active gameplay effects (buffs)   # unverified in game
+  hits (#111): while enabled, no trigger: hero's hits (damage_event above) → `hits:` per enemy class first plain hit + first crit, ≤32 classes, file rewritten on the world tick when one is added; log `[dps-probe] captured <class>`   # unverified in game
 
 dps_mechanics:   # pak bytecode/CDOs via `just data`, 2026-10-09 (dps-sim, outer repo). Facts and locations only; values stay in the pak
   item_affixes:   # verified 2026-10-09: a 17-item char snapshot (dos-tool-chars) predicted stat-for-stat from (spec, slot, grade, level), 146/146 exact
