@@ -37,5 +37,27 @@ int main() {
     if (y != want) std::puts(y.c_str());
     assert(y == want);
     assert(Yaml(Snapshot{}, {}, {}).find("equipped: []\n") != std::string::npos);
+
+    // read back what Yaml wrote
+    s.name = "He said \"hi\"";
+    s.primaryStats = {18, 20.5f};
+    s.learned.push_back({"AimedShot", 2});
+    items::Item ring;
+    ring.slot = 13;
+    ring.equipSlot = 0;
+    ring.name = "Ring";
+    ring.kind = items::Kind::Armor;
+    ring.grade = 4;
+    s.equipped.push_back(ring);
+    const Read r = Parse(Yaml(s, {"RAP"}, {"Head", "MainHand"}));
+    assert(r.slot == 2 && r.name == "He said \"hi\"" && r.cls == "Ranger" && r.level == 10);
+    assert(r.primaryStats.size() == 2 && r.primaryStats[1] == 20.5f);
+    assert(r.learned.size() == 2 && r.learned[1].name == "AimedShot" && r.learned[1].level == 2);
+    assert(r.equipped.size() == 2);
+    const Gear& g = r.equipped[0];
+    assert(g.slot == 4 && g.equipSlot == "MainHand" && g.name == "Bow" && g.spec == 7 && g.kind == "Weapon" && g.type == "Bow2H" && g.level == 9);
+    assert(g.stats.size() == 2 && g.stats[0].first == "RAP" && g.stats[0].second == 12.5f && g.stats[1].first == "Stat 5");
+    assert(r.equipped[1].equipSlot == "Head" && r.equipped[1].grade == 4 && r.equipped[1].stats.empty() && r.equipped[1].type.empty());
+    assert(Parse("garbage\n").slot == -1);
     std::puts("ok");
 }
