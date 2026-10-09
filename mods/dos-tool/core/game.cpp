@@ -23,6 +23,7 @@
 #include "room.hpp"
 #include "umg.hpp"
 #include "cost.hpp"
+#include "events.hpp"
 #include <cmath>
 #include <algorithm>        // Params::PlayerCameraManager_BlueprintUpdateCamera (free camera)
 
@@ -908,8 +909,10 @@ namespace {
         return dev;
     }
 
+    thread_local int t_inHook = 0;  // this thread is inside hkProcessEvent (nested calls count)
+
     void hkProcessEvent(const UObject* obj, UFunction* fn, void* parms) {
-        g_inPE++;
+        g_inPE++, t_inHook++;
         if (g_probeOn.load(std::memory_order_relaxed)) {
             AcquireSRWLockExclusive(&g_probeMu);
             if (const ref::Ref f(fn); g_seen.insert(f).second)
@@ -926,6 +929,7 @@ namespace {
         int listeners = 0;
         for (int i = 0, n = g_listenerEnd.load(std::memory_order_relaxed); i < n; i++)
             if (game::EventListener f = g_listeners[i].load(std::memory_order_relaxed)) f(const_cast<UObject*>(obj), fn, parms), listeners++;
+        listeners += events::Dispatch(obj, fn, parms);
         if (timed) {
             static cost::Avg avg{"ProcessEvent dispatch", 8192};
             LARGE_INTEGER t1, f;
@@ -975,7 +979,7 @@ namespace {
             if (g_roomPending.load(std::memory_order_relaxed)) RoomTick();
             g_inCamMove = false;
         }
-        g_inPE--;
+        g_inPE--, t_inHook--;
     }
 
     // One ProcessEvent hook shared by the probe, event listeners, free camera, hub walk, NPC placement and rooms:
@@ -984,7 +988,7 @@ namespace {
         bool want = g_probeOn.load() || g_freeOn.load() || g_camMoved.load() || g_walkOn.load()
                  || g_walkHeld.load() || g_placePending.load() || g_colPending.load() || g_roomPending.load();
         for (auto& l : g_listeners) want |= l.load() != nullptr;
-        want |= g_filter.load() != nullptr;
+        want |= g_filter.load() != nullptr || events::Live();
         if (want && !g_peTarget) {
             MH_Initialize();  // already initialised by kiero: harmless
             void* target = reinterpret_cast<void*>(InSDKUtils::GetImageBase() + Offsets::ProcessEvent);
@@ -1004,6 +1008,13 @@ namespace {
         }
     }
 }
+
+bool events::DrainHook() {
+    if (t_inHook) return false;  // a callback waiting for itself
+    for (int i = 0; i < 200; i++, Sleep(10)) if (g_inPE.load() == 0) return true;
+    return false;
+}
+void events::UpdateHook() { UpdatePEHook(); }
 
 void game::SetEventFilter(EventFilter f, bool on) {
     EventFilter want = on ? nullptr : f;

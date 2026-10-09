@@ -58,10 +58,19 @@ namespace game {
     void SetEventProbe(bool on);
     void ProbeFlush();
 
-    // Game-thread ProcessEvent listener for a feature with its own SDK-including .cpp; runs after
-    // the original call (obj = UObject*, fn = UFunction*). The hook stays installed while the probe
-    // or any listener is on. Up to 16 listeners; a 17th is logged and dropped.
+    // Game events: subscribe to what you need (skill references/game-events.md). cb runs after the game's own
+    // ProcessEvent call: obj = UObject*, fn = UFunction*, parms = its parameters. ProcessEvent also runs on worker
+    // threads: UFunction calls and shared state only behind OnGameThread(). on=false returns once no in-flight call is
+    // inside cb (unless called from inside a callback). No cap; a cb subscribed to overlapping events may run twice per call.
     using EventListener = void (*)(void* obj, void* fn, void* parms);
+    // One function by FName: fn = its name, cls = the class that declares it (a Blueprint override: the Blueprint,
+    // "BP_TriggerBase_C"); cls nullptr = that name on every class (all ReceiveBeginPlay overrides). The class may load later.
+    void On(const char* cls, const char* fn, EventListener cb, bool on);
+    void OnWorldTick(EventListener cb, bool on);  // local player controller's ReceiveTick: the only point to add/remove widgets (#50)
+    void OnClass(const char* cls, EventListener cb, bool on);  // every function called on an object of exactly class cls
+    void OnGameTick(EventListener cb, bool on);   // game thread, at most every 8 ms, any map or menu; obj = fn = parms = null
+    void OnEvery(EventListener cb, bool on);      // every ProcessEvent call: traces only, it costs every call
+    // Old API, until every feature has moved: cb gets every ProcessEvent call. Up to 64 listeners.
     void SetEventListener(EventListener l, bool on);
     // Runs before the original call; true = the game's own call is skipped (listeners still run after).
     // One filter at a time. Replace a game action only where doing it twice is the alternative.

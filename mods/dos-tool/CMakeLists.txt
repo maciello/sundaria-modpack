@@ -20,6 +20,7 @@ list(FILTER FEATURES EXCLUDE REGEX "/test/")  # native tests have main()
 add_library(${PROJECT_NAME} SHARED
     # our code: core host + every features/[<domain>/]<name>/*.cpp (each feature registers itself) + domain shared/*.cpp
     core/dllmain.cpp
+    core/events.cpp
     core/game.cpp
     core/overlay.cpp
     core/ref.cpp
