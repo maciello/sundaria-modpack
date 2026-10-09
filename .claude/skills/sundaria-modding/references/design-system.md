@@ -175,7 +175,7 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
   (select mark, comparison icon, stack count).
 - Reason: one line in the game's item details panel (`WidgetItemDisplayDetail_C`), appended under its text, styled like the panel's own
   "Learned" line (Narkisim 16, orange 1, .651, .27, centred, wraps): `Sell suggested: worse than <item>` / `Salvage suggested: …`.
-- Code: `features/item-sell/inventory-badges.cpp`; data: `item_sell::api::Suggested()`.
+- Code: `features/inventory/item-sell/inventory-badges.cpp` on `inventory/shared/tiles.hpp` + `marks.hpp`; data: `item_sell::api::Suggested()`.
 - Don't: own colours or ImGui over the bag; selecting items for the player (the game's Select mode stays theirs).
 - Upgrade marks: § Item upgrade marks (bottom-left; this mark keeps the top-left).
 
@@ -196,7 +196,7 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
   `Better for <hero> (<class>): +6.1% DPS` (best other hero), `Best in slot: <class>[, <class>]` (no owned item of that class's slot beats it).
 - Colour is never the only channel: the "+" and "%" say upgrade, a name says other hero.
 - Motion: none (the game's tiles have none).
-- Constants: `features/inventory/item-upgrade/item-upgrade.hpp`.
+- Code: `features/inventory/item-upgrade/` (constants + verdict logic `item-upgrade.hpp`, scores `scores.cpp`); chip widget `inventory/shared/marks.hpp` `ChipIn`. Dev install without DPS tables: preview marks (every third equipable an upgrade, every third "Preview"), details say "Preview, no DPS data yet".
 - Don't: ImGui over the bag, own art, a second chip per slot, numbers below `kMinGain` (noise), marks on consumables.
 
 ### Boss name card (#19, Borderlands style)
