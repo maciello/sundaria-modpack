@@ -10,6 +10,7 @@ just data show GE_RapidShot_DamageInfo           # all exports as JSON (unique f
 just data table Weapon_Stats                     # DataTable / CurveTable rows as YAML (BP field GUID suffixes stripped)
 just data bp BP_GameAbilityBase ApplyTransientDamageInfoGE   # Kismet bytecode as statements; function = regex, omit for all
 just data grep 'Ability_RapidFire_Damage' --in 'Abilities/Ranger/'   # search values; --in exports matching assets first (cap 5000)
+just data fx 'Environmental' [--all]             # particle templates for core/fx.hpp: emitters, loop/burst, life, size, colour params (references/fx.md)
 ```
 
 ```yaml

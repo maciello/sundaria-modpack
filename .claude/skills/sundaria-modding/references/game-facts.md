@@ -155,7 +155,7 @@ loot_events:   # `just data events BP_WorldSingleItemtLoot|BP_WorldLootBase`, `j
   chest: ItemFactoryComponent.OnLootReady bound → BP_WorldLootBase_C::OnLootReady (ProcessEvent); OnItemFactoryEmptied bound event (BndEvt__…K2Node_ComponentBoundEvent_1…)
   multicast: MulticastPlayPickupSound is NetMulticast: a host's own BP call runs it in the script VM (no ProcessEvent); clients receive it via ProcessEvent
 
-loot_fx:   # pak, offline (`just data show <asset>`, 2026-10-09; summaries of all 664 ParticleSystem assets); in game: unverified unless marked
+loot_fx:   # usable templates + API: fx.md (`just data fx`). pak, offline (`just data show <asset>`, 2026-10-09; summaries of all 664 ParticleSystem assets); in game: unverified unless marked
   vanilla_on_loot: rare chest BP_TreasureChest_Rare = fx_BossChest_Glow; boss chests fx_weapon_iceMist / fx_weapon_holyLvl2 / fx_weapon_holyMist; weapon racks LootParticleSystem P_ky_trail_ice (inactive); loot pile dun_cas_lootPile_activateA (coin burst on collect) …⊇
   candidates_rejected: fx_env_flowerPollen_Glow (1 emitter, 450 cm cylinder, life 25–50 s, warmup 50 s: a room-wide haze), fx_BossChest_Glow (4 emitters: flare + light + motes, a big glow), P_ky_hit_shine / P_ky_trail_shineDust (bursts, loops 1), P_Elemental_ice_ambient_01 (smoke + 30–50/s sparkles), fx_fireFlies (+ a dynamic-light emitter) …⊇
   chosen_template: Environments/HumanProps/Magic/Particles/hp_mag_alchemyOrb_fireflies (features/loot/idle-loot): 1 sprite emitter, burst 5 at t 0, infinite life, Orbit offset 0–20 cm, rotation rate 0.1–0.25, ColorOverLife white, DynamicParam ThoraxFlickerRate 0.05–5 (spawn-time random), material MI fx_fireFlies_Full (parent fx_fireFlies, BLEND_Masked, bUsedWithParticleSprites)

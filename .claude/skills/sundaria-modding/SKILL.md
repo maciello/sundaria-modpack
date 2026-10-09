@@ -33,6 +33,7 @@ Unsure how the game works? Look it up first (≤1 s each); guesses + probe build
 | a question about the RUNNING game (live values, actors nearby, what fires, how it looks now): `just game get/find/call/trace/shot/log`; switch a feature on/off without the Insert menu: `just game feature` | `references/live-bridge.md` |
 | new machine (SDK, MSVC kit), working together, trunk/flags | repo `CLAUDE.md` → `just sdk-pull` |
 | extend a game screen (inventory, bank, menus): its UMG widgets, styles, how to add ours; `just ui <Class>` dumps live trees | `references/game-ui.md` |
+| an effect in the world (sparkle, glow, marker on an actor or spot): game particle templates + `core/fx.hpp` | `references/fx.md` (`just data fx <regex>`) |
 | any visual: colours, sizes, motion, icons, component specs (numbers, bars, loot, cards, menu) | `references/design-system.md` + tokens `core/style.hpp`; rule `.claude/rules/design.md`; reference images (local only, never commit) `../design-refs/<topic>/index.yaml` |
 | ability scripts: Lua host, ECS, new actions/events | `references/ability-mods.md` |
 | custom animations on the player (Paragon → skeleton copy → retarget → ~mods pak), skeleton facts | `references/animation-pipeline.md` |
@@ -42,7 +43,7 @@ Unsure how the game works? Look it up first (≤1 s each); guesses + probe build
 | path | does |
 |---|---|
 | `scripts/sdk.py` | query the SDK: `class`, `chain`, `field <regex>`, `subs` |
-| `just data` (repo `scripts/data.py`) | offline pak data: `find`, `show` JSON, `table` YAML, `bp` bytecode, `grep` values; Blueprint xref index: `callers`, `writers`/`readers`, `calls`, `events`, `ast` → `references/game-data.md` |
+| `just data` (repo `scripts/data.py`) | offline pak data: `find`, `show` JSON, `table` YAML, `bp` bytecode, `grep` values; Blueprint xref index: `callers`, `writers`/`readers`, `calls`, `events`, `ast`; `fx` particle templates → `references/game-data.md`, `references/fx.md` |
 | `just game` (repo `scripts/game.py`) | live game over 127.0.0.1 (dev install): `get` path, `find` actors, `call`, `trace` ProcessEvent, `shot` PNG, `log`, `feature` list/toggle → `references/live-bridge.md` |
 | `scripts/new-feature.sh` | scaffold `features/<kebab>/` (+ `--logic`: header + test) |
 | `scripts/dev-check.sh` | game alive? hot-swap happened? log tail |
