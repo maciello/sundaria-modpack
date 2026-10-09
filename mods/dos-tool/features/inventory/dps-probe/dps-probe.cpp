@@ -151,5 +151,9 @@ namespace {
             DeleteFileA(path.c_str());
             g_probe = true;
         }
+        void Off() override {
+            game::OnWorldTick(&OnEvent, false);
+            g_listening = false;
+        }
     } g_dps_probe;
 }
