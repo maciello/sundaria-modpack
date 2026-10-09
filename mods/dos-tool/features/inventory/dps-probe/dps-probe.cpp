@@ -1,6 +1,8 @@
 #include "feature.hpp"
 #include "game.hpp"
 #include "logger.hpp"
+#include "ref.hpp"
+#include "capture.hpp"
 #include "reflect.hpp"
 #include "umg.hpp"
 #include "../shared/sdk.hpp"
@@ -15,10 +17,14 @@
 #include "Engine_classes.hpp"
 #include "Archon_classes.hpp"
 #include "GameplayAbilities_classes.hpp"
+#include "Engine_parameters.hpp"
+#include "GameplayAbilities_parameters.hpp"
 
 // DPS probe (dev, #89; file trigger dps-probe.probe next to the exe -> dos-tool-dps-state.yaml). Game thread.
 // Live damage inputs only: the hero's attribute sets, equipped items with their rolled stats, heroism, and the
 // nearest enemies' attribute sets. Static game data (tables, formula) comes from the offline pak extractor.
+// Hits (#111), while enabled: each hit of the hero on an enemy (ReceiveAnyDamage on the target, crit = the
+// HitImpact_Critical cue on it in the same tick) → per enemy class its first plain hit and first crit go to `hits:`.
 using namespace SDK;
 using umg::PtrOk;
 
@@ -92,10 +98,16 @@ namespace {
         return out;
     }
 
+    AArchonCharacter* Hero() {
+        APlayerController* pc = items::sdk::LocalPC();
+        return PtrOk(pc) && PtrOk(pc->Pawn) && pc->Pawn->IsA(AArchonCharacter::StaticClass()) ? static_cast<AArchonCharacter*>(pc->Pawn) : nullptr;
+    }
+
+    std::string ClassName(const UObject* o) { return PtrOk(o) && PtrOk(o->Class) ? o->Class->GetName() : "null"; }
+
     std::string Report() {
         std::string y = F("tick_ms: %llu\n", GetTickCount64());
-        APlayerController* pc = items::sdk::LocalPC();
-        auto* hero = PtrOk(pc) && PtrOk(pc->Pawn) && pc->Pawn->IsA(AArchonCharacter::StaticClass()) ? static_cast<AArchonCharacter*>(pc->Pawn) : nullptr;
+        AArchonCharacter* hero = Hero();
         if (!hero) return y + "hero: null  # no AArchonCharacter pawn\n";
         y += F("hero:\n  class: %s\n  attribute_sets:\n", hero->Class->GetName().c_str()) + Sets(hero, "    ");
 
@@ -120,21 +132,95 @@ namespace {
         return y;
     }
 
-    void Write() {
-        const std::string out = Report();
+    // Game thread only, from here down to the feature.
+    struct Hit { ref::Ref target; float damage; std::string type, causer, ability; bool crit = false; };
+    constexpr size_t kTickCap = 32;  // hits buffered per world tick
+    std::vector<Hit> g_hits;         // this tick's hero hits on enemies
+    std::vector<ref::Ref> g_crits;   // this tick's crit cue targets
+    dps_probe::Keep g_keep;
+    std::string g_snapshot, g_records;  // last trigger report; captured hit records (yaml list items)
+
+    void Save() {
+        const std::string out = g_snapshot + (g_records.empty() ? "" : "hits:  # per enemy class: first plain hit + first crit (#111)\n" + g_records);
         HANDLE h = CreateFileA((ExeDir() + "dos-tool-dps-state.yaml").c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (h == INVALID_HANDLE_VALUE) return;
         DWORD wr = 0;
         WriteFile(h, out.data(), DWORD(out.size()), &wr, nullptr);
         CloseHandle(h);
-        logger::log("[dps-probe] " + std::to_string(out.size()) + " bytes -> dos-tool-dps-state.yaml");
     }
 
-    void OnEvent(void*, void* fn, void*) {
-        if (t_busy || !game::OnGameThread() || !umg::IsWorldTick(fn)) return;
+    void Write() {
+        g_snapshot = Report();
+        Save();
+        logger::log("[dps-probe] " + std::to_string(g_snapshot.size()) + " bytes -> dos-tool-dps-state.yaml");
+    }
+
+    // ReceiveAnyDamage (BP_CharacterBase_C or any override) on the damaged actor; InstigatedBy = the hitter's controller.
+    void OnDamage(void* obj, void*, void* parms) {
+        if (!game::OnGameThread() || !PtrOk(parms) || g_hits.size() >= kTickCap) return;
+        const auto* p = static_cast<const Params::Actor_ReceiveAnyDamage*>(parms);
+        AArchonCharacter* hero = Hero();
+        auto* t = static_cast<UObject*>(obj);
+        if (!hero || p->Damage <= 0 || !PtrOk(p->InstigatedBy) || p->InstigatedBy != hero->Controller) return;
+        if (!PtrOk(t) || t == hero || !t->IsA(AArchonCharacter::StaticClass())) return;
+        const auto* c = static_cast<AArchonCharacter*>(t);
+        if (PtrOk(c->Controller) && c->Controller->IsA(APlayerController::StaticClass())) return;
+        Hit h{ref::Ref(t), p->Damage, ClassName(p->DamageType), ClassName(p->DamageCauser), "null"};
+        if (UAbilitySystemComponent* asc = hero->mAbilitySystemComponent; PtrOk(asc))
+            h.ability = ClassName(asc->LocalAnimMontageInfo.AnimatingAbility);
+        g_hits.push_back(std::move(h));
+    }
+
+    // BP_GameplayCueNotifyStatic_HitImpact_C::OnExecute; on a crit its class is ..._HitImpact_Critical_Damage_C.
+    void OnCue(void* obj, void*, void* parms) {
+        if (!game::OnGameThread() || !PtrOk(parms) || g_crits.size() >= kTickCap) return;
+        if (ClassName(static_cast<UObject*>(obj)).find("Critical") == std::string::npos) return;
+        const auto* p = static_cast<const Params::GameplayCueNotify_Static_OnExecute*>(parms);
+        if (PtrOk(p->MyTarget)) g_crits.push_back(ref::Ref(p->MyTarget));
+    }
+
+    std::string Record(AArchonCharacter* t, AArchonCharacter* hero, const Hit& h, int sameTick) {
+        return F("  - class: %s\n    name: %s\n    tick_ms: %llu\n", ClassName(t).c_str(), t->GetName().c_str(), GetTickCount64()) +
+               F("    hit: {damage: %.6g, crit: %s, damage_type: %s, causer: %s, ability: %s, hero_hits_on_target_this_tick: %d}\n", h.damage,
+                 h.crit ? "true" : "false", h.type.c_str(), h.causer.c_str(), h.ability.c_str(), sameTick) +
+               "    attribute_sets:  # after the hit\n" + Sets(t, "      ") + "    hero_attribute_sets:\n" + Sets(hero, "      ");
+    }
+
+    // World tick: this tick's hits → records. O(hits × (hits + crits)) of one tick, both capped.
+    void Flush() {
+        AArchonCharacter* hero = g_hits.empty() ? nullptr : Hero();
+        bool added = false;
+        for (Hit& h : g_hits) {
+            AArchonCharacter* t = h.target.Get<AArchonCharacter>();
+            if (!t || !hero || !PtrOk(t->Class)) continue;
+            int same = 0;
+            for (const Hit& o : g_hits) same += o.target == h.target;
+            for (const ref::Ref& c : g_crits) h.crit |= c == h.target;  // ponytail: 2 hits on one target in one tick + 1 crit → both marked; split by cue order if it matters
+            const uint64_t key = uint64_t(uint32_t(t->Class->Name.ComparisonIndex)) << 32 | uint32_t(t->Class->Name.Number);
+            const bool fresh = g_keep.NewClass(key);
+            if (!g_keep.Take(key, h.crit)) continue;
+            g_records += Record(t, hero, h, same);
+            added = true;
+            if (fresh) logger::log(F("[dps-probe] captured %s: %.6g %s by %s (%d/%d classes)", ClassName(t).c_str(), h.damage, h.crit ? "crit" : "hit",
+                                     h.ability.c_str(), int(g_keep.seen.size()), dps_probe::Keep::kMaxClasses));
+        }
+        g_hits.clear();
+        g_crits.clear();
+        if (added) Save();
+    }
+
+    void OnEvent(void*, void*, void*) {
+        if (t_busy || !game::OnGameThread()) return;
         t_busy = true;
         if (g_probe.exchange(false)) Write();
+        Flush();
         t_busy = false;
+    }
+
+    void Listen(bool on) {
+        game::OnWorldTick(&OnEvent, on);
+        game::On(nullptr, "ReceiveAnyDamage", &OnDamage, on);
+        game::On("BP_GameplayCueNotifyStatic_HitImpact_C", "OnExecute", &OnCue, on);
     }
 
     struct DpsProbe : feature::Feature {
@@ -142,7 +228,7 @@ namespace {
         std::string path;
         DpsProbe() : Feature("DPS probe", feature::Stage::Alpha) { optIn = true; }
         void OnFrame(const feature::Frame& f) override {
-            if (!g_listening) game::OnWorldTick(&OnEvent, g_listening = true);
+            if (!g_listening) Listen(g_listening = true);
             items::io::Tick();
             if (f.now < next) return;
             next = f.now + 1.0;
@@ -151,9 +237,10 @@ namespace {
             DeleteFileA(path.c_str());
             g_probe = true;
         }
-        void Off() override {
-            game::OnWorldTick(&OnEvent, false);
-            g_listening = false;
+        void Off() override {  // records stay (file + g_keep): switching back on adds only what is new
+            Listen(g_listening = false);
+            g_hits.clear();
+            g_crits.clear();
         }
     } g_dps_probe;
 }
