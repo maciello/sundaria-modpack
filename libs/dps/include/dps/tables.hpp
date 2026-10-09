@@ -74,7 +74,7 @@ namespace dps {
         std::map<std::string, GradeRow> gradeRows;
         std::vector<std::string> armorTypes, equipSlots, classes;   // EArmorType, BP_ItemEquipmentSlotEnum, EClassname
         std::map<std::string, WeaponStat> weaponStats;
-        std::map<std::string, std::string> weaponDamageType;        // animation type -> Slash | Crush | Pierce
+        std::map<std::string, std::string> weaponDamageType;        // weapon type (spec) -> Slash | Crush | Pierce
         std::map<std::string, AttackPowerRow> attackPower;
         std::array<float, 6> primaryDefault{};                      // STR DEX INT WIS CON CHA (GlobalDefaultStats)
         int maxLevel = 20;

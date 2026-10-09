@@ -84,6 +84,7 @@ namespace dps {
         std::shared_ptr<const Prepared> Prepare(const Build& build, const Scenario& scenario) const;
         Result Dps(const Prepared& prepared) const;
         // slot: equip-container slot to replace; -1 = every fitting slot, best one wins. Cheap: a whole bag + bank per open.
+        // An item the build already wears (same slot, spec, level, grade, stats) scores 0 with replacesSlot = its slot.
         ItemScore ScoreItem(const Prepared& prepared, const Item& item, int slot = -1) const;
         ItemScore ScoreItem(const Build& build, const Scenario& scenario, const Item& item, int slot = -1) const;
         // Best item per equip slot from candidates (gear of other heroes, bank, ...): coordinate ascent per weapon type.
