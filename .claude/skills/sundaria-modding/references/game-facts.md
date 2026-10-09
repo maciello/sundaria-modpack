@@ -190,7 +190,7 @@ ability_hits (verified in game 2026-10-08, dump removed after: read the montage 
     fire: SpawnProjectile → SpawnedArrow @0x9D4 = true → K2_EndAbility (AnimatingAbility clears the same frame); SpawnedArrow/InputReleased reset in K2_OnActivateTasks
     not_hold_levels: mHoldLevel is set to 1 on reset and only climbs in the cast-time path (mStartedCast, AutoActivateOnCastFinish false); archer abilities logged "hold 1/5" every cast, so hold levels are not the archer hold
     consumer: features/cast-indicator timeline.hpp (Timeline::Hits/Ahead/Crossed)
-  salvo: UBP_GameAbility_Salvo_C has ConeDegree @0x91C, HitActors @0x940, LastApplyEffectId @0x934 (cone trace, de-dup per target): its 20 hit notifies are not 20 hits per target; logged "hits 20, landed 4/9" (#81). Grouping by ApplyEffectID unverified: `[cast-indicator] notifies <montage>` log line
+  salvo: UBP_GameAbility_Salvo_C has ConeDegree @0x91C, HitActors @0x940, LastApplyEffectId @0x934 (cone box sweep; HitActors de-dups knockback only, see dps_mechanics.aoe_targets.salvo_cone): its 20 hit notifies are not 20 hits per target; logged "hits 20, landed 4/9" (#81). Grouping by ApplyEffectID unverified: `[cast-indicator] notifies <montage>` log line
   landed_vs_records: one record per target per frame (same-frame hits sum), several targets = several records: landed counts records, not arrows
   landed_0: "RapidShot ... hits 8, landed 0" after a reload (2026-10-09, 1_Crypt_of_Horrors) came with no enemy HP change in the [hpt] trace: shots at nothing, not a regression
   montage_end: ASC.LocalAnimMontageInfo.AnimatingAbility clears when the montage ends (UE 4.27 GAS; unverified here); PlayBit flips per play, so a recast of the same montage is a change
@@ -213,3 +213,35 @@ weapon_types (SDK only, values unread in game; probe: features/weapon-probe, `we
 dps_probe (#89, Alpha optIn, features/inventory/dps-probe): file trigger `dps-probe.probe` next to the exe -> `dos-tool-dps-state.yaml`
   content: hero + 3 nearest non-player characters: every float of each SpawnedAttributes set (Primary/Secondary/Heroism/Status/Config), hero's equipped items with rolled stats (items::io::Read)
   not in it: tables, curves, bytecode (offline pak extractor), active gameplay effects (buffs)   # unverified in game
+
+dps_mechanics:   # pak bytecode/CDOs via `just data`, 2026-10-09 (dps-sim, outer repo). Facts and locations only; values stay in the pak
+  item_affixes:
+    stat_list: FItemCreation::GetStatPriority (`just data bp FItemCreation GetStatPriority`); table StatPriority row <Armor|Weapon|Trinket|Shield>_<Class>   # verified (bytecode)
+      mandatory: Mandatory1 + Mandatory2 always, plus one random pick of Stat3 not already used
+      potential: Stat4..Stat10 each RemoveDuplicate(used) then one random pick → distinct potential stats
+    picks: FItemCreation::NewItem_Armor_RandStats → GetAttributeFromList(AdditionalAttributesMax of ITEMGRADE_Table, potential, random)   # verified
+      no_repeats: the picked stat is removed with RemoveItem (all occurrences) → picks are distinct
+      dup: a pick already on the item (the class AP stat from GenerateItemAP) goes to the Bonus list → GetStatBonusFactor(stat, isDup); DisabledStatTypeBonus (CDO_ItemCreation) excluded
+      addon: AddOnStatTypes minus bonus, count max(N_add − (final + bonus), 0)   # unverified that it is ever > 0
+      uniform_pick: SelectRandomStat / random=true assumed uniform   # unverified (no weights found)
+    factor: StatFactor = SelectFloat(1 if stat in StatTypeIgnoredDistribution else SLOT_TABLE[slot]) × GetRandomStatBonusFactor(fromCraft) × GetStatBonusFactor × class/armor factor (ClassGearRatio, ARMOR_EQUIVALENCY_TABLE)   # verified
+    final: BP_ItemContainerComponent::Finalize Attribute Set → StatFactor × MASTER_ITEM_STAT_TABLE[stat](item level) × max(ItemGrade.Quality, floor) [× Weapon_Stats.DamageModifier for WeaponDamage] [× ElementalMagicMod for WeaponDamage_<elem>] [× EndGameTier curve if ItemTier ≠ 0]   # verified (bytecode)
+    rounding: BP_ItemContainerComponent::RoundUpAttributeValues → FCeil to 1, or to 0.01 when DataTable_AttributeSetUI.InPercentageValue   # verified
+    not_from_pools: CriticalChance, *_Bonus, Ability_<X>_Damage, Damage_<elem> appear on live gear but in no StatPriority list; source unknown (unique/set items?)   # unverified
+    check: live WeaponDamage on a Rare L10 crossbow matches the formula within the roll range (`just game get pawn.ItemContainerEquip.AttributeSetSum 2`)
+  crit: crit damage multiplier reads CriticalDamage_Melee for every attack type; CriticalDamage_Range/_Spell roll on items but have no reader in the damage path (`just data bp BP_GameAbilityBase ApplyTransientDamageInfoGE` @1626..4952, GetCriHitMultiplier)   # verified (bytecode); `readers` lists only the equip copy BP_CharacterBase::UpdateSecondaryStats-CriticalDamage, GameplayAttribute reads are not indexed
+  cooldown: CooldownReduction_Bonus → AbilitySystemAttributeSet.CooldownDurationMultiplier = 1 − CDR   # verified live (bridge), mapping GE not traced
+    commit: BP_GameAbilityBase K2_CommitAbilityCooldown by CooldownMode (`just data bp BP_GameAbilityBase | grep CooldownMode`); duration = curve row <Class>_<Ability>.CoolDown
+    throw_dagger: BP_GameAbility_ThrowDagger CDO has no CooldownGameplayEffectClass (base neither) → no cooldown; 1 projectile, 1 hit (Mon_ThrowDagger_H_M: one ShootProjectile notify)   # verified (CDO + montage)
+  class_weapon_restriction: none found (readers of mAllowedClasses / AllowedClass / ClassRestriction: 0); only per ability: WeaponTypesQualifier + CheckWeaponTypeRequirement   # verified absence in Blueprints; C++ not checked
+    class_weapon_bonus: DA_ClassWeaponBonus_StackingEffects = per-class weapon-tag buff sets (Ranger Hunter/Skirmisher/Enforcer, …⊇), buffs not restrictions; live Ranger_Hunter buff adds AttackPower_Ranged (explains RAP above gear+base)
+  granted_abilities: a live Ranger carries Warden abilities (ToxicArrow, Hemlock, HealingVapors) from Blueprints/Ability/Abilities/Warden/; curves in DataTables/Abilities/Heroism/Warden/   # verified live (ActivatableAbilities)
+  aoe_targets:   # where the target count of a damage GE comes from
+    projectile_radius: BP_GameAbilityBase::GetProjectileDamageRadius reads ProjectileDamageRadius (curve ref on the CDO): ExplosiveArrow FireDamage, Hemlock Poison (cloud)   # verified (CDO + reader)
+    salvo_cone: BP_GameAbility_Salvo ubergraph @1386: FarDistanceTraceBoxExtent = sin(ConeDegree/2) × GetAbilityTraceRange → GetCustomBoxSweepLocations (5 boxes) @2246 → every actor in the sweep per notify   # verified; per-notify damage per target inferred
+      hit_actors: HitActors is filled only by the knockback event (Array_AddUnique @2483, cleared on activate @2657) → knockback de-dup, not damage de-dup; LastApplyEffectId is read only by DemonBane   # verified (`just data readers LastApplyEffectId`)
+    multishot: BP_Projectile_MultiShot spawned once per mSpawbRotateMods entry → targets ≤ projectiles   # verified (CDO)
+    blasting_shot: MineCount (GetMineCount) mines, TrapSpread; explosion radius = curve row Mine.Explosion.Radius   # mine count verified, radius use inferred from row name
+    traps: curve row Ranger_Trap.Radius   # inferred from row name
+    poison_arrow: GE_PoisonArrow_Poison + HitDamage on projectile hit = single target; SpawnCriticalBonusAura (ubergraph @1536) spawns a crit-bonus aura, not a damage cloud   # verified
+    toxic_arrow: on hit GE_ToxicArrow_HitDamage + GE_ToxicArrow_Poison_IncomingDamageUp (target takes more Nature damage) = single target   # verified (CDO)
