@@ -11,5 +11,6 @@ namespace item_upgrade::scores {
     bool Refresh(bool& changed);
     Verdict For(const items::tiles::Pos& p);  // cached per item key until the hero or its equipped set changes
     const std::string& Status();
+    bool Preview();  // dev install without DPS tables: fake values to check the look; the details say so
     void Reset();  // Off(): drop everything
 }

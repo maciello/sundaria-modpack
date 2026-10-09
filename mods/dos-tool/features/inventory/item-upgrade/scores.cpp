@@ -30,6 +30,7 @@ namespace {
 
     std::unique_ptr<dps::Model> g_model;
     bool g_modelTried = false;
+    bool g_preview = false;  // no tables + dev install: preview marks (fake values, labelled) to check the look
     std::string g_status = "not started";
     std::uint64_t g_ownedSig = 0, g_ctxSig = 0;
     int g_heroSlot = -2;
@@ -55,12 +56,13 @@ namespace {
     const dps::Model* Model() {
         if (g_modelTried) return g_model.get();
         g_modelTried = true;
+        g_preview = GetFileAttributesA((ExeDir() + "dos-tool.dev").c_str()) != INVALID_FILE_ATTRIBUTES;
         // ponytail: tables from a local file until the in-game table Source lands (#118); one try per DLL load
         std::string err;
         if (auto src = dps::FileSource(ExeDir() + "dos-tool-dps\\tables.txt")) g_model = dps::Model::Load(*src, err);
         else err = "no table source yet (#118)";
         if (!g_model) g_status = "no DPS tables: " + err;
-        logger::log("[item-upgrade] DPS model: " + (g_model ? "loaded" : g_status));
+        logger::log("[item-upgrade] DPS model: " + (g_model ? std::string("loaded") : g_status + (g_preview ? "; dev install: preview marks" : "")));
         return g_model.get();
     }
 
@@ -105,6 +107,8 @@ namespace {
         }
     }
 
+    bool Ready() { return g_self.prep || !g_others.empty() || (g_preview && !g_model); }
+
     void BestInSlot(const dps::Model& m, const std::vector<dps::Item>& equipped) {
         std::vector<dps::Item> cand = g_ownedDps;  // owned first: pick index < owned size = an owned item
         cand.insert(cand.end(), equipped.begin(), equipped.end());
@@ -129,11 +133,11 @@ namespace item_upgrade::scores {
         if (!io::Ready()) { g_status = "item names not loaded yet"; return false; }
         const dps::Model* m = Model();
         auto* pc = items::sdk::LocalPC();
-        if (!m || !pc || !items::sdk::PtrOk(pc->AccountComponent)) return false;
+        if ((!m && !g_preview) || !pc || !items::sdk::PtrOk(pc->AccountComponent)) return false;
         const int hero = pc->AccountComponent->ActiveHeroSlot;
         const io::Located l = io::Locate();
         const std::uint64_t ownedSig = io::Signature(l.bag) ^ (io::Signature(l.bank) * 31) ^ 1;
-        if (ownedSig == g_ownedSig && hero == g_heroSlot) return g_self.prep || !g_others.empty();
+        if (ownedSig == g_ownedSig && hero == g_heroSlot) return Ready();
 
         LARGE_INTEGER t0, t1, f;
         QueryPerformanceCounter(&t0);
@@ -160,10 +164,10 @@ namespace item_upgrade::scores {
             g_ctxSig = ctx;
             g_cache.clear();
             g_self.build.equipped = equipped;
-            g_self.prep = g_self.cls.empty() ? nullptr : m->Prepare(g_self.build, g_scenario);
-            for (Hero& h : g_others) if (!h.prep) h.prep = m->Prepare(h.build, g_scenario);
+            if (m) g_self.prep = g_self.cls.empty() ? nullptr : m->Prepare(g_self.build, g_scenario);
+            if (m) for (Hero& h : g_others) if (!h.prep) h.prep = m->Prepare(h.build, g_scenario);
         }
-        BestInSlot(*m, equipped);
+        if (m) BestInSlot(*m, equipped);
         changed = true;
         QueryPerformanceCounter(&t1);
         QueryPerformanceFrequency(&f);
@@ -171,14 +175,18 @@ namespace item_upgrade::scores {
                    (g_self.cls.empty() ? "slot " + std::to_string(hero) + " has no snapshot" : g_self.name + " " + g_self.cls) + ", " +
                    std::to_string(g_others.size()) + " other heroes, " + std::to_string(g_bis.size()) + " best in slot, " +
                    std::to_string(double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart)).substr(0, 5) + " ms";
-        return g_self.prep || !g_others.empty();
+        return Ready();
     }
 
     Verdict For(const items::tiles::Pos& p) {
         const auto at = g_byPos.find(PosKey(p.bank, p.containerType, p.slot));
-        if (at == g_byPos.end() || !g_model) return {};
+        if (at == g_byPos.end() || (!g_model && !g_preview)) return {};
         const dps::Item& d = g_ownedDps[at->second];
         if (d.equipSlot.empty()) return {};  // not equipable
+        if (!g_model) {  // dev preview: every third item an upgrade, every third a mark for another hero
+            const int k = at->second % 3;
+            return Judge(k == 0 ? 1.f + float(d.spec % 150) / 10.f : 0.f, k == 0, {{"Preview", "no DPS data", k == 1 ? 5.f : 0.f, k == 1}}, {});
+        }
         const std::uint64_t key = KeyOf(d);
         auto hit = g_cache.find(key);
         if (hit == g_cache.end()) {
@@ -200,6 +208,7 @@ namespace item_upgrade::scores {
     }
 
     const std::string& Status() { return g_status; }
+    bool Preview() { return g_preview && !g_model; }
 
     void Reset() {
         g_ownedSig = g_ctxSig = 0;

@@ -49,6 +49,7 @@ namespace {
     void Show(Tile& t, const Verdict& v) {
         const std::string chip = Chip(v);
         t.lines = Lines(v);
+        if (scores::Preview() && !t.lines.empty()) t.lines = "Preview, no DPS data yet (#118)\n" + t.lines;
         if (chip.empty() && !t.box.Get()) { t.mark = v.mark; t.chip.clear(); return; }  // chips are made on first need only
         if (!t.box.Get()) {
             const marks::ChipWidgets w = g_marks.ChipIn(t.slot.Get<void>(), kChip);
