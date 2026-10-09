@@ -11,6 +11,7 @@ mods/<mod>/                  one shippable mod (today: dos-tool = one .asi loade
     test/*_test.cpp          native test of that logic; `just test` runs every one
   assets/                    fonts etc. + their licence files
 updater/                     launch-option updater (py + ps1), shared by all mods
+libs/<lib>/                   SDK-free C++ shared by the DLL and offline hosts: include/ (API), src/ (in the DLL), host/ (offline only), test/
 ```
 
 ## Rules

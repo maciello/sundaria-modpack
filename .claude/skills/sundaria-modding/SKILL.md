@@ -35,6 +35,7 @@ Unsure how the game works? Look it up first (≤1 s each); guesses + probe build
 | extend a game screen (inventory, bank, menus): its UMG widgets, styles, how to add ours; `just ui <Class>` dumps live trees | `references/game-ui.md` |
 | an effect in the world (sparkle, glow, marker on an actor or spot): game particle templates + `core/fx.hpp` | `references/fx.md` (`just data fx <regex>`) |
 | any visual: colours, sizes, motion, icons, component specs (numbers, bars, loot, cards, menu) | `references/design-system.md` + tokens `core/style.hpp`; rule `.claude/rules/design.md`; reference images (local only, never commit) `../design-refs/<topic>/index.yaml` |
+| DPS of a build, item scores (ΔDPS%), best in slot, stat weights; in game or offline `just dps` | `references/dps-library.md` (`libs/dps`) |
 | ability scripts: Lua host, ECS, new actions/events | `references/ability-mods.md` |
 | custom animations on the player (Paragon → skeleton copy → retarget → ~mods pak), skeleton facts | `references/animation-pipeline.md` |
 | new work, idea, bug: file / claim / close an issue | `.claude/rules/issues.md` |
