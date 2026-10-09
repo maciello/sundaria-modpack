@@ -353,6 +353,12 @@ namespace {
         t_busy = false;
     }
 
+    // Received_Notify (an ability's effect frame) + the ~60 Hz game tick for the systems.
+    void Listen(bool on) {
+        game::On("BP_GameplayAnimNotify_C", "Received_Notify", &OnEvent, on);
+        game::OnGameTick(&OnEvent, on);
+    }
+
     struct AbilityMods : feature::Feature {
         AbilityMods() : Feature("Ability mods", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
 
@@ -365,14 +371,14 @@ namespace {
             g_stampMemo.clear();
             g_reload = true;
             g_on = true;
-            game::SetEventListener(&OnEvent, true);
+            Listen(true);
         }
 
-        // The listener has drained when SetEventListener returns: the game-thread state is ours again.
+        // The callbacks have drained when Listen(false) returns: the game-thread state is ours again.
         void Off() override {
             if (!g_on) return;
             g_on = false;
-            game::SetEventListener(&OnEvent, false);
+            Listen(false);
             g_reg.Each<ProjectileSwap>([](ecs::Entity e, ProjectileSwap&) { UndoSwap(e); });  // memory writes only
             g_host.Close();  // pending cooldown timers are dropped: those cooldowns run to their vanilla end
             g_reg.Clear();

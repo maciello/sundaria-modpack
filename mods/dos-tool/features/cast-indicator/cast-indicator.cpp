@@ -23,17 +23,21 @@
 //   wind-up = first hit notify time - Montage_GetPosition, / Montage_GetPlayRate, re-read each tick until it fires
 //   landed = new hit records (LastTakeHitInfo, core's game-thread sampling) on non-players instigated by the hero (#81:
 //            a listener on OnProjectileHit counted 0 in game; likely called inside the BP VM, which skips ProcessEvent)
-// Game thread (ProcessEvent listener → montage.cpp) publishes the montage; the render thread counts records in its plain sample copy.
+// Game thread (game tick → montage.cpp) publishes the montage; the render thread counts records in its plain sample copy.
 
 namespace {
     using namespace cast_indicator;
 
     std::atomic<bool> g_on{false};
+    bool g_tracing = false;  // render thread: OnTrace subscribed
     double g_lastTick = 0;
 
-    void OnEvent(void* objp, void* fnp, void*) {
+    void OnTrace(void* objp, void* fnp, void*) {  // every ProcessEvent, only while the dev trace is armed or running
+        if (g_on.load(std::memory_order_relaxed) && game::OnGameThread() && cast_trace::Active()) { cast_trace::Event(objp, fnp); cast_trace::Tick(); }
+    }
+
+    void OnEvent(void*, void*, void*) {  // game tick
         if (!g_on.load(std::memory_order_relaxed) || !game::OnGameThread()) return;
-        if (cast_trace::Active()) { cast_trace::Event(objp, fnp); cast_trace::Tick(); }
         const double now = GetTickCount64() / 1000.0;
         if (now - g_lastTick < 0.015) return;  // ~60 Hz: montage start/end checks are O(1)
         g_lastTick = now;
@@ -91,7 +95,8 @@ namespace {
         }
 
         void OnFrame(const feature::Frame& f) override {
-            if (!g_on) { g_on = true; game::SetEventListener(&OnEvent, true); }
+            if (!g_on) { g_on = true; game::OnGameTick(&OnEvent, true); }
+            if (cast_trace::Wanted() != g_tracing) game::OnEvery(&OnTrace, g_tracing = !g_tracing);
             if (f.now >= nextTrigger) {  // dev trace trigger, once a second
                 nextTrigger = f.now + 1.0;
                 if (trigger.empty()) {
@@ -175,10 +180,11 @@ namespace {
             }
         }
 
-        // The listener has drained when SetEventListener returns: the game-thread state is ours again.
+        // The callbacks have drained when OnGameTick/OnEvery(false) return: the game-thread state is ours again.
         void Off() override {
             g_on = false;
-            game::SetEventListener(&OnEvent, false);
+            game::OnGameTick(&OnEvent, false);
+            if (g_tracing) game::OnEvery(&OnTrace, g_tracing = false);
             cast_montage::Reset();
             pips = {};
             ring = {};

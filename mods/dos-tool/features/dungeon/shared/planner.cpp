@@ -161,14 +161,30 @@ namespace {
         }
         t_busy = false;
     }
+
+    // The planner's events and the probe's log events (dungeon/shared/probe.cpp Watch) + the world tick.
+    void Listen(bool on) {
+        static const char* const kFns[][2] = {
+            {"BP_DungeonFloor_C", "I_SetFloorActivated"},
+            {"BP_DungeonFloor_C", "BndEvt__FloorActivation_K2Node_ComponentBoundEvent_306_ComponentBeginOverlapSignature__DelegateSignature"},
+            {"BP_DungeonFloor_C", "BndEvt__FloorActivation_K2Node_ComponentBoundEvent_0_ComponentEndOverlapSignature__DelegateSignature"},
+            {"BP_TriggerBase_C", "OnTriggerStateChanged"},
+            {"BP_TriggerBase_C", "OnRep_LockStatus"},
+            {"BP_TriggerBase_C", "I_ActivateTrigger_Server"},
+            {"BP_TriggerBase_C", "I_UnlockByRule"},
+            {"bp_breadslice_C", "BecomeDiscovered"},
+        };
+        for (const auto& f : kFns) game::On(f[0], f[1], &OnEvent, on);
+        game::OnWorldTick(&OnEvent, on);
+    }
 }
 
 namespace dungeon_map::planner {
     void Use(User u, bool on) {
         const unsigned before = on ? g_users.fetch_or(u) : g_users.fetch_and(~unsigned(u));
         const unsigned after = on ? before | u : before & ~unsigned(u);
-        if (!before && after) { g_fresh = true; game::SetEventListener(&OnEvent, true); }
-        if (before && !after) { game::SetEventListener(&OnEvent, false); Publish({}, {}); }
+        if (!before && after) { g_fresh = true; Listen(true); }
+        if (before && !after) { Listen(false); Publish({}, {}); }
     }
     bool Using(User u) { return (g_users.load() & u) != 0; }
     bool InDungeon() { return g_inDungeon; }

@@ -202,16 +202,23 @@ namespace {
         t_busy = false;
     }
 
+    // Received_Notify + every call on the hero's controller: its ability inputs (InpActEvt_Ability*, K2Node numbers
+    // change with game builds, so matched in IsAbilityInput), K2_OnAbilityFailed and K2_OnAbilityActivated.
+    void Listen(bool on) {
+        game::On("BP_GameplayAnimNotify_C", "Received_Notify", &OnEvent, on);
+        game::OnClass("BP_PlayerControllerGame_C", &OnEvent, on);
+    }
+
     struct InputFeel : feature::Feature {
         InputFeel() : Feature("Input feel", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
 
         void OnFrame(const feature::Frame&) override {
-            if (!g_on) { g_on = true; game::SetEventListener(&OnEvent, true); }
+            if (!g_on) { g_on = true; Listen(true); }
         }
 
         void Off() override {
             g_on = false;
-            game::SetEventListener(&OnEvent, false);
+            Listen(false);
             g_outAbility = {}; g_outMontage = {}; g_cancelled = {}; g_gate = {};
         }
 

@@ -181,7 +181,7 @@ namespace boss_intro::game_side {
         if (on == g_on.load()) return;
         g_on = on;
         g_tryClass = on;  // after a hot reload inside a dungeon the fights' BeginPlay is long past
-        game::SetEventListener(&OnEvent, on);
+        for (const Fn& f : g_fn) game::On(nullptr, f.name, &OnEvent, on);  // by name on every class, as OnEvent matches
     }
 
     std::uintptr_t LocalPawn() {

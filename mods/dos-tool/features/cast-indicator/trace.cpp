@@ -31,6 +31,7 @@ namespace {
 
 namespace cast_trace {
     bool Active() { return g_active.load(std::memory_order_relaxed); }
+    bool Wanted() { return g_armed.load() || g_active.load(); }
     void Arm() { g_armed = true; logger::log("[cast-trace] armed: next multi-hit cast"); }
 
     void Begin(const char* what) {
