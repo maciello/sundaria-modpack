@@ -237,6 +237,24 @@ static void SetEnabled(feature::Feature* f, bool on) {
     ImGui::MarkIniSettingsDirty();
 }
 
+static std::atomic<feature::Feature*> g_req{nullptr};  // RequestEnabled -> next frame
+static std::atomic<bool> g_reqOn{false}, g_reqDone{false};
+
+bool overlay::RequestEnabled(feature::Feature* f, bool on, unsigned timeoutMs, const std::atomic<bool>& stop) {
+    g_reqOn = on;
+    g_reqDone = false;
+    g_req = f;
+    const ULONGLONG until = GetTickCount64() + timeoutMs;
+    while (!g_reqDone) {
+        if (stop || GetTickCount64() > until) {
+            feature::Feature* posted = f;
+            if (g_req.compare_exchange_strong(posted, nullptr)) return false;  // else: being applied right now
+        }
+        Sleep(2);
+    }
+    return true;
+}
+
 static void DrawMenu(const game::Snapshot& snap) {
     ImGui::GetIO().MouseDrawCursor = g_showMenu;
     if (!g_showMenu) return;
@@ -318,6 +336,7 @@ static HRESULT WINAPI hkPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flag
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
+    if (feature::Feature* f = g_req.exchange(nullptr)) { SetEnabled(f, g_reqOn); g_reqDone = true; }
     RunFeatures(snap);
     DrawMenu(snap);
 
