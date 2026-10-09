@@ -11,5 +11,9 @@ int main() {
     assert(p.Record(0.5));            // new max
     assert(p.Line(0.5).find("max, call 3") != std::string::npos);
     assert(!p.Record(0.4));
+    cost::Avg a{"d", 3};
+    assert(!a.Add(0.001) && !a.Add(0.002) && a.Add(0.003));
+    assert(a.Line().find("avg 2.00 us, max 3.0 us over 3 samples") != std::string::npos);
+    assert(a.n == 0 && !a.Add(0.001));  // reset
     std::puts("ok");
 }

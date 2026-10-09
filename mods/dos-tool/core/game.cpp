@@ -22,6 +22,7 @@
 #include "Engine_parameters.hpp"
 #include "room.hpp"
 #include "umg.hpp"
+#include "cost.hpp"
 #include <cmath>
 #include <algorithm>        // Params::PlayerCameraManager_BlueprintUpdateCamera (free camera)
 
@@ -897,6 +898,16 @@ namespace {
         }
     }
 
+    bool DevInstall() {  // dos-tool.dev next to the game exe
+        static const bool dev = [] {
+            char p[MAX_PATH] = {};
+            GetModuleFileNameA(nullptr, p, MAX_PATH);
+            const std::string s = p;
+            return GetFileAttributesA((s.substr(0, s.find_last_of("\\/") + 1) + "dos-tool.dev").c_str()) != INVALID_FILE_ATTRIBUTES;
+        }();
+        return dev;
+    }
+
     void hkProcessEvent(const UObject* obj, UFunction* fn, void* parms) {
         g_inPE++;
         if (g_probeOn.load(std::memory_order_relaxed)) {
@@ -907,8 +918,22 @@ namespace {
         }
         const game::EventFilter skip = g_filter.load(std::memory_order_relaxed);
         if (!skip || !skip(const_cast<UObject*>(obj), fn, parms)) g_oPE(obj, fn, parms);
+        // Dispatch cost (dev install, game thread, every 64th call): one log line per 8192 samples (~30 s in a dungeon).
+        thread_local unsigned t_peCalls = 0;
+        const bool timed = (++t_peCalls & 63) == 0 && DevInstall() && game::OnGameThread();
+        LARGE_INTEGER t0{};
+        if (timed) QueryPerformanceCounter(&t0);
+        int listeners = 0;
         for (int i = 0, n = g_listenerEnd.load(std::memory_order_relaxed); i < n; i++)
-            if (game::EventListener f = g_listeners[i].load(std::memory_order_relaxed)) f(const_cast<UObject*>(obj), fn, parms);
+            if (game::EventListener f = g_listeners[i].load(std::memory_order_relaxed)) f(const_cast<UObject*>(obj), fn, parms), listeners++;
+        if (timed) {
+            static cost::Avg avg{"ProcessEvent dispatch", 8192};
+            LARGE_INTEGER t1, f;
+            QueryPerformanceCounter(&t1);
+            QueryPerformanceFrequency(&f);
+            if (avg.Add(double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart)))
+                logger::log(avg.Line() + ", " + std::to_string(listeners) + " callbacks per call");
+        }
         if (PtrOk(fn) && PtrOk(parms) && fn->Name.ComparisonIndex == g_camFnName.load(std::memory_order_relaxed)) {
             auto* p = static_cast<Params::PlayerCameraManager_BlueprintUpdateCamera*>(parms);
             if (p->ReturnValue) {  // the game's own pose, captured whether or not it is overridden below

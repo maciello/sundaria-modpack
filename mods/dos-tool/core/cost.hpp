@@ -21,6 +21,25 @@ namespace cost {
             return b;
         }
     };
+
+    // Average of a very hot path (every ProcessEvent): Add each sample; true once per `every` samples (log Line(), then it resets).
+    struct Avg {
+        const char* name;
+        int every;
+        double sum = 0, max = 0;
+        int n = 0;
+        bool Add(double ms) {
+            sum += ms, n++;
+            if (ms > max) max = ms;
+            return n >= every;
+        }
+        std::string Line() {
+            char b[200];
+            std::snprintf(b, sizeof b, "[cost] %s: avg %.2f us, max %.1f us over %d samples", name, n ? sum * 1000.0 / n : 0.0, max * 1000.0, n);
+            sum = max = 0, n = 0;
+            return b;
+        }
+    };
 }
 
 #ifdef _WIN32
