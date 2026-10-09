@@ -8,6 +8,6 @@ cd mods/dos-tool/features
 bad=$(grep -rlE 'umg::Spawn\(|WidgetBlueprintLibrary::StaticClass|"AddToViewport"|"AddChild"|"SpawnEmitter|"SpawnSystem|fx::Attach\(|fx::At\(' --include='*.cpp' . | grep -v '/test/' |
   while read -r f; do
     d=$(dirname "$f")
-    grep -qsE 'game::Drain|fx::Release\(' "$d"/*.cpp || echo "$f"
+    grep -qsE 'game::Drain|fx::Release\(' "$d"/*.cpp "$d"/*.hpp || echo "$f"
   done)
 [ -z "$bad" ] || { echo "spawner without game::Drain / fx::Release in its folder (scripts/widget-off-check.sh):"; echo "$bad"; exit 1; }

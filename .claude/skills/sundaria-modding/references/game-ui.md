@@ -73,7 +73,7 @@ SizeBox_0: {min: 100x100}
 - Item details panel `WidgetItemDisplayDetail_C`: `VB_Details` (no member; parent of `TextBlock_AlreadyLearned`) holds name panel, stats,
   set bonus, description, tier, AdditionalDetails (white), AlreadyLearned (orange 1, .651, .27), RequirementsNotMet (red), footer with
   price (`WidgetCurrency`). Narkisim 16. Shown item: `LoadedItemUIData`. Several instances live at once (compare panels).
-- Suggested sell/salvage marks use these (features/item-sell/inventory-badges.cpp).
+- Code: `features/inventory/shared/tiles.hpp` (bags, slots, details panels from the game's events) + `marks.hpp` (our widgets on them, removed in Off()); users item-sell, item-upgrade.
 - Item icon (`WidgetItemIcon_C`, inside `Border_IconArea`): count chip `Border_Count` (`Seperator` texture, Box 0.2, tint black @.75,
   padding 10,4,10,1) > `TextBlock_Count` Narkisim 24 white, shadow (1,1) black. Designer template, `just ui WidgetItemIcon`.
 - Stat compare colours (`WidgetItemSingleStat_C` CDO, `just data show WidgetItemSingleStat`): ComparisonColorPositive linear (.0078, .576, 0)
