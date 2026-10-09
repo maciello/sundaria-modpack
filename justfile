@@ -82,6 +82,26 @@ test:
     mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp mods/*/features/*/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); {{cxx}} -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp){{exe}} && build/$(basename $t .cpp){{exe}} || exit 1; done
     for t in libs/*/test/*_test.cpp; do l=$(dirname $(dirname $t)); b=build/$(basename $l)_$(basename $t .cpp){{exe}}; {{cxx}} -std=c++20 -O2 -I$l/include $t $l/src/*.cpp -o $b && $b || exit 1; done   # SDK-free libraries (libs/<lib>/{include,src,test})
 
+# DPS library offline (#118): tables file from the extracted pak data (game data: stays outside the repo)
+dps_tables := env_var_or_default("DPS_TABLES", root / "../dps-sim/data/tables.txt")
+
+# no game needed: hero <snapshot.yaml> | score [--items F..] | bis <Class> [--level L] | weights <snapshot|Class> | calibrate <snapshot> | bench
+[positional-arguments]
+dps *args: dps-lib
+    @DPS_TABLES="{{dps_tables}}" DPS_CHARS="{{win64}}/dos-tool-chars" {{python}} scripts/dps.py "$@"
+
+# libs/dps -> build/libdps.so for scripts/dps.py (ctypes)
+dps-lib:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    so=build/libdps.so
+    [ -f $so ] && [ -z "$(find libs/dps -type f -newer $so)" ] && exit 0
+    mkdir -p build && c++ -std=c++20 -O3 -march=native -shared -fPIC -pthread -Ilibs/dps/include libs/dps/src/*.cpp libs/dps/host/*.cpp -o $so
+
+# <model.json> (pak extract, dps-sim `just extract`) -> the tables file `just dps` reads
+dps-tables model out=dps_tables:
+    {{python}} scripts/dps_tables.py "{{model}}" "{{out}}"
+
 # offline game data from the pak: find <regex> [--class C] | show <asset> | table <asset> | bp <asset> [fn] | grep <regex> [--in <path regex>]
 [positional-arguments]
 data *args:
