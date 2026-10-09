@@ -12,6 +12,7 @@ Maintenance contract:
 - This file only routes. New knowledge goes into a new or existing `references/*.md`, a new `scripts/` tool,
   or an `assets/` template, plus one row in the tables below. Never grow a section here.
 - Learned something the hard way (crash, wrong assumption, workaround)? Add it to `references/gotchas.md` in the same commit as the fix.
+- Found out how the game works (a `just data` / `just game` answer, a probe result)? Add it to `references/game-facts.md` in the same ship: what, where (class::function @offset / table), the command that shows it, verified or not. Facts and locations only, never copied pak data. A finding left only in a report or issue is lost.
 - A step you ran by hand twice becomes a script here.
 - Keep this file under ~60 lines.
 
