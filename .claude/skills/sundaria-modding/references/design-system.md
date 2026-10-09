@@ -114,12 +114,14 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Ring: Ellipse radii (18, 6)·Ui·depth, stroke 2·Ui in tier colour @.8, filled @.18.
 - Glow: 3 concentric CircleFilled r = (10, 16, 24)·Ui·depth, alpha .30/.15/.07, tier colour.
 - Beam: RectFilledMultiColor, width 6·Ui·depth, height 90·Ui·depth up from the ring centre, bottom tier @.55 → top tier @0.
-- Idle sparkle (unlooted only, #27 built: `features/loot/idle-loot`, constants in `idle-loot.hpp`). Ref: WoW lootable-corpse sparkles. Maintainer 2026-10-09: "too obvious… more particles and less often and more random… show the best colors". Replaces the 2026-10-08 glints + breathing glow (too loud).
-  - Pile: unlooted loot within 150 cm = one pile (greedy, by id); colour = the game's `GetItemColorForGrade` of the pile's best grade (enum order = rank, `game-facts.md` § loot); no known grade (closed chest) → `kText` white, never a guessed tint.
-  - Burst: none at rest. A pile bursts at random, 2.5–7 s apart (uniform; first one 0–7 s after it appears, so piles never sync). 7–13 motes, born over 0.4 s in a box ±18 × ±8 units around a point lifted 15 cm (items) / 45 cm (chests); each rises 10–26 units/s, drifts ±5 units/s, lives 0.7–1.3 s, alpha sin(π·life).
-  - Mote: dot r 1–2.2 units (shrinks to half) in tier colour mixed 55 % to white + halo disc 2.2 r tier @.28. ~1 in 4 is a glint: Arcane star R 4.5 units × alpha in tier colour + white star R/2. Units × Ui × depth.
-  - Hidden (mesh not rendered for 0.15 s) or beyond 30 m: no new bursts, alpha `kFadeOut`; fade 25–30 m. Looted: the burst in flight finishes, no new one.
-  - Don't: glow discs, rings or beams at rest; a fixed period; scale pulses.
+- Idle sparkle (unlooted only, #27 / #110: `features/loot/idle-loot`, constants in `idle-loot.hpp`). Ref: WoW lootable-corpse sparkles. Maintainer 2026-10-09: "too obvious… more particles and less often and more random… show the best colors"; then "visible through walls AND ui/gui", "go in the wrong direction when moving the camera", "more like burst not a random a little more continuous sparkle", "can we use unreal engines particle system".
+  - Medium: the game's Cascade system `hp_mag_alchemyOrb_fireflies` (`kTemplate`) attached to the loot actor's root: in the world, depth-tested, under the game UI. Never ImGui (`.claude/rules/design.md`).
+  - Motion (the template's, not ours): 5 motes orbit the anchor for ever, ≤ 20 cm out, 0.1–0.25 turns/s on random axes; each flickers at its own random rate (material dynamic parameter 0.05–5). Continuous, sparse, unsynchronised; no bursts.
+  - Anchor: root + 15 cm (items, `kLiftItem`) / + 45 cm (chests, `kLiftChest`); component scale 1 (items) / 2 (chests); cull 30 m (`kCull`).
+  - Colour: material instance per component, vector `Emissive Thorax` = the game's `GetItemColorForGrade` (sRGB → linear) × `kGlow` 3 of the best grade among unlooted loot within 150 cm (`kPileR`); no known grade (closed chest) → `kTextSoft`, never a guessed tint.
+  - Looted / gone: the component is destroyed on the next world tick after the game's loot event (`OnTriggerChanged`, `OnLootReady`, `OnRep_LootIsReady`, `MulticastPlayPickupSound`, `I_SetInactiveLoot`, `ReceiveEndPlay`); state re-read for 2 s (`kSettle`). Destroyed actor: its component goes with it.
+  - Tuning knobs: `kGlow`, `kScaleItem`/`kScaleChest`, `kLift*`, `kCull`; rate/count/orbit belong to the template (no instance parameters).
+  - Don't: overlay shapes, glow discs, rings or beams at rest; a fixed period; scale pulses.
 - Drop: ring + glow scale in with `kPop`; beam height 0 → full over 0.45 s OutCubic; burst = 8 radial lines, length 0 → 28·Ui, alpha 1 → 0 over 0.5 s, tier colour.
 - Looted / emptied: everything fades `kFadeOut` (≤ 1 s).
 - Don't: pulse scale (only alpha), draw through walls without fade, use element colours.
