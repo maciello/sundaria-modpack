@@ -1,9 +1,9 @@
 // just test
-#include "char-snapshot.hpp"
+#include "hero.hpp"
 #include <cassert>
 #include <cstdio>
 
-using namespace char_snapshot;
+using namespace items::hero;
 
 int main() {
     assert(Quote("a\"b\\c\nd") == "\"a\\\"b\\\\c\\nd\"");

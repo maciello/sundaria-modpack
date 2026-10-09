@@ -1,4 +1,4 @@
-#include "char-snapshot.hpp"
+#include "../shared/hero.hpp"
 #include "feature.hpp"
 #include "game.hpp"
 #include "logger.hpp"
@@ -20,7 +20,7 @@
 // writes <exe dir>/dos-tool-chars/<hero slot>.yaml. Build = the account's hero summary, gear = the per-hero
 // inventory container (equipped). Facts: references/game-facts.md § characters.
 using namespace SDK;
-using namespace char_snapshot;
+using namespace items::hero;
 using items::sdk::PtrOk;
 
 namespace {

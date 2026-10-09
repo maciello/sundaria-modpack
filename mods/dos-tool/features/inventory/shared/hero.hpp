@@ -1,12 +1,12 @@
 #pragma once
-// SDK-free logic for Character snapshot (#102): one hero's build + equipped gear as YAML, as the game last saved it.
-#include "../shared/model.hpp"
+// One hero's build + equipped gear as the character snapshot YAML (#102): written by char-snapshot, read by item-upgrade. SDK-free.
+#include "model.hpp"
 #include <cstdio>
 #include <string>
 #include <string_view>
 #include <vector>
 
-namespace char_snapshot {
+namespace items::hero {
     struct Learned { std::string name; int level = 0; };
     struct BarItem { int id = 0; std::string type; bool passive = false; std::vector<int> slots; };
     struct Snapshot {
