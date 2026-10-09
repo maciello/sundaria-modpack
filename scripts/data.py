@@ -10,6 +10,7 @@
   calls <BP>[::Function] [--depth N]  outgoing call graph (default depth 2); natives are leaves
   events <BP>                      event entry points (ubergraph offsets) and delegate bindings
   ast <BP>::<Function>             function bytecode as JSON AST
+  fx <path regex> [--all]          particle templates for core/fx.hpp (usable ones; --all every system), YAML
 The xref commands build an index over every Blueprint once per pak (xref.sqlite in DATA_CACHE; first run ~minutes).
 <asset> = pak path, /Game/… path or a unique file name. Lazy: each asset is exported once into DATA_CACHE.
 Env: PAKS (Content/Paks), DATA_CACHE (export/, script/ = logic-only exports, xref.sqlite), DATA_TOOLS (key, .NET SDK, built reader; outside the repo)."""
@@ -23,6 +24,7 @@ import time
 from multiprocessing import Pool
 from pathlib import Path
 
+import fxcat
 import xref
 
 HERE = Path(__file__).resolve().parent
@@ -332,6 +334,7 @@ def self_test():
     assert unguid({"Dmg_5_52250031437C09A7C029A59A92FB49DC": {"SourceString": "s"}}) == {"Dmg": "s"}
     print("data.py self-test ok")
     xref.self_test()
+    fxcat.self_test()
 
 
 def main(argv):
@@ -368,6 +371,11 @@ def main(argv):
         xref.events(con, xref.bp_class(con, arg)[0])
     elif cmd == "ast":
         ast(index(), arg)
+    elif cmd == "fx":
+        systems = [re.sub(r"^/Game/", "Archon/Content/", obj.split(".")[0]) for obj, c in
+                   (line.split("\t") for line in listing("registry.txt", "registry"))
+                   if c in ("ParticleSystem", "NiagaraSystem") and re.search(arg, obj, re.I)]
+        print(fxcat.catalogue(sorted(set(systems)), export, "--all" not in argv))
     else:
         sys.exit(__doc__)
 
