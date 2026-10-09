@@ -103,6 +103,10 @@ dps-tables model out=dps_tables:
     mkdir -p "$(dirname "{{out}}")"
     {{python}} scripts/dps_tables.py "{{model}}" "{{out}}"
 
+# the tables file -> <Win64>/dos-tool-dps/tables.txt, where item upgrade reads it in game (until the in-game Source, #118)
+dps-install:
+    mkdir -p "{{win64}}/dos-tool-dps" && cp "{{dps_tables}}" "{{win64}}/dos-tool-dps/tables.txt"
+
 # offline game data from the pak: find <regex> [--class C] | show <asset> | table <asset> | bp <asset> [fn] | grep <regex> [--in <path regex>]
 [positional-arguments]
 data *args:

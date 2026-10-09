@@ -57,7 +57,7 @@ namespace {
         if (g_modelTried) return g_model.get();
         g_modelTried = true;
         g_preview = GetFileAttributesA((ExeDir() + "dos-tool.dev").c_str()) != INVALID_FILE_ATTRIBUTES;
-        // ponytail: tables from a local file until the in-game table Source lands (#118); one try per DLL load
+        // ponytail: tables from a local file (`just dps-install`) until the in-game table Source lands (#118); one try per DLL load
         std::string err;
         if (auto src = dps::FileSource(ExeDir() + "dos-tool-dps\\tables.txt")) g_model = dps::Model::Load(*src, err);
         else err = "no table source yet (#118)";
