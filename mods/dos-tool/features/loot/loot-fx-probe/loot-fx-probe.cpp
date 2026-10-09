@@ -175,12 +175,18 @@ namespace {
         if (umg::IsWorldTick(fnp) && g_probe.exchange(false)) Write();
     }
 
+    // ReceiveBeginPlay of every class (each override is its own UFunction, same name) + the world tick.
+    void Listen(bool on) {
+        game::On(nullptr, "ReceiveBeginPlay", &OnEvent, on);
+        game::OnWorldTick(&OnEvent, on);
+    }
+
     struct LootFxProbe : feature::Feature {
         double next = 0;
         std::string path;
         LootFxProbe() : Feature("Loot FX probe", feature::Stage::Alpha) { optIn = true; }
         void OnFrame(const feature::Frame& f) override {
-            if (!g_listening) game::SetEventListener(&OnEvent, g_listening = true);
+            if (!g_listening) Listen(g_listening = true);
             if (f.now < next) return;
             next = f.now + 1.0;
             if (path.empty()) path = ExeDir() + "loot-fx.probe";
@@ -189,7 +195,7 @@ namespace {
             g_probe = true;
         }
         void Off() override {
-            game::SetEventListener(&OnEvent, g_listening = false);
+            Listen(g_listening = false);
             g_probe = false;
         }
     } g_loot_fx_probe;

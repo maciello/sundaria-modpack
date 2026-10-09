@@ -152,7 +152,7 @@ namespace {
         std::string path;
         WeaponProbe() : Feature("Weapon probe", feature::Stage::Alpha) { optIn = true; }
         void OnFrame(const feature::Frame& f) override {
-            if (!g_listening) game::SetEventListener(&OnEvent, g_listening = true);
+            if (!g_listening) game::OnWorldTick(&OnEvent, g_listening = true);
             if (f.now < next) return;
             next = f.now + 1.0;
             if (path.empty()) path = ExeDir() + "weapon-probe.probe";

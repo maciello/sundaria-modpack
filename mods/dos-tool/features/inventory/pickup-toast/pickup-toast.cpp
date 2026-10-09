@@ -216,19 +216,24 @@ namespace {
         t_busy = false;
     }
 
+    void Listen(bool on) {
+        game::On("BP_PlayerControllerGame_C", "OnItemAddedDispatcherEvent", &OnEvent, on);
+        game::OnWorldTick(&OnEvent, on);
+    }
+
     struct PickupToast : feature::Feature {
         PickupToast() : Feature("Pickup toast", feature::Stage::Beta) {}
         void OnFrame(const feature::Frame&) override {
             io::Tick();
             if (g_on.load()) return;
             g_on = true;
-            game::SetEventListener(&OnEvent, true);
+            Listen(true);
         }
         // Off() runs with the ProcessEvent hook alive (#84): the next world tick removes the widgets.
         void Off() override {
             g_drain.Request(!g_toasts.empty(), "pickup-toast", RemoveAll);
             g_on = false;
-            game::SetEventListener(&OnEvent, false);
+            Listen(false);
             g_toasts.clear();
             g_owned.clear();
             g_baseline = g_dirty = false;

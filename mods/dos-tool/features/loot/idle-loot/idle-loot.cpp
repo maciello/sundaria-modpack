@@ -47,6 +47,12 @@ namespace {
         return b;
     }
 
+    // ReceiveBeginPlay of every class (each override is its own UFunction, same name) + the world tick.
+    void Listen(bool on) {
+        game::On(nullptr, "ReceiveBeginPlay", &OnEvent, on);
+        game::OnWorldTick(&OnEvent, on);
+    }
+
     struct IdleLoot : feature::Feature {
         std::vector<loot::Actor> actors;
         std::vector<Pile> piles;
@@ -58,7 +64,7 @@ namespace {
         void OnFrame(const feature::Frame& f) override {
             if (!g_on.load()) {
                 g_on = true;
-                game::SetEventListener(&OnEvent, true);
+                Listen(true);
             }
             const float dt = last > 0 ? float(std::min(f.now - last, 0.1)) : 0.0f;
             last = f.now;
@@ -135,7 +141,7 @@ namespace {
 
         void Off() override {
             g_on = false;
-            game::SetEventListener(&OnEvent, false);
+            Listen(false);
             loot::Reset();
             marks.clear();
             last = 0;

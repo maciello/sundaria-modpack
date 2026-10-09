@@ -111,17 +111,23 @@ namespace {
         t_busy = false;
     }
 
+    void Listen(bool on) {
+        game::On("BP_ArchonSaveGame_C", "OnArchonObjectSavedForUser_Event_0", &OnEvent, on);
+        game::On("BP_ArchonSaveGame_C", "OnArchonObjectLoadedForUser_Event_0", &OnEvent, on);
+        game::OnWorldTick(&OnEvent, on);
+    }
+
     struct CharSnapshot : feature::Feature {
         CharSnapshot() : Feature("Character snapshot", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
         void OnFrame(const feature::Frame&) override {
             if (!g_listening) {
-                game::SetEventListener(&OnEvent, g_listening = true);
+                Listen(g_listening = true);
                 g_dirty = true;  // the hero already loaded
             }
             items::io::Tick();
         }
         void Off() override {
-            if (g_listening) game::SetEventListener(&OnEvent, g_listening = false);
+            if (g_listening) Listen(g_listening = false);
         }
     } g_feature;
 }

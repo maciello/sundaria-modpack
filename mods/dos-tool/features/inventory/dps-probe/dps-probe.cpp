@@ -142,7 +142,7 @@ namespace {
         std::string path;
         DpsProbe() : Feature("DPS probe", feature::Stage::Alpha) { optIn = true; }
         void OnFrame(const feature::Frame& f) override {
-            if (!g_listening) game::SetEventListener(&OnEvent, g_listening = true);
+            if (!g_listening) game::OnWorldTick(&OnEvent, g_listening = true);
             items::io::Tick();
             if (f.now < next) return;
             next = f.now + 1.0;

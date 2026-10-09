@@ -161,7 +161,11 @@ namespace {
         void OnFrame(const feature::Frame& f) override {
             g_on = true;
             dungeon_map::planner::Use(dungeon_map::planner::kMap, true);
-            if (!g_listening) game::SetEventListener(&OnEvent, g_listening = true);
+            if (!g_listening) {
+                g_listening = true;
+                game::On("WidgetMiniMap_C", "Tick", &OnEvent, true);
+                game::OnWorldTick(&OnEvent, true);
+            }
             if (f.now < next) return;
             next = f.now + 1.0;
             if (dir.empty()) dir = ExeDir();

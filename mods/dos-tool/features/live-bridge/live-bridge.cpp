@@ -27,9 +27,12 @@ namespace {
     std::atomic<int> g_job{0};
     std::string g_jobIn, g_jobOut;
 
-    void OnEvent(void* obj, void* fn, void*) {
+    void OnTrace(void* obj, void* fn, void*) {
+        if (!t_busy && game::OnGameThread()) TraceEvent(obj, fn);
+    }
+
+    void OnEvent(void*, void* fn, void*) {
         if (t_busy || !game::OnGameThread()) return;
-        if (g_tracing.load(std::memory_order_relaxed)) TraceEvent(obj, fn);
         if (g_job.load(std::memory_order_relaxed) != 1 || !umg::IsWorldTick(fn)) return;
         int posted = 1;
         if (!g_job.compare_exchange_strong(posted, 2)) return;
@@ -68,10 +71,11 @@ namespace {
         secs = secs < 0.1 ? 0.1 : secs > kTraceMaxS ? kTraceMaxS : secs;
         std::string err;
         if (!TraceBegin(w[1], err)) return Err(err);
-        if (!WaitListening()) return Err("listener not registered: no frames presented (minimised?)");
         g_tracing = true;
+        game::OnEvery(&OnTrace, true);  // a trace counts every call: subscribed only while it runs
         const ULONGLONG until = GetTickCount64() + ULONGLONG(secs * 1000);
         while (GetTickCount64() < until && !g_stop) { Sleep(20); g_lastCmd = GetTickCount64(); }
+        game::OnEvery(&OnTrace, false);
         g_tracing = false;
         return TraceEnd(secs);
     }
@@ -252,7 +256,7 @@ namespace {
             }
             const bool want = g_connected || g_tracing || GetTickCount64() - g_lastCmd.load() < kLingerMs;
             if (want != g_listening) {
-                game::SetEventListener(&OnEvent, want);
+                game::OnWorldTick(&OnEvent, want);
                 g_listening = want;
             }
         }
@@ -264,7 +268,7 @@ namespace {
             CloseHandle(g_thread);
             g_thread = nullptr;
             overlay::SetPresentTap(nullptr);
-            if (g_listening) game::SetEventListener(&OnEvent, false);
+            if (g_listening) game::OnWorldTick(&OnEvent, false);
             g_listening = g_connected = g_tracing = false;
             g_job = 0;
             logger::log("[live-bridge] closed");
