@@ -428,7 +428,8 @@ namespace {
     std::unordered_set<ref::Ref, ref::Hash> g_seen;
     struct Fired { ref::Ref fn, cls; ULONGLONG t; };
     std::vector<Fired> g_fresh;
-    std::atomic<game::EventListener> g_listeners[16] = {};  // 10 users today; full = logged, never silent
+    std::atomic<game::EventListener> g_listeners[64] = {};  // full = logged, never silent
+    std::atomic<int> g_listenerEnd{0};  // slots in use are below this: dispatch costs O(listeners ever set), not O(64)
     std::atomic<game::EventFilter> g_filter{nullptr};  // ponytail: one slot (item-sort); a table when a second user comes
 
     // Free camera: render thread writes the pose, the game thread's BlueprintUpdateCamera call reads it.
@@ -906,8 +907,8 @@ namespace {
         }
         const game::EventFilter skip = g_filter.load(std::memory_order_relaxed);
         if (!skip || !skip(const_cast<UObject*>(obj), fn, parms)) g_oPE(obj, fn, parms);
-        for (auto& l : g_listeners)
-            if (game::EventListener f = l.load(std::memory_order_relaxed)) f(const_cast<UObject*>(obj), fn, parms);
+        for (int i = 0, n = g_listenerEnd.load(std::memory_order_relaxed); i < n; i++)
+            if (game::EventListener f = g_listeners[i].load(std::memory_order_relaxed)) f(const_cast<UObject*>(obj), fn, parms);
         if (PtrOk(fn) && PtrOk(parms) && fn->Name.ComparisonIndex == g_camFnName.load(std::memory_order_relaxed)) {
             auto* p = static_cast<Params::PlayerCameraManager_BlueprintUpdateCamera*>(parms);
             if (p->ReturnValue) {  // the game's own pose, captured whether or not it is overridden below
@@ -997,8 +998,11 @@ void game::SetEventListener(EventListener l, bool on) {
         if (s.load() != l) continue;
         if (on) have = true; else s = nullptr;
     }
-    for (auto& s : g_listeners)
-        if (on && !have && !s.load()) { s = l; have = true; }
+    for (int i = 0; on && !have && i < int(std::size(g_listeners)); i++)
+        if (!g_listeners[i].load()) {
+            g_listeners[i] = l, have = true;
+            if (g_listenerEnd.load() <= i) g_listenerEnd = i + 1;
+        }
     if (on && !have) logger::log("[game] event listener table full: a feature gets no game events");
     if (!on) for (int i = 0; i < 200 && g_inPE.load() > 0; i++) Sleep(10);  // in-flight calls may still be inside l
     UpdatePEHook();
