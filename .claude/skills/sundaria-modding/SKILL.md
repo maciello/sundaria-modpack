@@ -26,6 +26,7 @@ Unsure how the game works? Look it up first (≤1 s each); guesses + probe build
 |---|---|
 | where code goes, rules (threads, pointers, co-op, public repo) | `references/architecture.md` |
 | add a feature, find game data, dev loop, release, patch | `references/workflows.md` |
+| react to a game event (a function call, the world tick, a widget's calls), no polling: `game::On` / `OnWorldTick` / `OnClass` / `OnGameTick` | `references/game-events.md` |
 | any game object: paths, offsets, verified or not, combat-log, damage types | `references/game-facts.md` |
 | build/compile errors, hot-reload internals, SDK re-dump, updater | `references/toolchain.md` |
 | something fails or crashed | `references/gotchas.md` |

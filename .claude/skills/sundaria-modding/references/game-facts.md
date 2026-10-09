@@ -165,6 +165,10 @@ damage_types: UArchonGameplayEffect::mDamageTypeClass (TSubclassOf<UDamageType>,
   colours: features/damage-numbers/colors.hpp (name → element → colour, tested)
 attack_type: EGameplayAttackType {Melee, Range, Magic} via UArchonGameplayEffect::GetAttackType (UFunction: game thread only)
 ProcessEvent: Offsets::ProcessEvent (Basic.hpp) — hookable with MinHook; see gotchas before locking in the detour
+  function_outer: "a UFunction's Outer is the class that declares it; a call on a subclass object keeps it (BP_CharacterBase_C::ReceiveTick
+    on NPC_132_E_Gnoll_Druid_C). game::On matches function FName + this Outer FName. `just game trace ReceiveTick$ 3`, verified 2026-10-09"
+  rate: "game thread, 3_Grasslands dungeon, live bridge connected: ~18k calls/s over ~300 function x class pairs
+    (`just game trace . 2`: 35846 calls in 2 s); local player controller ReceiveTick ~60/s. Verified 2026-10-09, one sample"
 damage_numbers_source_today: per-frame CurrentHealth diff = amount; LastTakeHitInfo = which ability/element/instigator; no crits
 - `UArchonAttributeSet_Secondary::Health` is NOT max HP: it exceeds `CurrentHealth` on unhit enemies. Max HP = peak `CurrentHealth` seen.
 - On-screen test (behind wall = not drawn): `UPrimitiveComponent::LastRenderTimeOnScreen` at `+0x290` of `ACharacter::Mesh` (inside Dumper-7 `Pad_288` after `BoundsScale`; 0x288 LastSubmitTime, 0x28C LastRenderTime; found by scanning floats that advance with time). Compare against the newest value over all characters, not wall time. `seen=` in the debug-probe `[hp]` log.

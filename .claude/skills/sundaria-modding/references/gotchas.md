@@ -2,6 +2,8 @@
 
 | symptom | cause | fix |
 |---|---|---|
+| a game-event callback runs twice for one call | one cb subscribed to overlapping events: `game::OnClass(X)` and `game::On(X's function)`, or `On(nullptr, f)` and `On(cls, f)` | keep a cb's subscriptions disjoint, or split into two callbacks (`game-events.md`) |
+| `game::On` never fires for a Blueprint event after a game patch | name carries a K2Node number (`BndEvt__…_K2Node_ComponentBoundEvent_974_…`, `InpActEvt_Ability1_…_40`) that the patch renumbered | `game::OnClass(<declaring BP>)` and match the name prefix in the callback (item-sort `Triggers`, input-feel `IsAbilityInput`) |
 | Dumper-7 loads but writes nothing | under Proton cwd ≠ exe dir → local Dumper-7.ini never read → dumps at startup before UWorld exists | global ini `<prefix>/drive_c/Dumper-7/Dumper-7.ini` (`just dump-install` writes it) |
 | Dumper-7 cmake: missing includes | Windows-only repo, wrong filename case | symlinks with the expected case (`upstream/Dumper-7`) |
 | clang: `-Winvalid-constexpr` errors in SDK/Dumper | MSVC-only leniency | `-Wno-invalid-constexpr` in the toolchain file — NOT on the cmake command line (CMAKE_CXX_FLAGS there wipes the toolchain's INIT /imsvc flags) |

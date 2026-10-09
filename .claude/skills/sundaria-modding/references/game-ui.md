@@ -109,7 +109,7 @@ SizeBox_0: {min: 100x100}
 - Drawing ours: a child of `CanvasPanel_DynamicMinimp` scrolls with the map for free; clipped by the 250 px retainer.
 
 ## Adding a game widget to a screen (game thread only)
-1. Run inside a ProcessEvent listener (`game::SetEventListener`), never on the render thread. Guard re-entry (`thread_local` busy flag): our calls re-enter ProcessEvent.
+1. Run inside a game-event callback on the world tick (`game::OnWorldTick`, `game-events.md`), never on the render thread. Guard re-entry (`thread_local` busy flag): our calls re-enter ProcessEvent.
 2. Find the target: scan GObjects for the screen's class; skip CDOs and archetypes (`Flags & 0x30`); check `PtrOk` on every field you follow.
 3. Create: `WidgetBlueprintLibrary::Create(WorldContext = target, WidgetType = <class>, OwningPlayer = local PC)`. Native static: call it on the class default object with the FUNC_Native flag set (`CallNative` pattern). UMG function bodies are not compiled in: resolve `UFunction`s by name, kept as `ref::Fn{UPanelWidget::StaticClass, "PanelWidget", "AddChild"}` (`core/ref.hpp`) and fill `Params::…` structs.
 4. Style before adding: copy a sibling's style through the game's setter (`Button::SetStyle`, `TextBlock::SetFont`), never `a->WidgetStyle = b->WidgetStyle`: brushes, colours and fonts hold TSharedPtrs that a C++ byte copy duplicates without a reference (heap corruption, crash on the next map change, #61). Plain colours/sizes (FLinearColor, FVector2D) may be written directly. After adding, use setters only (`SetPadding`, `SetSize`, …).

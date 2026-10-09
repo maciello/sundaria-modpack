@@ -56,8 +56,8 @@ reachable_from_linux: "Proton + pressure-vessel keep the host network namespace:
 threads:
   bridge: "own thread, select() 250 ms; socket, log, shot (PNG encode + write), trace window, feature list;
     feature on/off waits for overlay::RequestEnabled (render thread applies it)"
-  game: "get/find/call: posted as one job, run by our ProcessEvent listener on the next world tick
-    (umg::IsWorldTick); 3 s without a world tick = error (main menu, loading screen)"
+  game: "get/find/call: posted as one job, run by our game::OnWorldTick callback on the next world tick;
+    3 s without a world tick = error (main menu, loading screen). trace: game::OnEvery, subscribed only while it runs"
   render: "OnFrame starts the thread once and (un)registers the listener; shot copies the back buffer in the
     overlay::SetPresentTap tap (one frame stall per shot)"
 idle_cost: "no client = thread asleep in select(), no ProcessEvent listener; listener registered while a client is
