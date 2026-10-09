@@ -1,6 +1,6 @@
 #pragma once
 // Game-thread helpers for features that put game widgets into game screens (references/game-ui.md).
-// Call only inside a ProcessEvent listener (game::SetEventListener).
+// Call only inside a game-event callback on the game thread (game::On / OnWorldTick, core/game.hpp).
 #include <cstdint>
 #include <string>
 

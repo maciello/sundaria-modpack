@@ -431,8 +431,6 @@ namespace {
     std::unordered_set<ref::Ref, ref::Hash> g_seen;
     struct Fired { ref::Ref fn, cls; ULONGLONG t; };
     std::vector<Fired> g_fresh;
-    std::atomic<game::EventListener> g_listeners[64] = {};  // full = logged, never silent
-    std::atomic<int> g_listenerEnd{0};  // slots in use are below this: dispatch costs O(listeners ever set), not O(64)
     std::atomic<game::EventFilter> g_filter{nullptr};  // ponytail: one slot (item-sort); a table when a second user comes
 
     // Free camera: render thread writes the pose, the game thread's BlueprintUpdateCamera call reads it.
@@ -927,10 +925,7 @@ namespace {
         const bool timed = (++t_peCalls & 63) == 0 && DevInstall() && game::OnGameThread();
         LARGE_INTEGER t0{};
         if (timed) QueryPerformanceCounter(&t0);
-        int listeners = 0;
-        for (int i = 0, n = g_listenerEnd.load(std::memory_order_relaxed); i < n; i++)
-            if (game::EventListener f = g_listeners[i].load(std::memory_order_relaxed)) f(const_cast<UObject*>(obj), fn, parms), listeners++;
-        listeners += events::Dispatch(obj, fn, parms);
+        const int listeners = events::Dispatch(obj, fn, parms);
         if (timed) {
             static cost::Avg avg{"ProcessEvent dispatch", 8192};
             LARGE_INTEGER t1, f;
@@ -988,7 +983,6 @@ namespace {
     void UpdatePEHook() {
         bool want = g_probeOn.load() || g_freeOn.load() || g_camMoved.load() || g_walkOn.load()
                  || g_walkHeld.load() || g_placePending.load() || g_colPending.load() || g_roomPending.load();
-        for (auto& l : g_listeners) want |= l.load() != nullptr;
         want |= g_filter.load() != nullptr || events::Live();
         if (want && !g_peTarget) {
             MH_Initialize();  // already initialised by kiero: harmless
@@ -1026,22 +1020,6 @@ void game::SetEventFilter(EventFilter f, bool on) {
 
 void game::SetEventProbe(bool on) {
     g_probeOn = on;
-    UpdatePEHook();
-}
-
-void game::SetEventListener(EventListener l, bool on) {
-    bool have = false;
-    for (auto& s : g_listeners) {
-        if (s.load() != l) continue;
-        if (on) have = true; else s = nullptr;
-    }
-    for (int i = 0; on && !have && i < int(std::size(g_listeners)); i++)
-        if (!g_listeners[i].load()) {
-            g_listeners[i] = l, have = true;
-            if (g_listenerEnd.load() <= i) g_listenerEnd = i + 1;
-        }
-    if (on && !have) logger::log("[game] event listener table full: a feature gets no game events");
-    if (!on) for (int i = 0; i < 200 && g_inPE.load() > 0; i++) Sleep(10);  // in-flight calls may still be inside l
     UpdatePEHook();
 }
 

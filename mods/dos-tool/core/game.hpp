@@ -70,8 +70,6 @@ namespace game {
     void OnClass(const char* cls, EventListener cb, bool on);  // every function called on an object of exactly class cls
     void OnGameTick(EventListener cb, bool on);   // game thread, at most every 8 ms, any map or menu; obj = fn = parms = null
     void OnEvery(EventListener cb, bool on);      // every ProcessEvent call: traces only, it costs every call
-    // Old API, until every feature has moved: cb gets every ProcessEvent call. Up to 64 listeners.
-    void SetEventListener(EventListener l, bool on);
     // Runs before the original call; true = the game's own call is skipped (listeners still run after).
     // One filter at a time. Replace a game action only where doing it twice is the alternative.
     using EventFilter = bool (*)(void* obj, void* fn, void* parms);

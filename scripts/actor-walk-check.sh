@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fails on any level-actor walk (`Levels.Num()`) in mods/dos-tool outside the file:function list below. Every listed
-# function runs on the game thread (a game::SetEventListener listener behind game::OnGameThread, or core's CoreTick);
+# function runs on the game thread (a game-event callback (game::On / OnWorldTick / OnGameTick) behind game::OnGameThread, or core's CoreTick);
 # the render thread (OnFrame, Menu, Off, the Present hook) never walks or dereferences world actors: the game thread
 # destroys them meanwhile (#79 crash, audit #80). New walk: put it on the game thread, then add it here.
 # Rule: .claude/rules/mod-code.md.
