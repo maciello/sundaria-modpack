@@ -47,6 +47,12 @@ namespace loot {
     // Render thread: tracked actors within maxDist (cm) of (cx, cy, cz), as the game thread read them on its last world
     // tick around the camera (one frame behind). The game thread: O(tracked) float compares + reads of the near ones.
     void Read(float cx, float cy, float cz, float maxDist, std::vector<Actor>& out);
+    // Game thread (inside a listener): every tracked actor, read now. id = the actor (valid within this call). O(tracked).
+    void Each(std::vector<Actor>& out);
+    // Bumps when the tracked set changes (world scan, a new loot actor's BeginPlay).
+    std::uint32_t Version();
+    // obj (a UObject) is a floor item or chest. Game thread.
+    bool IsLootActor(const void* obj);
     // The game's own grade colours (BP_ArchonClientFunctionLibrary_C::GetItemColorForGrade), read once per world.
     // false until read: use style::rarity meanwhile.
     bool GradeColors(std::array<style::Rgba, 8>& out);

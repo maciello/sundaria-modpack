@@ -34,6 +34,7 @@ namespace {
     std::vector<Entry> g_list;
     std::vector<loot::Actor> g_near;        // last world tick's read around the camera: plain data for the render thread
     std::atomic<float> g_maxDist{0.0f};     // the render thread's last Read radius
+    std::atomic<std::uint32_t> g_version{0};  // bumped when g_list gains actors or is rebuilt
     std::array<style::Rgba, 8> g_colors{};
     bool g_haveColors = false;
     ref::Ref g_world;  // game thread only
@@ -98,7 +99,10 @@ namespace {
         const ref::Ref r(a);
         AcquireSRWLockExclusive(&g_mu);
         std::erase_if(g_list, [](const Entry& e) { return !e.a.Get(); });  // streamed-out / destroyed loot: O(tracked) per spawn
-        if (std::none_of(g_list.begin(), g_list.end(), [&](const Entry& e) { return e.a == r; })) g_list.push_back({r, kind, p.X, p.Y, p.Z});
+        if (std::none_of(g_list.begin(), g_list.end(), [&](const Entry& e) { return e.a == r; })) {
+            g_list.push_back({r, kind, p.X, p.Y, p.Z});
+            g_version++;
+        }
         ReleaseSRWLockExclusive(&g_mu);
     }
 
@@ -144,6 +148,7 @@ namespace {
         AcquireSRWLockExclusive(&g_mu);
         g_list.clear();
         g_haveColors = false;
+        g_version++;
         ReleaseSRWLockExclusive(&g_mu);
         for (int li = 0; li < w->Levels.Num(); li++) {
             ULevel* lvl = w->Levels[li];
@@ -236,6 +241,26 @@ namespace loot {
             if (dx * dx + dy * dy + dz * dz <= max2) out.push_back(a);
         }
         ReleaseSRWLockShared(&g_mu);
+    }
+
+    void Each(std::vector<Actor>& out) {
+        if (!game::OnGameThread()) return;
+        AcquireSRWLockShared(&g_mu);
+        for (const Entry& e : g_list) {
+            auto* t = e.a.Get<ABP_TriggerBase_C>();
+            if (!t) continue;
+            int grade;
+            const loot::State s = StateOf(t, e.kind, grade);
+            out.push_back({reinterpret_cast<uintptr_t>(t), e.kind, e.x, e.y, e.z, loot::Unlooted(s), grade, NAN});
+        }
+        ReleaseSRWLockShared(&g_mu);
+    }
+
+    std::uint32_t Version() { return g_version.load(); }
+
+    bool IsLootActor(const void* obj) {
+        Kind kind;
+        return PtrOk(obj) && ::IsLoot(static_cast<const UObject*>(obj), kind);
     }
 
     bool GradeColors(std::array<style::Rgba, 8>& out) {
