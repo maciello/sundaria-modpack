@@ -16,6 +16,9 @@ set(IMGUI "${TP}/imgui")
 
 file(GLOB FEATURES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/features/*/*.cpp" "${CMAKE_SOURCE_DIR}/features/*/*/*.cpp")
 list(FILTER FEATURES EXCLUDE REGEX "/test/")  # native tests have main()
+# SDK-free libraries shared with offline hosts (repo libs/<lib>/{include,src})
+file(GLOB LIBS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/../../libs/*/src/*.cpp")
+file(GLOB LIB_INCLUDES LIST_DIRECTORIES true "${CMAKE_SOURCE_DIR}/../../libs/*/include")
 
 add_library(${PROJECT_NAME} SHARED
     # our code: core host + every features/[<domain>/]<name>/*.cpp (each feature registers itself) + domain shared/*.cpp
@@ -28,6 +31,7 @@ add_library(${PROJECT_NAME} SHARED
     core/reflect.cpp
     core/umg.cpp
     ${FEATURES}
+    ${LIBS}
 
     # generated SDK: only the units whose function bodies we actually reference
     "${SDK_DIR}/SDK/Basic.cpp"
@@ -69,6 +73,7 @@ set_target_properties(DoS-Loader PROPERTIES PREFIX "" OUTPUT_NAME "DoS-Tool" SUF
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     core
+    ${LIB_INCLUDES}
     "${SDK_DIR}"
     "${SDK_DIR}/SDK"
     "${IMGUI}"
