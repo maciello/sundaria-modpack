@@ -32,7 +32,7 @@ Borderlands only for the boss name card (skewed slab, hard shadow, bold title).
 ## Tokens (`style::`)
 ```yaml
 color:   {kInk: ink outline 20,12,8, kShadow: drop shadow, kText: 255 white, kTextSoft: 235,225,205, kTextMuted, kAccent: chrome accent = game accent orange 255,166,69,
-          kPanel: 18,15,22 @.84, kPanelEdge: accent @.35, kGameText: 239 game button text, kGameHighlight: 252,255,0 game counts/marks, kTrack, kHpFill, kHpSheen, kHpChip, kHeal, kTaken, kGood: upgrade, kSell: sell}
+          kPanel: 18,15,22 @.84, kPanelEdge: accent @.35, kGameText: 239 game button text, kGameHighlight: 252,255,0 game counts/marks, kGamePositive: 21,200,0 game stat-compare better, kTrack, kHpFill, kHpSheen, kHpChip, kHeal, kTaken, kGood: upgrade, kSell: sell}
 element: kColor[combat::Element] / Of(e)   # Physical white, Fire, Ice, Lightning, Holy, Poison, Shadow, Arcane, Environment
 rarity:  kTier[0..7] / Of(tier), kGlowFrom 3   # EItemGrade by rank, WoW quality colours; names + order unverified; the game's own GetItemColorForGrade wins once read
 type:    {Ui(h), kXs 13, kSm 17, kMd 26, kLg 42, kXl 64, kAtlasPx 64, kNumberMin .8, kNumberMax 2.4, kStackCap 1.6, kHaloFrom 1.8,
@@ -177,7 +177,27 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
   "Learned" line (Narkisim 16, orange 1, .651, .27, centred, wraps): `Sell suggested: worse than <item>` / `Salvage suggested: …`.
 - Code: `features/item-sell/inventory-badges.cpp`; data: `item_sell::api::Suggested()`.
 - Don't: own colours or ImGui over the bag; selecting items for the player (the game's Select mode stays theirs).
-- Upgrade mark (#22): not designed yet; candidate = the same slot corner with the game's yellow (`kGameHighlight`).
+- Upgrade marks: § Item upgrade marks (bottom-left; this mark keeps the top-left).
+
+### Item upgrade marks (#117, game screen)
+- Where: the same item slots as the sell marks (`WidgetItemIconContainer_C` in `WidgetItemBag_C::ItemContainers`, inventory and bank),
+  equipable items only. Corner: bottom-left (top-left = sell mark; right side = the game's select mark, comparison icon, stack count;
+  equipables never show a stack count).
+- Anatomy: one chip per slot = the game's own count chip (`WidgetItemIcon_C::Border_Count`: `Seperator` texture, Box margin 0.2,
+  tint black @.75) holding one TextBlock, Narkisim (font copied from the slot's `TextBlock_Count`), size `kChipFont` 20, shadow (1,1) black
+  like the count. Chip padding 6,2,6,0 (`kChipPad`), slot padding 4 from the left and bottom edges (`kChipInset`). Hit-test invisible.
+- States, one at a time, first match wins:
+  | state | when | text | colour |
+  |---|---|---|---|
+  | upgrade | equipping it in its best slot raises the current hero's DPS by ≥ `kMinGain` 1 % | `+4.2%` (one decimal; ≥ 10 %: `+12%`) | game `ComparisonColorPositive` = token `kGamePositive` |
+  | other hero | no upgrade here, ≥ `kMinGain` for another saved hero (`dos-tool-chars/<slot>.yaml`) | that hero's name, ≤ 8 chars (cut, no ellipsis) | `kAccent` (the game's accent orange) |
+  | none | otherwise, or no DPS data yet | chip collapsed | — |
+- Detail lines (the game's item details panel, styled like its orange "Learned" line, as the sell reason): `Upgrade: +4.2% DPS`,
+  `Better for <hero> (<class>): +6.1% DPS` (best other hero), `Best in slot: <class>[, <class>]` (no owned item of that class's slot beats it).
+- Colour is never the only channel: the "+" and "%" say upgrade, a name says other hero.
+- Motion: none (the game's tiles have none).
+- Constants: `features/inventory/item-upgrade/item-upgrade.hpp`.
+- Don't: ImGui over the bag, own art, a second chip per slot, numbers below `kMinGain` (noise), marks on consumables.
 
 ### Boss name card (#19, Borderlands style)
 - Cinematic layer: hides WorldNumber/Hud while shown. Letterbox: black rects top and bottom, 0 → 0.1h over 0.4 s InOutCubic, out the same.

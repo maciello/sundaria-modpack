@@ -27,6 +27,7 @@ namespace style {
         constexpr Rgba kAccent{255, 166, 69};      // chrome accent = the game's accent orange (spinner values). Never on numbers
         constexpr Rgba kGameText{239, 239, 239};   // the game's button text (0.937)
         constexpr Rgba kGameHighlight{252, 255, 0}; // the game's counts / active marks
+        constexpr Rgba kGamePositive{21, 200, 0};   // the game's "better" stat-compare colour (WidgetItemSingleStat_C::ComparisonColorPositive)
         constexpr Rgba kPanel{18, 15, 22, 214};    // menu/card plate
         constexpr Rgba kPanelEdge{255, 166, 69, 90};
         constexpr Rgba kTrack{45, 32, 32, 153};    // empty bar track

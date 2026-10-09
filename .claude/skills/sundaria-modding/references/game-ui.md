@@ -74,6 +74,10 @@ SizeBox_0: {min: 100x100}
   set bonus, description, tier, AdditionalDetails (white), AlreadyLearned (orange 1, .651, .27), RequirementsNotMet (red), footer with
   price (`WidgetCurrency`). Narkisim 16. Shown item: `LoadedItemUIData`. Several instances live at once (compare panels).
 - Suggested sell/salvage marks use these (features/item-sell/inventory-badges.cpp).
+- Item icon (`WidgetItemIcon_C`, inside `Border_IconArea`): count chip `Border_Count` (`Seperator` texture, Box 0.2, tint black @.75,
+  padding 10,4,10,1) > `TextBlock_Count` Narkisim 24 white, shadow (1,1) black. Designer template, `just ui WidgetItemIcon`.
+- Stat compare colours (`WidgetItemSingleStat_C` CDO, `just data show WidgetItemSingleStat`): ComparisonColorPositive linear (.0078, .576, 0)
+  = #15C800, Negative (.937, .024, 0) = #F82A00, Neutral .578 grey. Picked by `GetDiffTextColor(diff)`.
 
 ### Loot toast (`WidgetLootToast_C`, `WidgetLootToastEntry_C`, designer templates)
 - `WidgetLootToast_C`: Overlay > `WidgetStandardViewport_C` (header/footer/medallion images, `ListView_Items`, `FadeOut` animation);
