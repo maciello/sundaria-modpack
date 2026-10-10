@@ -20,6 +20,8 @@
 #include "GameplayAbilities_parameters.hpp"
 #include "BP_GameplayAnimNotify_classes.hpp"
 #include "BP_GameAbilityBase_classes.hpp"
+#include "BP_HUD_Game_classes.hpp"
+#include "BP_HUD_Game_parameters.hpp"
 
 // Ability mods: Lua scripts in <Win64>/dos-mods/abilities/*.lua tweak existing abilities and build new
 // ones on donors (script.hpp has the API). Scripts only declare and record commands; the systems below
@@ -64,6 +66,7 @@ namespace {
     ref::Fn g_fnCancel{UGameplayAbility::StaticClass, "GameplayAbility", "K2_CancelAbility"};
     ref::Fn g_fnMakeContext{UAbilitySystemComponent::StaticClass, "AbilitySystemComponent", "MakeEffectContext"};
     ref::Fn g_fnApplySelf{UAbilitySystemComponent::StaticClass, "AbilitySystemComponent", "BP_ApplyGameplayEffectToSelf"};
+    ref::Fn g_fnReloadBar{ABP_HUD_Game_C::StaticClass, "BP_HUD_Game_C", "I_ReloadAbilityBar"};
     std::atomic<bool> g_ready{false};  // the notify class was found once (menu)
 
     // Menu snapshot, written on the game thread, read on the render thread.
@@ -282,8 +285,26 @@ namespace {
         g_host.Fire(c.cls, Event::Activate, g_cmds);
     }
 
-    // Cooldown cut: each cooldown effect of a watched cast becomes a timer at duration x scale.
+    // The ability bar reads a cooldown once, when it starts (WidgetAbilityBar::ReloadCoolDownEffect ->
+    // K2_GetCooldownTimeRemainingAndDuration), then counts down on its own: after we shortened an effect it has to
+    // read again. I_ReloadAbilityBar(UMG only) is the game's own refresh.
+    void ReloadAbilityBar() {
+        UWorld* w = UWorld::GetWorld();
+        ULocalPlayer* lp = PtrOk(w) && PtrOk(w->OwningGameInstance) && w->OwningGameInstance->LocalPlayers.Num() > 0
+            ? w->OwningGameInstance->LocalPlayers[0] : nullptr;
+        APlayerController* pc = PtrOk(lp) ? lp->PlayerController : nullptr;
+        AHUD* hud = PtrOk(pc) ? pc->MyHUD : nullptr;
+        UFunction* fn = g_fnReloadBar.Get();
+        if (!PtrOk(hud) || !fn || !hud->IsA(ABP_HUD_Game_C::StaticClass())) return;
+        Params::BP_HUD_Game_C_I_ReloadAbilityBar p{};
+        p.UMGHUDOnly = true;
+        hud->ProcessEvent(fn, &p);
+    }
+
+    // Cooldown cut: each cooldown effect of a watched cast gets duration x scale written into it (the bar shows that)
+    // and a timer that removes it then (the effect's own expiry timer still runs to the old time).
     void CooldownSystem(ULONGLONG now) {
+        bool shortened = false;
         g_reg.Each<CooldownWatch>([&](ecs::Entity e, CooldownWatch& w) {
             if (now > w.until) { g_reg.Destroy(e); return; }
             game::EffectRef fx[8];
@@ -294,10 +315,13 @@ namespace {
                 if (fx[i].duration <= 0) continue;  // infinite: leave it to the game
                 bool timed = false;
                 g_reg.Each<CooldownTimer>([&](ecs::Entity, CooldownTimer& t) { timed |= t.handle == fx[i].handle && t.asc == w.asc; });
-                if (!timed)
+                if (!timed) {
                     g_reg.Add(g_reg.Create(), CooldownTimer{w.asc, fx[i].handle, now + (ULONGLONG)(fx[i].duration * w.scale * 1000.0f)});
+                    shortened |= game::SetEffectDuration(w.asc.Get(), fx[i].handle, fx[i].duration * w.scale);
+                }
             }
         });
+        if (shortened) ReloadAbilityBar();
         g_reg.Each<CooldownTimer>([&](ecs::Entity e, CooldownTimer& t) {
             if (now < t.at) return;
             if (game::RemoveEffect(t.asc.Get(), t.handle)) g_cuts++;
