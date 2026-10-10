@@ -83,7 +83,7 @@ test:
     for t in libs/*/test/*_test.cpp; do l=$(dirname $(dirname $t)); b=build/$(basename $l)_$(basename $t .cpp){{exe}}; {{cxx}} -std=c++20 -O2 -I$l/include $t $l/src/*.cpp -o $b && $b || exit 1; done   # SDK-free libraries (libs/<lib>/{include,src,test})
 
 # DPS library (#118): tables file from the extracted pak data (game data, outside the repo); next to the exe the DLL reads it too
-dps_tables := env_var_or_default("DPS_TABLES", win64 / "dos-tool-dps/tables.txt")
+dps_tables := env_var_or_default("DPS_TABLES", justfile_directory() / "build/dps/tables.txt")  # never the game dir: `just dps-install` is the only writer there
 
 # no game needed: hero <snapshot.yaml> | score [--items F..] | bis <Class> [--level L] | weights <snapshot|Class> | calibrate <snapshot> | bench
 [positional-arguments]

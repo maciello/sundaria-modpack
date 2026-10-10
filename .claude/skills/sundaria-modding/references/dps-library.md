@@ -30,8 +30,8 @@ inputs: Item {spec, equipSlot, weaponType (spec name), grade, level, slot (equip
 
 ## Data sources
 ```yaml
-offline: tables file <Win64>/dos-tool-dps/tables.txt (DPS_TABLES overrides); `just dps-tables <model.json>` writes it from the
-  pak extract (local dps-sim `just extract`). The DLL's item-upgrade feature reads the same file via FileSource.
+offline: tables file `build/dps/tables.txt` of the checkout (DPS_TABLES overrides; never the game dir); `just dps-tables <model.json>` writes it from the
+  pak extract (local dps-sim `just extract`). `just dps-install` copies it to <Win64>/dos-tool-dps/tables.txt, which the DLL reads (FileSource); install only together with a DLL built from the same commit (a newer table format makes the running DLL fall back to preview marks).
 in_game: not built (#119). Plan: a Source in features/inventory/shared reading the DataTables/CurveTables by path
   (UKismetSystemLibrary::MakeSoftObjectPath + load, as core fx.cpp does; no GObjects walk) with core reflect.
   Which tables stay loaded: UNVERIFIED (game was not running). Ability data (CDOs, montages: only equipped weapons'
