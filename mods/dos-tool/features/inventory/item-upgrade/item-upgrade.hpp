@@ -8,17 +8,18 @@
 #include <vector>
 
 namespace item_upgrade {
-    constexpr float kMinGain = 1.0f;   // % DPS: smaller gains are noise, no mark
+    constexpr float kMinGain = 1.0f;   // % DPS: a gain from here on outranks another hero's mark
+    constexpr float kNeutralBand = 0.05f;  // % DPS: |change| below this reads "±0%"
     constexpr int kNameChars = 8;      // other-hero chip: hero name cut to this many characters
     constexpr float kChipFont = 20;    // Narkisim size, UMG units (slot = 100)
     constexpr float kChipPadL = 6, kChipPadT = 2, kChipPadR = 6, kChipPadB = 0;
     constexpr float kChipInset = 4;    // from the slot's left and bottom edges
 
-    enum class Mark : std::uint8_t { None, Upgrade, OtherHero, Downgrade };
+    enum class Mark : std::uint8_t { None, Upgrade, OtherHero, Downgrade, Neutral };
     struct Other { std::string hero, cls; float pct = 0; bool fits = false; };  // the item for another saved hero
     struct Verdict {
         Mark mark = Mark::None;
-        float pct = 0;                  // Upgrade / Downgrade: DPS change for the current hero
+        float pct = 0;                  // Upgrade / Downgrade / Neutral: DPS change for the current hero
         std::string hero, cls;          // best other hero (any mark), "" = none above kMinGain
         float heroPct = 0;
         std::vector<std::string> bis;   // classes this item is best in slot for
@@ -32,7 +33,10 @@ namespace item_upgrade {
             if (o.fits && o.pct >= kMinGain && o.pct > v.heroPct) { v.hero = o.hero; v.cls = o.cls; v.heroPct = o.pct; }
         if (selfFits && selfPct >= kMinGain) { v.mark = Mark::Upgrade; v.pct = selfPct; }
         else if (!v.hero.empty()) v.mark = Mark::OtherHero;
-        else if (selfFits && selfPct <= -kMinGain) { v.mark = Mark::Downgrade; v.pct = selfPct; }
+        else if (selfFits) {  // usable by the current hero: always a chip
+            v.pct = selfPct;
+            v.mark = selfPct >= kNeutralBand ? Mark::Upgrade : selfPct <= -kNeutralBand ? Mark::Downgrade : Mark::Neutral;
+        }
         return v;
     }
 
@@ -49,7 +53,8 @@ namespace item_upgrade {
         return std::string(s.substr(0, i));
     }
     inline std::string Chip(const Verdict& v) {
-        return v.mark == Mark::Upgrade || v.mark == Mark::Downgrade ? Pct(v.pct) : v.mark == Mark::OtherHero ? Cut(v.hero, kNameChars) : "";
+        return v.mark == Mark::Upgrade || v.mark == Mark::Downgrade ? Pct(v.pct) : v.mark == Mark::Neutral ? "\xC2\xB1" "0%"
+             : v.mark == Mark::OtherHero ? Cut(v.hero, kNameChars) : "";
     }
     // Lines for the game's item details panel, joined by '\n'; "" = none.
     inline std::string Lines(const Verdict& v) {

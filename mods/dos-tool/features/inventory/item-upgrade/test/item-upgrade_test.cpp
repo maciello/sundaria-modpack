@@ -25,11 +25,17 @@ int main() {
     v = Judge(-4.24f, true, {{"Aria", "Wizard", 0.5f, true}}, {});
     assert(v.mark == Mark::Downgrade && Chip(v) == "-4.2%" && Lines(v) == "Downgrade: -4.2% DPS");
     assert(Judge(-4.2f, true, others, {}).mark == Mark::OtherHero);
-    assert(Judge(-0.9f, true, {}, {}).mark == Mark::None && Judge(-30, false, {}, {}).mark == Mark::None);
+    assert(Judge(-30, false, {}, {}).mark == Mark::None);  // cannot use it: no % chip
 
-    // nothing worth saying
+    // usable, small change: still a chip; |change| < kNeutralBand = "±0%"
     v = Judge(0.5f, true, {{"Aria", "Wizard", 0.99f, true}}, {});
-    assert(v.mark == Mark::None && Chip(v).empty() && Lines(v).empty());
+    assert(v.mark == Mark::Upgrade && Chip(v) == "+0.5%");
+    assert(Judge(-0.9f, true, {}, {}).mark == Mark::Downgrade && Chip(Judge(-0.9f, true, {}, {})) == "-0.9%");
+    v = Judge(0.04f, true, {}, {});
+    assert(v.mark == Mark::Neutral && Chip(v) == "\xC2\xB1" "0%" && Lines(v).empty());
+    assert(Judge(-0.04f, true, {}, {}).mark == Mark::Neutral && Judge(0, true, {}, {}).mark == Mark::Neutral);
+    assert(Judge(0.05f, true, {}, {}).mark == Mark::Upgrade && Judge(-0.05f, true, {}, {}).mark == Mark::Downgrade);
+    assert(Judge(0, true, others, {}).mark == Mark::OtherHero);  // other hero outranks a neutral change
     assert(Lines(Judge(0, false, {}, {"Ranger", "Rogue"})) == "Best in slot: Ranger, Rogue");
 
     // cache key: same item = same key; any stat, level or grade change = new key

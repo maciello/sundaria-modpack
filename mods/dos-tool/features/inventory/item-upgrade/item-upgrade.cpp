@@ -62,7 +62,8 @@ namespace {
         }
         void* text = t.text.Get<void>();
         if (!text) return;
-        if (v.mark != t.mark && v.mark != Mark::None) marks::SetColor(text, v.mark == Mark::Upgrade ? style::color::kGamePositive : v.mark == Mark::Downgrade ? style::color::kGameNegative : style::color::kAccent);
+        if (v.mark != t.mark && v.mark != Mark::None) marks::SetColor(text, v.mark == Mark::Upgrade ? style::color::kGamePositive : v.mark == Mark::Downgrade ? style::color::kGameNegative
+                                                   : v.mark == Mark::Neutral ? style::color::kGameText : style::color::kAccent);
         if (chip != t.chip && !chip.empty()) marks::SetText(text, chip);
         if (chip.empty() != t.chip.empty()) marks::SetVisible(t.box.Get<void>(), !chip.empty());
         t.mark = v.mark;
