@@ -7,6 +7,37 @@ namespace cast_mode {
     // N-1, or N+5 while the ability-bar modifier is held; slots 7..12 enqueue N-1).
     inline int SlotByte(int n, bool modifier) { return n >= 1 && n <= 6 && modifier ? n + 5 : n - 1; }
 
+    // What aiming looks like for an ability (None = not aimed: the key casts at once, as in the vanilla game).
+    enum class Shape {
+        None,
+        Ally,         // marker on the ally the trace would hit (heals, buffs)
+        Enemy,        // marker on the enemy the trace would hit
+        Ring,         // our circle where the aim meets the ground (projectiles with splash; forced slots)
+        GameReticle,  // the game's own cast-area decal (BP_GroundTargetAbility: Heavenly Strike, Meteor Strike, traps ...)
+    };
+    struct Traits {
+        int targetingType;   // EGameplayEffectTargetingType: TraceAny 0, TraceEnemy 1, TraceFriend 2, Self 3
+        bool channel;        // BP_GameAbility_ChannelAbility: must be held, a confirm tap would end it at once
+        bool holdToRepeat;   // HoldToRepeatAbility (spam attacks)
+        bool charge;         // kMaxHoldLevel > 0: hold to charge
+        bool groundTarget;   // BP_GroundTargetAbility
+        bool projectile;     // mSpawnProjectile
+        float splash;        // GetProjectileDamageRadius
+    };
+    enum class Override { Auto, Always, Never };  // per slot, from the menu
+
+    inline Shape Classify(const Traits& t, Override o, bool allies, bool enemies) {
+        if (o == Override::Never || t.channel || t.holdToRepeat || t.charge) return Shape::None;  // held abilities never aim
+        if (t.groundTarget) return Shape::GameReticle;
+        if (t.targetingType == 2) return allies ? Shape::Ally : o == Override::Always ? Shape::Ring : Shape::None;
+        if (t.targetingType == 1) return enemies ? Shape::Enemy : o == Override::Always ? Shape::Ring : Shape::None;
+        if (t.targetingType == 0 && t.projectile) {
+            if (t.splash > 0) return Shape::Ring;
+            if (enemies) return Shape::Enemy;
+        }
+        return o == Override::Always ? Shape::Ring : Shape::None;  // melee swings, dodge, self buffs
+    }
+
     enum class Key { Other, Left, Right };  // the key that raised the event
     enum class Do {
         Pass,            // not ours: the game handles it

@@ -25,11 +25,16 @@
 #include "BP_GameAbilityBase_classes.hpp"
 #include "BP_GameAbilityBase_parameters.hpp"
 #include "BP_GameState_classes.hpp"
+#include "BP_GroundTargetAbility_classes.hpp"
+#include "BP_GroundTargetAbility_parameters.hpp"
+#include "BP_GameAbility_ChannelAbility_classes.hpp"
 #include "BP_GameState_parameters.hpp"
 
-// Cast mode (#107, marker of #104): pressing an aimed ability starts aiming instead of casting. While aiming, the
-// ally/enemy the game's own trace would hit is marked (or a ground circle for area abilities you ticked in the menu);
-// left click or the same key casts, right click cancels.
+// Cast mode (#107, marker of #104): pressing an aimed ability starts aiming instead of casting. While aiming:
+//   ally / enemy abilities    the character the game's own trace would hit is marked
+//   ground-target abilities   the game's own cast-area decal (the one it shows during the cast time) follows the aim
+//   projectiles with splash   a circle of the splash radius where the aim meets the ground
+// Left click or the same key casts, right click cancels. Channelled and hold abilities never aim (cast_mode::Classify).
 // How: the controller's InpActEvt_Ability<N> key events are filtered before the game runs them (game::SetEventFilter);
 // the cast is the game's own EnqueueAbilityInput(slot, press) + (slot, release), so the ability activates and traces
 // exactly as if the key had been pressed at that moment. Game thread only, except the drawing (render thread, floats).
@@ -43,7 +48,7 @@ namespace {
 
     // Settings: menu (render thread) writes, game thread reads.
     std::atomic<bool> g_on{false}, g_allies{true}, g_enemies{true};
-    std::atomic<int> g_groundMask{0};  // bit = EAbilityInputName slot: aim first with a ground circle
+    std::atomic<int> g_always{0}, g_never{0};  // bit = EAbilityInputName slot: aim with a circle / never aim (menu override)
 
     ref::Cached<UClass> g_pcCls{[] { return ABP_PlayerControllerGame_C::StaticClass(); }};
     ref::Fn g_fnBarItem{ABP_PlayerControllerGame_C::StaticClass, "BP_PlayerControllerGame_C", "I_GetActionBarItemByEnum"};
@@ -52,6 +57,11 @@ namespace {
     ref::Fn g_fnCooldown{UGameplayAbility::StaticClass, "GameplayAbility", "K2_CheckAbilityCooldown"};
     ref::Fn g_fnRange{UBP_GameAbilityBase_C::StaticClass, "BP_GameAbilityBase_C", "GetAbilityTraceRange"};
     ref::Fn g_fnEnemies{ABP_GameState_C::StaticClass, "BP_GameState_C", "I_AreActorsEnemies"};
+    ref::Fn g_fnSplash{UBP_GameAbilityBase_C::StaticClass, "BP_GameAbilityBase_C", "GetProjectileDamageRadius"};
+    ref::Fn g_fnCastRadius{UBP_GroundTargetAbility_C::StaticClass, "BP_GroundTargetAbility_C", "GetCastRadius"};
+    ref::Fn g_fnCastArea{ABP_PlayerControllerGame_C::StaticClass, "BP_PlayerControllerGame_C", "I_CastAreaSwitch"};
+    ref::Cached<UClass> g_groundCls{[] { return UBP_GroundTargetAbility_C::StaticClass(); }};
+    ref::Cached<UClass> g_channelCls{[] { return UBP_GameAbility_ChannelAbility_C::StaticClass(); }};
 
     // The controller's ability key events: InpActEvt_Ability<N>_* (press and release), n = N, 0 = AbilityBlock.
     struct Input { ref::Ref fn; int n; };
@@ -87,7 +97,8 @@ namespace {
     // What sits in a slot, as far as cast mode cares.
     struct Slot {
         bool aimed = false;
-        aim::Kind kind = aim::Kind::None;  // Ally / Enemy = pick a character; None with aimed = ground circle
+        cast_mode::Shape shape = cast_mode::Shape::None;
+        float splash = 0;  // Ring: projectile splash radius, 0 = unknown
         ref::Ref ability;
         std::string name;
     };
@@ -109,15 +120,30 @@ namespace {
         UArchonGameplayAbility* ab = find.ReturnValue && PtrOk(find.OutAbility) ? find.OutAbility : nullptr;
         if (!ab || !ab->IsA(UBP_GameAbilityBase_C::StaticClass())) return out;
         auto* base = static_cast<UBP_GameAbilityBase_C*>(ab);
-        const int type = int(base->mDefaultAbilityTargetingType);
-        const bool pick = aim::Targeted(type, base->mRequireValidTarget) && (type == 2 ? g_allies.load() : g_enemies.load());
-        const bool ground = !pick && (g_groundMask.load() >> slot & 1);
-        if (!pick && !ground) return out;
+        UClass* groundCls = g_groundCls.Get();    // null while no such ability is loaded
+        UClass* channelCls = g_channelCls.Get();
+        cast_mode::Traits t{};
+        t.targetingType = int(base->mDefaultAbilityTargetingType);
+        t.channel = channelCls && ab->IsA(channelCls);
+        t.holdToRepeat = base->HoldToRepeatAbility;
+        t.charge = base->kMaxHoldLevel > 0;
+        t.groundTarget = groundCls && ab->IsA(groundCls);
+        t.projectile = base->mSpawnProjectile;
+        if (UFunction* fn = t.projectile ? g_fnSplash.Get() : nullptr) {
+            Params::BP_GameAbilityBase_C_GetProjectileDamageRadius r{};
+            ab->ProcessEvent(fn, &r);
+            t.splash = r.DamageRadius;
+        }
+        const cast_mode::Override o = g_never.load() >> slot & 1 ? cast_mode::Override::Never
+                                    : g_always.load() >> slot & 1 ? cast_mode::Override::Always : cast_mode::Override::Auto;
+        const cast_mode::Shape shape = cast_mode::Classify(t, o, g_allies.load(), g_enemies.load());
+        if (shape == cast_mode::Shape::None) return out;
         Params::GameplayAbility_K2_CheckAbilityCooldown cd{};
         umg::CallNative(ab, cdFn, &cd);
         if (!cd.ReturnValue) return out;  // on cooldown: the game shows its own message
         out.aimed = true;
-        out.kind = pick ? (type == 2 ? aim::Kind::Ally : aim::Kind::Enemy) : aim::Kind::None;
+        out.shape = shape;
+        out.splash = t.splash;
         out.ability = ref::Ref(ab);
         out.name = ab->Class->GetName();
         return out;
@@ -134,7 +160,8 @@ namespace {
     // What the render thread draws: plain numbers only.
     struct Shown {
         bool aiming = false;
-        aim::Kind want = aim::Kind::None;   // None = ground circle
+        aim::Kind want = aim::Kind::None;   // Ally / Enemy = marker on a character
+        bool ring = false;                  // our ground circle (want None)
         bool hasTarget = false;
         float head[3]{}, feet[3]{}, ground[3]{}, radius = 0;
         unsigned serial = 0;                // changes with the target (pop animation)
@@ -151,7 +178,37 @@ namespace {
         ReleaseSRWLockExclusive(&g_mu);
     }
 
+    // The game's cast-area decal: what BP_GroundTargetAbility shows during its cast time (OnCastStarted ->
+    // I_CastAreaSwitch(true, class, GetCastRadius, GetAbilityTraceRange)); the controller moves it to the aim every tick.
+    bool g_reticleOn = false;
+    void Reticle(bool on) {
+        if (on == g_reticleOn) return;
+        APlayerController* pc = umg::LocalPC();
+        UFunction* fn = g_fnCastArea.Get();
+        auto* ab = g_aim.ability.Get<UBP_GroundTargetAbility_C>();
+        if (!PtrOk(pc) || !fn || !pc->IsA(ABP_PlayerControllerGame_C::StaticClass())) { g_reticleOn = false; return; }
+        Params::BP_PlayerControllerGame_C_I_CastAreaSwitch p{};
+        p.On = on;
+        if (on) {
+            if (!ab || !PtrOk(ab->mValidCastAreaClass)) return;
+            p.CastAreaClass = ab->mValidCastAreaClass;
+            if (UFunction* rf = g_fnCastRadius.Get()) {
+                Params::BP_GroundTargetAbility_C_GetCastRadius r{};
+                ab->ProcessEvent(rf, &r);
+                p.CastAreaRadius = r.Radius;
+            }
+            if (UFunction* rf = g_fnRange.Get()) {
+                Params::BP_GameAbilityBase_C_GetAbilityTraceRange r{};
+                ab->ProcessEvent(rf, &r);
+                p.CastRange_0 = r.Range;
+            }
+        }
+        pc->ProcessEvent(fn, &p);
+        g_reticleOn = on;
+    }
+
     void End(const char* why) {
+        Reticle(false);  // a cast: the ability switches its own decal on again when its cast time starts
         g_state.aiming = false;
         g_aim = {};
         g_lastTarget = {};
@@ -182,7 +239,12 @@ namespace {
         if (!hero || !ab || !PtrOk(pc->PlayerCameraManager)) { End("ability or hero gone"); return; }
         Shown s;
         s.aiming = true;
-        s.want = g_aim.kind;
+        s.want = g_aim.shape == cast_mode::Shape::Ally ? aim::Kind::Ally : g_aim.shape == cast_mode::Shape::Enemy ? aim::Kind::Enemy : aim::Kind::None;
+        if (g_aim.shape == cast_mode::Shape::GameReticle) {  // the game draws and moves its decal itself
+            Reticle(true);
+            Publish(s);
+            return;
+        }
 
         float range = 0;
         if (UFunction* fn = g_fnRange.Get()) {
@@ -208,14 +270,15 @@ namespace {
                                                     EDrawDebugTrace::None, &view, true, FLinearColor{}, FLinearColor{}, 0.0f);
         const aim::V3 hitAt = V(view.Location);
 
-        if (g_aim.kind == aim::Kind::None) {  // area: where the aim meets the world, dropped onto the floor
+        if (g_aim.shape == cast_mode::Shape::Ring) {  // area: where the aim meets the world, dropped onto the floor
             aim::V3 p = viewHit ? hitAt : viewEnd;
             FHitResult floor{};
             if (UKismetSystemLibrary::LineTraceSingle(hero, F(p + aim::V3{0, 0, 50}), F(p - aim::V3{0, 0, 3000}), ETraceTypeQuery::TraceTypeQuery1,
                                                       false, ignored, EDrawDebugTrace::None, &floor, true, FLinearColor{}, FLinearColor{}, 0.0f))
                 p = V(floor.Location);
             s.ground[0] = p.x, s.ground[1] = p.y, s.ground[2] = p.z;
-            s.radius = ab->TraceSphereRadiusOverride > 0 ? ab->TraceSphereRadiusOverride : 150.0f;
+            s.ring = true;
+            s.radius = g_aim.splash > 0 ? g_aim.splash : ab->TraceSphereRadiusOverride > 0 ? ab->TraceSphereRadiusOverride : 150.0f;
             Publish(s);
             return;
         }
@@ -243,7 +306,8 @@ namespace {
             }
         }
         const bool character = PtrOk(target) && target->IsA(ACharacter::StaticClass());
-        const aim::Kind mark = aim::Mark(int(ab->mDefaultAbilityTargetingType), character, target == hero, enemies, true);
+        // the shape decides whom we look for (a TraceAny projectile is aimed at enemies)
+        const aim::Kind mark = aim::Mark(s.want == aim::Kind::Ally ? 2 : 1, character, target == hero, enemies, true);
         if (mark != aim::Kind::None) {
             auto* c = static_cast<ACharacter*>(target);
             const aim::V3 at = V(c->K2_GetActorLocation());
@@ -294,7 +358,12 @@ namespace {
             case cast_mode::Do::Enter:
                 g_aim = found;
                 g_nextPredict = 0;
-                logger::log(("[cast-mode] aiming " + found.name + (found.kind == aim::Kind::Ally ? " (ally)" : found.kind == aim::Kind::Enemy ? " (enemy)" : " (ground)")).c_str());
+                {
+                    static const char* kShape[] = {"none", "ally", "enemy", "ring", "game reticle"};
+                    char buf[200];
+                    std::snprintf(buf, sizeof(buf), "[cast-mode] aiming %s (%s, splash %.0f)", found.name.c_str(), kShape[int(found.shape)], found.splash);
+                    logger::log(buf);
+                }
                 Predict(pc);
                 break;
             case cast_mode::Do::Confirm: Cast(pc, aimedSlot); break;
@@ -378,7 +447,7 @@ namespace {
             const ImU32 ink = style::Pack(style::color::kInk, style::stroke::kOutlineAlpha);
 
             if (s.want == aim::Kind::None) {
-                Ring(dl, view, f, s.ground, s.radius, col, spec::kStroke * ui, true);
+                if (s.ring) Ring(dl, view, f, s.ground, s.radius, col, spec::kStroke * ui, true);  // else: the game's own decal
             } else if (!s.hasTarget) {  // aiming, nobody valid under the aim: a quiet ring at the crosshair
                 dl->AddCircle({f.w * 0.5f, f.h * 0.5f}, spec::kNoTargetR * ui, ink, 32, spec::kStroke * ui + 2.0f);
                 dl->AddCircle({f.w * 0.5f, f.h * 0.5f}, spec::kNoTargetR * ui, style::Pack(style::color::kTextMuted, 0.9f), 32, spec::kStroke * ui);
@@ -430,20 +499,28 @@ namespace {
             g_shown = {};
             ReleaseSRWLockExclusive(&g_mu);
             g_state = {};  // listeners are gone: no game-thread reader left
+            // ponytail: a game decal we switched on stays until the next ground-target cast ends if the feature is
+            // turned off in the middle of aiming (I_CastAreaSwitch needs the game thread).
         }
 
         void Menu() override {
             bool a = g_allies, e = g_enemies;
             if (ImGui::Checkbox("Ally abilities aim first (heals, buffs)", &a)) { g_allies = a; ImGui::MarkIniSettingsDirty(); }
-            if (ImGui::Checkbox("Enemy-target abilities aim first", &e)) { g_enemies = e; ImGui::MarkIniSettingsDirty(); }
-            ImGui::TextDisabled("Also aim first, with a ground circle (area abilities), slot:");
-            int mask = g_groundMask;
+            if (ImGui::Checkbox("Enemy abilities aim first (targeted spells, projectiles)", &e)) { g_enemies = e; ImGui::MarkIniSettingsDirty(); }
+            ImGui::TextDisabled("Per slot: Auto = by ability type, Ring = always aim with a ground circle, Off = never aim");
+            int always = g_always, never = g_never;
             for (int i = 0; i < 12; i++) {
-                bool on = mask >> i & 1;
-                char id[8];
-                std::snprintf(id, sizeof(id), "%d", i + 1);
-                if (i % 6) ImGui::SameLine();
-                if (ImGui::Checkbox(id, &on)) { mask = on ? mask | 1 << i : mask & ~(1 << i); g_groundMask = mask; ImGui::MarkIniSettingsDirty(); }
+                int v = never >> i & 1 ? 2 : always >> i & 1 ? 1 : 0;
+                char id[16];
+                std::snprintf(id, sizeof(id), "%d##slot%d", i + 1, i);
+                if (i % 4) ImGui::SameLine();
+                ImGui::SetNextItemWidth(78);
+                if (ImGui::Combo(id, &v, "Auto\0Ring\0Off\0")) {
+                    always = v == 1 ? always | 1 << i : always & ~(1 << i);
+                    never = v == 2 ? never | 1 << i : never & ~(1 << i);
+                    g_always = always, g_never = never;
+                    ImGui::MarkIniSettingsDirty();
+                }
             }
             ImGui::TextDisabled("press: aim   left click / same key: cast   right click: cancel   (%d cast, %d cancelled)", g_casts.load(), g_cancels.load());
         }
@@ -452,12 +529,14 @@ namespace {
             const std::string k = key;
             if (k == "allies") g_allies = std::atoi(value) != 0;
             else if (k == "enemies") g_enemies = std::atoi(value) != 0;
-            else if (k == "ground") g_groundMask = std::atoi(value);
+            else if (k == "always") g_always = std::atoi(value);
+            else if (k == "never") g_never = std::atoi(value);
         }
         void Save(std::vector<std::pair<std::string, std::string>>& out) override {
             out.push_back({"allies", g_allies ? "1" : "0"});
             out.push_back({"enemies", g_enemies ? "1" : "0"});
-            out.push_back({"ground", std::to_string(g_groundMask.load())});
+            out.push_back({"always", std::to_string(g_always.load())});
+            out.push_back({"never", std::to_string(g_never.load())});
         }
     } g_castMode;
 }
