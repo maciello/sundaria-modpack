@@ -80,6 +80,7 @@ test:
     {{python}} scripts/ref-check.py --self-test && {{python}} scripts/ref-check.py
     {{python}} scripts/data.py --self-test
     {{python}} scripts/game.py --self-test
+    {{python}} scripts/abilities.py --self-test
     {{python}} updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
     mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp mods/*/features/*/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); {{cxx}} -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp){{exe}} && build/$(basename $t .cpp){{exe}} || exit 1; done
     for t in libs/*/test/*_test.cpp; do l=$(dirname $(dirname $t)); b=build/$(basename $l)_$(basename $t .cpp){{exe}}; {{cxx}} -std=c++20 -O2 -I$l/include $t $l/src/*.cpp -o $b && $b || exit 1; done   # SDK-free libraries (libs/<lib>/{include,src,test})
@@ -154,6 +155,11 @@ items regex=".":
                 line = f"{i}\t{table.replace('ItemTable_', '')}\tq{r.get('Quality', '')}\tstack {r.get('MaxStack', '')}\t{name}"
                 if rx.search(line): print(line)
     PY
+
+# abilities in the DPS tables as YAML by class (cooldown, coef, damage source, weapon types, sections, primary); regex = class or name, case-insensitive
+[positional-arguments]
+abilities *args:
+    @{{python}} scripts/abilities.py --tables "{{dps_tables}}" "$@"
 
 # game running (dev install): ask the live game, YAML out: get <path> | find <class> | call | trace <regex> <s> | shot | log | feature [<name> on|off] | ping
 [positional-arguments]
