@@ -51,7 +51,7 @@ namespace idle_loot {
         c.glow.on = false;  // maintainer 2026-10-10: fireflies only (no tintable glow found)
         c.fly.tpl = IndexOf("fx_fireFlies");
         std::fill(c.fly.size, c.fly.size + kGrades, 0.6f);
-        const int fly[kGrades] = {0, 0, 1, 2, 4, 0, 6, 10};  // grey white green blue purple yellow(crafting) red eternal
+        const int fly[kGrades] = {0, 0, 1, 2, 4, 4, 6, 10};  // grey white green blue purple yellow(crafting) red eternal
         std::copy(fly, fly + kGrades, c.fly.copies);
         c.fly.bright = 10.0f;
         c.fly.minGrade = 2;

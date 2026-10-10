@@ -36,7 +36,7 @@ int main() {
     // config (#135, #133): defaults = the maintainer's table
     const Config d = Defaults();
     assert(kCurated > 0 && kCurated < kTemplateCount && !d.glow.on && std::string(kTemplates[d.fly.tpl].name) == "fx_fireFlies");
-    const std::size_t count[8] = {0, 0, 1, 2, 4, 0, 6, 10};
+    const std::size_t count[8] = {0, 0, 1, 2, 4, 4, 6, 10};
     for (int g = 0; g < 8; g++) {
         const std::vector<Layer> p = Plan(d, g, false);
         assert(p.size() == count[g]);
@@ -66,6 +66,6 @@ int main() {
     assert(Emissive(4, tiers, true, 2).b == 2 * epic.b && Emissive(4, tiers, false, 1).r == Emissive(4, tiers, false, 1).b);
     const std::string line = Format(d);
     assert(line.find("glow on=0") != std::string::npos && line.find("tpl=fx_fireFlies") != std::string::npos);
-    assert(line.find("copies=[0,0,1,2,4,0,6,10]") != std::string::npos);
+    assert(line.find("copies=[0,0,1,2,4,4,6,10]") != std::string::npos);
     std::puts("idle-loot ok");
 }
