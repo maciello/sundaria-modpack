@@ -431,7 +431,9 @@ namespace {
     std::unordered_set<ref::Ref, ref::Hash> g_seen;
     struct Fired { ref::Ref fn, cls; ULONGLONG t; };
     std::vector<Fired> g_fresh;
-    std::atomic<game::EventFilter> g_filter{nullptr};  // ponytail: one slot (item-sort); a table when a second user comes
+    constexpr int kFilters = 4;  // item-sort, cast-mode
+    std::atomic<game::EventFilter> g_filter[kFilters]{};
+    bool AnyFilter() { for (auto& f : g_filter) if (f.load(std::memory_order_relaxed)) return true; return false; }
 
     // Free camera: render thread writes the pose, the game thread's BlueprintUpdateCamera call reads it.
     std::atomic<bool> g_freeOn{false};
@@ -918,8 +920,10 @@ namespace {
                 g_fresh.push_back({f, ref::Ref(PtrOk(obj) ? obj->Class : nullptr), GetTickCount64()});
             ReleaseSRWLockExclusive(&g_probeMu);
         }
-        const game::EventFilter skip = g_filter.load(std::memory_order_relaxed);
-        if (!skip || !skip(const_cast<UObject*>(obj), fn, parms)) g_oPE(obj, fn, parms);
+        bool skipped = false;  // the first filter that claims the call wins; the others are not asked
+        for (int i = 0; i < kFilters && !skipped; i++)
+            if (const game::EventFilter skip = g_filter[i].load(std::memory_order_relaxed)) skipped = skip(const_cast<UObject*>(obj), fn, parms);
+        if (!skipped) g_oPE(obj, fn, parms);
         // Dispatch cost (dev install, game thread, every 64th call): one log line per 8192 samples (~30 s in a dungeon).
         thread_local unsigned t_peCalls = 0;
         const bool timed = (++t_peCalls & 63) == 0 && DevInstall() && game::OnGameThread();
@@ -983,7 +987,7 @@ namespace {
     void UpdatePEHook() {
         bool want = g_probeOn.load() || g_freeOn.load() || g_camMoved.load() || g_walkOn.load()
                  || g_walkHeld.load() || g_placePending.load() || g_colPending.load() || g_roomPending.load();
-        want |= g_filter.load() != nullptr || events::Live();
+        want |= AnyFilter() || events::Live();
         if (want && !g_peTarget) {
             MH_Initialize();  // already initialised by kiero: harmless
             void* target = reinterpret_cast<void*>(InSDKUtils::GetImageBase() + Offsets::ProcessEvent);
@@ -1012,8 +1016,13 @@ bool events::DrainHook() {
 void events::UpdateHook() { UpdatePEHook(); }
 
 void game::SetEventFilter(EventFilter f, bool on) {
-    EventFilter want = on ? nullptr : f;
-    if (!g_filter.compare_exchange_strong(want, on ? f : nullptr) && on && want != f) logger::log("[game] event filter taken: not installed");
+    bool done = false;
+    for (auto& slot : g_filter) if (slot.load() == f) { if (!on) slot = nullptr; done = true; }  // already in / remove
+    for (int i = 0; on && !done && i < kFilters; i++) {
+        EventFilter empty = nullptr;
+        done = g_filter[i].compare_exchange_strong(empty, f);
+    }
+    if (on && !done) logger::log("[game] event filter table full: not installed");
     if (!on) for (int i = 0; i < 200 && g_inPE.load() > 0; i++) Sleep(10);  // in-flight calls may still be inside f
     UpdatePEHook();
 }

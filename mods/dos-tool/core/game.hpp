@@ -71,7 +71,7 @@ namespace game {
     void OnGameTick(EventListener cb, bool on);   // game thread, at most every 8 ms, any map or menu; obj = fn = parms = null
     void OnEvery(EventListener cb, bool on);      // every ProcessEvent call: traces only, it costs every call
     // Runs before the original call; true = the game's own call is skipped (listeners still run after).
-    // One filter at a time. Replace a game action only where doing it twice is the alternative.
+    // Up to 4 filters; the first that returns true wins. Replace a game action only where doing it twice is the alternative.
     using EventFilter = bool (*)(void* obj, void* fn, void* parms);
     void SetEventFilter(EventFilter f, bool on);
     bool OnGameThread();  // for listeners: ProcessEvent also runs on worker threads; UFunction calls only here
