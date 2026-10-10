@@ -37,10 +37,11 @@ int main() {
     const Config d = Defaults();
     assert(kCurated > 0 && kCurated < kTemplateCount && !d.glow.on && std::string(kTemplates[d.fly.tpl].name) == "fx_fireFlies");
     const std::size_t count[8] = {0, 0, 1, 2, 4, 4, 6, 10};
+    const float size[8] = {0.6f, 0.6f, 0.72f, 0.84f, 0.96f, 0.96f, 1.2f, 1.44f};
     for (int g = 0; g < 8; g++) {
         const std::vector<Layer> p = Plan(d, g, false);
         assert(p.size() == count[g]);
-        for (const Layer& l : p) assert(l.tpl == d.fly.tpl && l.scale == 0.6f && l.bright == 10.0f);
+        for (const Layer& l : p) assert(l.tpl == d.fly.tpl && l.scale == size[g] && l.bright == 10.0f);
     }
     Config e = d;  // glow switched on in the editor: one glow component first
     e.glow.on = true;
