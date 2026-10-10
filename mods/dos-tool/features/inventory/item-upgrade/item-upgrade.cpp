@@ -172,7 +172,7 @@ namespace {
     }
 
     struct ItemUpgrade : feature::Feature {
-        ItemUpgrade() : Feature("Item upgrade", feature::Stage::Alpha) { optIn = true; }  // new game-thread hook
+        ItemUpgrade() : Feature("Item upgrade", feature::Stage::Beta) {}
         void OnFrame(const feature::Frame&) override {
             items::io::Tick();
             if (g_on.load()) return;
