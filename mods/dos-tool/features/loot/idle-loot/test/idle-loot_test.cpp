@@ -33,37 +33,37 @@ int main() {
     const Rgb unknown = Glow(-1, tiers);
     assert(std::fabs(unknown.r - ToLinear(style::color::kTextSoft.r) * kGlow) < 1e-6f);
 
-    // picker: curated list leads (the default template first), search is case-insensitive, brightness scales the tint
-    assert(kCurated > 0 && kCurated < kTemplateCount && std::wstring(kTemplates[0].path) == kTemplate);
-    assert(Contains("hp_mag_alchemyOrb_fireflies", "FIREFL") && !Contains("fx_fireFlies", "butterfly") && Contains("x", ""));
-    Tuning tn;
-    assert(Emissive(4, tiers, tn).b == epic.b);
-    tn.bright = 2;
-    assert(std::fabs(Emissive(4, tiers, tn).b - 2 * epic.b) < 1e-3f);
-    tn.byGrade = false;
-    assert(Emissive(4, tiers, tn).r == Emissive(4, tiers, tn).b);
-    Tuning t0, b2 = t0;
-    b2.bright = 3, b2.byGrade = false;
-    assert(!NeedsRespawn(t0, b2));
-    b2.height = 5;
-    assert(NeedsRespawn(t0, b2));
-    assert(Format(t0).find("layered=1 template=hp_mag_alchemyOrb_fireflies scale=1.00") == 0);
-    // layers (#135): glow by grade, fireflies blue+ (two for red/eternal), none for white/green/yellow
-    Layer ly[3];
-    assert(kGlowFx != kFireflies && std::string(kTemplates[kGlowFx].name) == "fx_HolyLightTrail" && kTemplates[kFireflies].path == std::wstring(kTemplate));
-    const float staff[8] = {0.5f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.2f};
+    // config (#135, #133): defaults = the maintainer's table
+    const Config d = Defaults();
+    assert(kCurated > 0 && kCurated < kTemplateCount && std::wstring(kTemplates[d.fly.tpl].path) == kTemplate);
+    assert(std::string(kTemplates[d.glow.tpl].name) == "P_ky_aura_yellow" && *kTemplates[d.glow.tpl].colour);  // glow must be tintable
+    const float glow[8] = {0.5f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.2f};
     const std::size_t count[8] = {1, 1, 1, 2, 2, 1, 3, 3};
     for (int g = 0; g < 8; g++) {
-        assert(Layers(g, ly) == count[g] && ly[0].tpl == kGlowFx && ly[0].scale == staff[g]);
-        for (std::size_t i = 1; i < count[g]; i++) assert(ly[i].tpl == kFireflies && ly[i].scale == 0.4f && ly[i].bright == 5.0f);
+        const std::vector<Layer> p = Plan(d, g, false);
+        assert(p.size() == count[g] && p[0].tpl == d.glow.tpl && p[0].scale == glow[g] && p[0].dz == kLiftItem);
+        for (std::size_t i = 1; i < p.size(); i++) assert(p[i].tpl == d.fly.tpl && p[i].scale == 0.4f && p[i].bright == 5.0f);
     }
-    assert(Layers(6, ly) == 3 && ly[1].dz == -ly[2].dz && ly[1].dz != 0);
-    assert(Layers(3, ly) == 2 && ly[1].dz == 0);
-    assert(Layers(-1, ly) == 1);
-    {
-        Tuning x0, x1 = x0;
-        x1.layered = false;
-        assert(NeedsRespawn(x0, x1));
+    assert(Plan(d, 6, false)[1].dz == kLiftItem - kCopySpread / 2 && Plan(d, 6, false)[2].dz == kLiftItem + kCopySpread / 2);
+    assert(Plan(d, -1, true).size() == 1 && Plan(d, -1, true)[0].scale == 0.5f * kChestSize && Plan(d, -1, true)[0].dz == kLiftChest);
+    {  // edits: off, min grade, copies, height
+        Config c = d;
+        c.glow.on = false;
+        assert(Plan(c, 0, false).empty() && Plan(c, 4, false).size() == 1);
+        c.fly.minGrade = 6;
+        assert(Plan(c, 4, false).empty() && Plan(c, 6, false).size() == 2);
+        c.fly.copies[6] = 9;  // capped
+        assert(Plan(c, 6, false).size() == 4);
+        c.glow.on = true, c.glow.height = 10;
+        assert(Plan(c, 0, false)[0].dz == kLiftItem + 10 && !SameSpawn(Plan(c, 0, false), Plan(d, 0, false)));
+        Config b = d;
+        b.glow.bright = 3;  // tint only: no respawn
+        assert(SameSpawn(Plan(b, 3, false), Plan(d, 3, false)) && !(b == d));
     }
+    assert(Contains("hp_mag_alchemyOrb_fireflies", "FIREFL") && !Contains("fx_fireFlies", "butterfly") && Contains("x", ""));
+    assert(Emissive(4, tiers, true, 2).b == 2 * epic.b && Emissive(4, tiers, false, 1).r == Emissive(4, tiers, false, 1).b);
+    const std::string line = Format(d);
+    assert(line.find("glow on=1 tpl=P_ky_aura_yellow") != std::string::npos && line.find("size=[0.5,0.5,0.6,0.7,0.8,0.9,1,1.2]") != std::string::npos);
+    assert(line.find("copies=[0,0,0,1,1,0,2,2]") != std::string::npos);
     std::puts("idle-loot ok");
 }

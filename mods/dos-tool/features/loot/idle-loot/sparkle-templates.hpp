@@ -7,16 +7,15 @@
 
 namespace idle_loot {
     struct Template { const char* name; const wchar_t* path; const wchar_t* colour; const wchar_t* extra[4]; float gain; };
-    constexpr std::size_t kCurated = 10;
+    constexpr std::size_t kCurated = 9;
     constexpr Template kTemplates[] = {
         {"hp_mag_alchemyOrb_fireflies", L"/Game/Environments/HumanProps/Magic/Particles/hp_mag_alchemyOrb_fireflies.hp_mag_alchemyOrb_fireflies", L"Emissive Thorax", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"fx_fireFlies", L"/Game/FX/Environmental/Particles/fx_fireFlies.fx_fireFlies", L"Emissive Thorax", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"hp_mag_alchemyOrb_butterfly", L"/Game/Environments/HumanProps/Magic/Particles/hp_mag_alchemyOrb_butterfly.hp_mag_alchemyOrb_butterfly", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"P_Champion_HandGlow_01", L"/Game/FX/Classes/Champion/Particles/P_Champion_HandGlow_01.P_Champion_HandGlow_01", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"P_StaffGlow_01", L"/Game/FX/Classes/Wizard/Particles/P_StaffGlow_01.P_StaffGlow_01", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
-        {"fx_HolyLightTrail", L"/Game/FX/Magic/Particles/fx_HolyLightTrail.fx_HolyLightTrail", L"Emissive Color", {L"TC_1", L"TC_2", L"TC_3", nullptr}, 0.0012f},
+        {"P_ky_aura_yellow", L"/Game/Marketplace/AdvancedMagicFX12/particles/P_ky_aura_yellow.P_ky_aura_yellow", L"dustColor", {L"hilightColor", L"lowLightColor", nullptr, nullptr}, 0.0004f},
         {"P_ky_pool", L"/Game/Marketplace/AdvancedMagicFX12/particles/P_ky_pool.P_ky_pool", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
-        {"P_ky_aura_yellow", L"/Game/Marketplace/AdvancedMagicFX12/particles/P_ky_aura_yellow.P_ky_aura_yellow", L"dustColor", {nullptr, nullptr, nullptr, nullptr}, 0.0004f},
         {"FX_Fire_Skeleton__Embers", L"/Game/FX/Enemies/FX_Fire_Skeleton__Embers.FX_Fire_Skeleton__Embers", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"PS_PurpleLantern_ImmunityBubbles", L"/Game/Blueprints/Characters/AI/Abilities/AbilityTemplatesDoS/PurpleLantern/PS_PurpleLantern_ImmunityBubbles.PS_PurpleLantern_ImmunityBubbles", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"fx_potion", L"/Game/Blueprints/Ability/Abilities/Generic/UsePotion/fx_potion.fx_potion", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
@@ -70,6 +69,7 @@ namespace idle_loot {
         {"fx_lens_stunned", L"/Game/FX/LensEffects/Particles/fx_lens_stunned.fx_lens_stunned", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"fx_ChannelMagic", L"/Game/FX/Magic/Particles/fx_ChannelMagic.fx_ChannelMagic", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"fx_ChannelMagic_Drain", L"/Game/FX/Magic/Particles/fx_ChannelMagic_Drain.fx_ChannelMagic_Drain", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
+        {"fx_HolyLightTrail", L"/Game/FX/Magic/Particles/fx_HolyLightTrail.fx_HolyLightTrail", L"Emissive Color", {L"TC_1", L"TC_2", L"TC_3", nullptr}, 0.0012f},
         {"fx_smokeStandard01", L"/Game/FX/Smoke/Particles/fx_smokeStandard01.fx_smokeStandard01", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"fx_smoke_darkA", L"/Game/FX/Smoke/Particles/fx_smoke_darkA.fx_smoke_darkA", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
         {"fx_smoke_grayA_HUB", L"/Game/FX/Smoke/Particles/fx_smoke_grayA_HUB.fx_smoke_grayA_HUB", L"", {nullptr, nullptr, nullptr, nullptr}, 1.0f},
