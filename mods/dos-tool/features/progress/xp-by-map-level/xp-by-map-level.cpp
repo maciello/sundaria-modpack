@@ -22,7 +22,7 @@
 
 // XP by map level (#134). Host only. Kill XP is computed BP->BP inside the script VM (invisible to ProcessEvent), so
 // a hero's gain is found as the rise of AArchonCharacter::GetExperience since our last read, checked after each
-// ArchonCharacter::OnDeathEvent and on the next world tick. The extra (m - 1) * gained is granted with the game's own
+// OnDeathEvent (any Blueprint override: it is BlueprintImplementableEvent, so ProcessEvent sees the override class, never ArchonCharacter) and on the next world tick. The extra (m - 1) * gained is granted with the game's own
 // GainExperience; our baseline is re-read after the grant, so it is never scaled again. m <= 1 grants nothing.
 // Map level = AllRegions[DungeonSettings.RegionId].RecommendedLevels[DungeonSettings.Difficulty] (what the map screen
 // shows), read once per dungeon game mode via the game's FindMapByWorldID. Facts: skill game-facts.md xp_by_map_level.
@@ -154,14 +154,14 @@ namespace {
 
         void OnFrame(const feature::Frame&) override {
             if (g_on.exchange(true)) return;
-            game::On("ArchonCharacter", "OnDeathEvent", &OnDeath, true);
+            game::On(nullptr, "OnDeathEvent", &OnDeath, true);
             game::OnWorldTick(&OnTick, true);
         }
 
         // Nothing in the world to restore; on=false returns once no callback is inside, so the state may be cleared.
         void Off() override {
             g_on = false;
-            game::On("ArchonCharacter", "OnDeathEvent", &OnDeath, false);
+            game::On(nullptr, "OnDeathEvent", &OnDeath, false);
             game::OnWorldTick(&OnTick, false);
             g_heroes.clear();
             g_gm = {};
