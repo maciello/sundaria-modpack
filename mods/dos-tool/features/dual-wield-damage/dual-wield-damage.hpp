@@ -18,4 +18,8 @@ namespace dual_wield_damage {
         if (!DualWields(h) || !(k > 0.0f)) return {false, h.dl, h.dr};
         return {true, h.dl + k * h.dr, h.dr + k * h.dl};
     }
+
+    // The class's primary ability (basic attack) keeps vanilla damage: the hand's vanilla value is
+    // own / Plan(own) of the boosted one, i.e. 1 / (1 + k * other / own).
+    inline float PrimaryFactor(float own, float other, float k) { return own > 0.0f ? own / (own + k * other) : 1.0f; }
 }

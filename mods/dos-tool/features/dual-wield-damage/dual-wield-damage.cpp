@@ -18,6 +18,13 @@
 #include "BP_CharacterBase_classes.hpp"
 #include "BP_AffixContainerEquip_classes.hpp"
 #include "BP_AffixContainerEquip_parameters.hpp"
+#include "BP_GameAbilityBase_classes.hpp"
+#include "BP_GameAbility_MeleeAttack_classes.hpp"
+#include "BP_GameAbility_Eviscerate_classes.hpp"
+#include "BP_GameAbility_ShootArrow_classes.hpp"
+#include "BP_GameAbility_AimedShot_classes.hpp"
+#include "BP_GameAbility_Smite_classes.hpp"
+#include "BP_GameAbility_FireBall_classes.hpp"
 
 // Dual-wield damage (#136): while a character holds a weapon in both hands, each hand's weapon WeaponDamage becomes
 // own + k * other, so a cast (one hand per cast, alternating) deals both. Facts: skill game-facts.md
@@ -25,6 +32,10 @@
 // of the item's cached attribute set (BP_ItemContainerComponent::ItemAttributeSet, rebuilt from the item struct, not
 // saved); ReCalculateEquippedItemAttributeSet recreates every equipped set (Recalculate=true) and THEN broadcasts
 // FOnEquipContainerAttributeSetUpdate, so a listener on that event always starts from fresh vanilla values.
+// Primary ability (the class's basic attack: MeleeAttack, Eviscerate, ShootArrow, AimedShot, Smite, FireBall) keeps
+// vanilla: damage is applied inside the ability's GameplayAnimNotifyEvent / OnProjectileHit (both FUNC_Event, native
+// code enters them through ProcessEvent with obj = the ability instance, whose Outer is the avatar character), so a
+// pre-call event filter writes the captured vanilla values and the post-call listener writes the boosted ones back.
 // Host only: the event fires under HasAuthority. A remote character is handled on its next equip event.
 using namespace SDK;
 using umg::PtrOk;
@@ -33,11 +44,21 @@ namespace {
     namespace dw = dual_wield_damage;
 
     // Game thread only (listener, world tick, Drain).
-    struct Rec { ref::Ref ch, setL, setR; float vl = 0, vr = 0; };
+    struct Rec { ref::Ref ch, setL, setR; float vl = 0, vr = 0, bl = 0, br = 0; };
     std::vector<Rec> g_recs;
     std::atomic<bool> g_on{false}, g_dirty{false};
+    std::atomic<int> g_has{0};                       // g_recs.size(), readable from the filter on any thread
+    std::atomic<int32_t> g_nNotify{-1}, g_nHit{-1};  // FName indices of the damage entry events, seeded on the world tick
+    ref::Ref g_swapped;                              // character whose weapons currently hold vanilla for a primary hit
+    int g_swapLogs = 0;
     std::atomic<float> g_k{dw::kDefault};
     game::Drain g_drain;
+    ref::Fn g_notifyFn{UBP_GameAbilityBase_C::StaticClass, "BP_GameAbilityBase_C", "GameplayAnimNotifyEvent"};
+    ref::Fn g_hitFn{UBP_GameAbilityBase_C::StaticClass, "BP_GameAbilityBase_C", "OnProjectileHit"};
+    ref::Cached<UClass> g_primary[] = {
+        {[] { return UBP_GameAbility_MeleeAttack_C::StaticClass(); }}, {[] { return UBP_GameAbility_Eviscerate_C::StaticClass(); }},
+        {[] { return UBP_GameAbility_ShootArrow_C::StaticClass(); }},  {[] { return UBP_GameAbility_AimedShot_C::StaticClass(); }},
+        {[] { return UBP_GameAbility_Smite_C::StaticClass(); }},       {[] { return UBP_GameAbility_FireBall_C::StaticClass(); }}};
     ref::Fn g_hand{UBP_AffixContainerEquip_C::StaticClass, "BP_AffixContainerEquip_C", "I_GetActiveWeaponAttributeSet"};
 
     UArchonAttributeSet_Secondary* Set(const ref::Ref& r) { return r.Get<UArchonAttributeSet_Secondary>(); }
@@ -67,7 +88,7 @@ namespace {
         UArchonAttributeSet_Secondary* r = eq ? Hand(eq, false) : nullptr;
         const dw::Out o = dw::Plan({l != nullptr, r != nullptr, l == r, l ? l->WeaponDamage : 0.0f, r ? r->WeaponDamage : 0.0f}, g_k);
         if (!o.apply) {
-            if (rec) { logger::log("[dual-wield] off for " + c->GetName()); g_recs.erase(g_recs.begin() + (rec - g_recs.data())); }
+            if (rec) { logger::log("[dual-wield] off for " + c->GetName()); g_recs.erase(g_recs.begin() + (rec - g_recs.data())); g_has = int(g_recs.size()); }
             return;
         }
         if (!rec) { g_recs.emplace_back(); rec = &g_recs.back(); rec->ch = ref::Ref(c); }
@@ -76,8 +97,10 @@ namespace {
         char buf[160];
         std::snprintf(buf, sizeof buf, "[dual-wield] %s L %.1f->%.1f R %.1f->%.1f (k %.2f)", c->GetName().c_str(), rec->vl, o.l, rec->vr, o.r, double(g_k));
         logger::log(buf);
+        rec->bl = o.l; rec->br = o.r;
         l->WeaponDamage = o.l;
         r->WeaponDamage = o.r;
+        g_has = int(g_recs.size());
     }
 
     bool IsPlayer(UObject* o) {
@@ -89,9 +112,53 @@ namespace {
         Apply(static_cast<ABP_CharacterBase_C*>(obj));
     }
 
+    Rec* Find(const ref::Ref& ch) {
+        for (Rec& r : g_recs) if (r.ch == ch) return &r;
+        return nullptr;
+    }
+
+    // Before the game's call (any thread: O(1) rejects first). A primary ability's hit on a dual-wielder reads vanilla.
+    bool Filter(void* obj, void* fn, void*) {
+        if (!g_has.load(std::memory_order_relaxed) || !fn) return false;
+        const int32_t n = static_cast<UFunction*>(fn)->Name.ComparisonIndex;
+        if (n != g_nNotify.load(std::memory_order_relaxed) && n != g_nHit.load(std::memory_order_relaxed)) return false;
+        auto* o = static_cast<UObject*>(obj);
+        if (!game::OnGameThread() || !g_on || !PtrOk(o) || !PtrOk(o->Class) || g_swapped.ptr) return false;
+        bool primary = false;
+        for (auto& c : g_primary) primary |= o->Class == c.Get();
+        if (!primary) return false;
+        Rec* rec = PtrOk(o->Outer) ? Find(ref::Ref(o->Outer)) : nullptr;
+        if (!rec) {
+            static bool once = false;
+            if (!once) { once = true; logger::log("[dual-wield] primary hit: ability Outer is no tracked character: " + o->Class->GetName()); }
+            return false;
+        }
+        if (auto* s = Set(rec->setL)) s->WeaponDamage = rec->vl;
+        if (auto* s = Set(rec->setR)) s->WeaponDamage = rec->vr;
+        g_swapped = rec->ch;
+        if (g_swapLogs++ < 8) logger::log("[dual-wield] primary " + o->Class->GetName() + ": vanilla for this hit");
+        return false;
+    }
+
+    // After the call: boosted again.
+    void AfterHit(void*, void*, void*) {
+        if (!g_swapped.ptr || !game::OnGameThread()) return;
+        const ref::Ref ch = g_swapped;
+        g_swapped = {};
+        if (Rec* rec = Find(ch)) {
+            if (auto* s = Set(rec->setL)) s->WeaponDamage = rec->bl;
+            if (auto* s = Set(rec->setR)) s->WeaponDamage = rec->br;
+        }
+    }
+
     // World tick: k changed / just enabled -> redo the known characters and the local one.
     void OnTick(void*, void*, void*) {
-        if (!g_on || !game::OnGameThread() || !g_dirty.exchange(false)) return;
+        if (!g_on || !game::OnGameThread()) return;
+        if (g_nNotify < 0) {
+            UFunction* a = g_notifyFn.Get(); UFunction* b = g_hitFn.Get();
+            if (PtrOk(a) && PtrOk(b)) { g_nNotify = a->Name.ComparisonIndex; g_nHit = b->Name.ComparisonIndex; }
+        }
+        if (!g_dirty.exchange(false)) return;
         std::vector<ref::Ref> known;
         for (const Rec& r : g_recs) known.push_back(r.ch);
         for (const ref::Ref& r : known) if (auto* c = r.Get<ABP_CharacterBase_C>()) Apply(c);
@@ -106,6 +173,8 @@ namespace {
     void RestoreAll() {
         for (Rec& r : g_recs) Restore(r);
         g_recs.clear();
+        g_has = 0;
+        g_swapped = {};
         logger::log("[dual-wield] restored vanilla");
     }
 
@@ -115,6 +184,9 @@ namespace {
         void OnFrame(const feature::Frame&) override {
             if (g_on.exchange(true)) return;
             game::On("BP_CharacterBase_C", "FOnEquipContainerAttributeSetUpdate", &OnEquip, true);
+            game::On(nullptr, "GameplayAnimNotifyEvent", &AfterHit, true);
+            game::On(nullptr, "OnProjectileHit", &AfterHit, true);
+            game::SetEventFilter(&Filter, true);
             game::OnWorldTick(&OnTick, true);
             g_dirty = true;
         }
@@ -124,6 +196,9 @@ namespace {
             g_on = false;
             game::On("BP_CharacterBase_C", "FOnEquipContainerAttributeSetUpdate", &OnEquip, false);
             game::OnWorldTick(&OnTick, false);
+            game::SetEventFilter(&Filter, false);
+            game::On(nullptr, "GameplayAnimNotifyEvent", &AfterHit, false);
+            game::On(nullptr, "OnProjectileHit", &AfterHit, false);
             g_drain.Request(true, "dual-wield", [] { RestoreAll(); });
         }
 
