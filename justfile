@@ -35,6 +35,8 @@ sdk-pull host="dumps":
 setup:
     git config pull.rebase true
     git config core.hooksPath .githooks
+    just data-setup
+    just tables >/dev/null && echo "game tables db: build/game-data.sqlite (just tables <text>)" || echo "game tables db skipped (game not found); later: just tables"
 
 # start of work: get the other's commits
 sync:

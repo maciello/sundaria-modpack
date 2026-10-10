@@ -6,7 +6,7 @@
 3. `~/.ssh/config`: a `Host dumps` entry for the dump host (ask the repo owner). Not needed on the dump host itself.
 4. Clone, then once:
    ```bash
-   just setup         # pull = rebase, tests run before every push
+   just setup         # pull = rebase, tests run before every push; .NET SDK + the game-data db from YOUR game install (build/game-data.sqlite, ~20 s; never in git: game-derived)
    just build         # first run fetches the game SDK + MSVC kit (~760 MB)
    just dev-install   # game closed: installs the hot-reload loader
    ```
@@ -17,6 +17,7 @@
 | start | `just sync` — get the others' commits |
 | game running, code changed | `just dev` — new DLL is live in ~1 s |
 | stop | `just ship` — test, rebase, push |
+| look something up in the game's data, no game running | `just tables <text>` · `just tables-sql "<sql>"` · `just items <name>` — rebuilt by itself after a game patch |
 
 Menu in game: **Insert**.
 
