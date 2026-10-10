@@ -17,7 +17,7 @@ DB = data.HERE.parent / "build" / "game-data.sqlite"
 
 def stamp():
     st = data.pak().stat()
-    return f"{st.st_size}-{int(st.st_mtime)}-v1"
+    return f"{st.st_size}-{int(st.st_mtime)}-v2"
 
 
 def texts(x):
@@ -42,7 +42,7 @@ def build():
     con = sqlite3.connect(tmp)
     con.executescript("""create table tables(name, path primary key, kind, row_struct, rows, columns);
         create table rows(tbl, row, json); create table curves(tbl, row, x, y);
-        create virtual table fts using fts5(tbl, row, text); create table meta(stamp);
+        create virtual table fts using fts5(tbl, row, text); create virtual table tri using fts5(text, tokenize='trigram'); create table meta(stamp);
         create index rows_i on rows(tbl, row); create index curves_i on curves(tbl, row);""")
     for line in dump.open():
         t = json.loads(line)
@@ -54,7 +54,9 @@ def build():
         con.execute("insert into tables values (?,?,?,?,?,?)", (name, t["path"], t["kind"], st, len(rws), json.dumps(cols)))
         for r, v in rws.items():
             con.execute("insert into rows values (?,?,?)", (name, r, json.dumps(v, ensure_ascii=False)))
-            con.execute("insert into fts values (?,?,?)", (name, r, " ".join(texts(v))))
+            txt = " ".join(texts(v))
+            con.execute("insert into fts values (?,?,?)", (name, r, txt))
+            con.execute("insert into tri(rowid, text) values (last_insert_rowid(), ?)", (f"{name} {r} {txt}",))
             for k in v.get("Keys", []) if isinstance(v, dict) else []:
                 con.execute("insert into curves values (?,?,?,?)", (name, r, k.get("Time"), k.get("Value")))
     con.execute("insert into meta values (?)", (stamp(),))
@@ -84,11 +86,17 @@ def main(argv):
     elif argv:
         words = re.findall(r"\w+", " ".join(argv))
         seen = set()  # exact phrase hits first, then every row holding all words as prefixes
-        for q in ('"' + " ".join(words) + '"', " ".join(f'"{w}"*' for w in words)):
-            for r in con.execute("select tbl, row, snippet(fts, -1, '[', ']', '…', 10) from fts where fts match ? order by rank limit 300", (q,)):
-                if (r[0], r[1]) not in seen and len(seen) < 300:
-                    seen.add((r[0], r[1]))
-                    print("\t".join(r))
+        def hits():  # exact phrase, then all words as word prefixes, then all words as substrings (CamelCase: "duration" in SalvoDuration)
+            for q in ('"' + " ".join(words) + '"', " ".join(f'"{w}"*' for w in words)):
+                yield from con.execute("select tbl, row, snippet(fts, -1, '[', ']', '…', 10) from fts where fts match ? order by rank limit 300", (q,))
+            if all(len(w) >= 3 for w in words):
+                like = " and ".join("tri.text like ?" for _ in words)
+                yield from con.execute(f"select f.tbl, f.row, substr(f.text, 1, 80) from tri join fts f on f.rowid = tri.rowid where {like} limit 300",
+                                       [f"%{w}%" for w in words])
+        for r in hits():
+            if (r[0], r[1]) not in seen and len(seen) < 300:
+                seen.add((r[0], r[1]))
+                print("\t".join(r))
     else:
         for k in ("tables", "rows", "curves"):
             print(k, con.execute(f"select count(*) from {k}").fetchone()[0])
