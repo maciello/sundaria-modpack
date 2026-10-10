@@ -6,6 +6,7 @@
 #include "drain.hpp"
 #include "umg.hpp"
 #include "imgui.h"
+#include "imgui_internal.h"  // MarkIniSettingsDirty
 
 #include <atomic>
 #include <cstdio>
