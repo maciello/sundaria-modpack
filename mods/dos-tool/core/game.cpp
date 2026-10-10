@@ -418,6 +418,16 @@ float game::LocalSpeed() {
     return std::sqrt(cm->Velocity.X * cm->Velocity.X + cm->Velocity.Y * cm->Velocity.Y);
 }
 
+bool game::LocalPawn(float& x, float& y, float& z, float& fx, float& fy) {
+    APlayerController* pc = LocalPC();
+    if (!OnGameThread() || !PtrOk(pc) || !PtrOk(pc->Pawn) || !PtrOk(pc->Pawn->RootComponent)) return false;
+    const FVector l = pc->Pawn->K2_GetActorLocation(), f = pc->Pawn->GetActorForwardVector();
+    const float n = std::sqrt(f.X * f.X + f.Y * f.Y);
+    x = l.X, y = l.Y, z = l.Z;
+    fx = n > 1e-3f ? f.X / n : 1.0f, fy = n > 1e-3f ? f.Y / n : 0.0f;
+    return true;
+}
+
 float game::OriginalFOV()      { return g_origFov; }
 float game::OriginalDistance() { return g_origDist; }
 

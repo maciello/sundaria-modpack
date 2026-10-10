@@ -53,6 +53,8 @@ namespace game {
     void ApplyGround(GroundFn f, const void* ctx);
     bool OriginalGround(Ground& out);  // local player's vanilla values, once seen
     float LocalSpeed();                // local pawn's horizontal speed (cm/s), 0 outside gameplay
+    // Game thread. Local pawn's world location (cm) and its facing (unit, horizontal); false outside gameplay.
+    bool LocalPawn(float& x, float& y, float& z, float& fx, float& fy);
 
     // Debug: hook UObject::ProcessEvent and log each UFunction the first time it fires
     // (game thread records pointers; names are resolved by ProbeFlush on the render thread).

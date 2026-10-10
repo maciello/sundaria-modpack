@@ -6,6 +6,7 @@
 #include "umg.hpp"
 
 #include <Windows.h>
+#include <cstdio>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -38,6 +39,10 @@ namespace {
         ref::Fn flt{UFXSystemComponent::StaticClass, "FXSystemComponent", "SetFloatParameter"};
         ref::Fn vec{UFXSystemComponent::StaticClass, "FXSystemComponent", "SetVectorParameter"};
         ref::Fn owner{UActorComponent::StaticClass, "ActorComponent", "GetOwner"};
+        ref::Fn active{UActorComponent::StaticClass, "ActorComponent", "IsActive"};
+        ref::Fn visible{USceneComponent::StaticClass, "SceneComponent", "IsVisible"};
+        ref::Fn loc{USceneComponent::StaticClass, "SceneComponent", "K2_GetComponentLocation"};
+        ref::Fn wscale{USceneComponent::StaticClass, "SceneComponent", "K2_GetComponentScale"};
         ref::Fn destroy{UActorComponent::StaticClass, "ActorComponent", "K2_DestroyComponent"};
     } g_fn;
 
@@ -180,6 +185,24 @@ namespace fx {
     }
     Id At(const char* owner, const wchar_t* path, const Place& p) { return game::OnGameThread() ? Spawn(owner, path, nullptr, p) : 0; }
     bool Alive(Id id) { return Comp(id) != nullptr; }
+
+    std::string Describe(Id id) {
+        auto* c = Comp(id);
+        if (!c) return "dead";
+        Params::ActorComponent_IsActive a{};
+        Params::SceneComponent_IsVisible v{};
+        Params::SceneComponent_K2_GetComponentLocation l{};
+        Params::SceneComponent_K2_GetComponentScale sc{};
+        CallNative(c, g_fn.active.Get(), &a);
+        CallNative(c, g_fn.visible.Get(), &v);
+        CallNative(c, g_fn.loc.Get(), &l);
+        CallNative(c, g_fn.wscale.Get(), &sc);
+        AActor* o = c->GetOwner();
+        char b[160];
+        std::snprintf(b, sizeof b, "active=%d visible=%d owner_hidden=%d loc=(%.0f,%.0f,%.0f) scale=%.2f", a.ReturnValue, v.ReturnValue,
+                      PtrOk(o) ? int(o->bHidden) : -1, l.ReturnValue.X, l.ReturnValue.Y, l.ReturnValue.Z, sc.ReturnValue.X);
+        return b;
+    }
 
     void Color(Id id, const wchar_t* name, float r, float g, float b, float a) {
         if (auto* c = Comp(id)) {

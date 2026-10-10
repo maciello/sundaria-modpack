@@ -5,6 +5,7 @@
 // Templates + their parameters: skill references/fx.md. Game thread only (inside a game::On / OnWorldTick callback),
 // except Release() (Off()).
 #include <cstdint>
+#include <string>
 
 namespace fx {
     using Id = std::uint64_t;  // 0 = nothing spawned
@@ -20,6 +21,8 @@ namespace fx {
     Id Attach(const char* owner, const wchar_t* path, void* parent, const Place& p);
     Id At(const char* owner, const wchar_t* path, const Place& p);
     bool Alive(Id id);
+    // "active=1 visible=1 owner_hidden=0 loc=(x,y,z) scale=s" of the live component (game thread), "dead" if gone.
+    std::string Describe(Id id);
 
     // Instance parameters the template exposes (Cascade: a *ParticleParameter distribution's name; Niagara: "User.Name").
     void Color(Id id, const wchar_t* name, float r, float g, float b, float a = 1);
