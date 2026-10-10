@@ -124,6 +124,16 @@ crashes n="10":
       echo "$(date -r "$d/$c" '+%m-%d %H:%M')  ${f:-?}  $e  $c"
     done
 
+# all DataTables/CurveTables in build/game-data.sqlite (rebuilt when the pak changes): no arg = counts, <text> = full-text search (table, row, snippet)
+[positional-arguments]
+tables *args:
+    @PAKS="{{win64}}/../../Content/Paks" {{python}} scripts/tables.py "$@"
+
+# raw SQL on the tables db: tables(name,path,kind,row_struct,rows,columns) rows(tbl,row,json) curves(tbl,row,x,y) fts(tbl,row,text)
+[positional-arguments]
+tables-sql sql:
+    @PAKS="{{win64}}/../../Content/Paks" {{python}} scripts/tables.py --sql "$1"
+
 # every item id of the game (common: currency, essence, crafting, consumables …; armor; weapon) from the pak, cached in build/items/; `just items <regex>` filters by id or name
 items regex=".":
     #!/usr/bin/env bash

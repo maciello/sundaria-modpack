@@ -19,7 +19,7 @@ Maintenance contract:
 ## Ask the game before guessing
 Unsure how the game works? Look it up first (≤1 s each); guesses + probe builds cost hours.
 - game logic (who calls / writes / reads X, what an event triggers, why our hook never sees a call): `just data callers|writers|readers|calls|events|ast <name>`, offline
-- item ids (currency, essence, crafting, consumables, armor, weapons; for grants and lookups): `just items <regex>` (id, table, quality, stack, name; cached in build/items/). Any DataTable/CurveTable (~350 in the pak): `just data find <regex> --class DataTable` then `just data table <asset>`
+- item ids (currency, essence, crafting, consumables, armor, weapons; for grants and lookups): `just items <regex>` (id, table, quality, stack, name; cached in build/items/). Any DataTable/CurveTable (346 in the pak): `just tables <text>` (full-text over table, row, values; SQLite build/game-data.sqlite) / `just tables-sql "<sql>"` → `references/game-data.md`; one table as YAML: `just data table <asset>`
 - running game (live values, nearby actors, what fires now, the screen): `just game get|find|call|trace|shot|log|feature`, dev install
 
 ## Route by task

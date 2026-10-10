@@ -28,6 +28,21 @@ bp_output: "<offset>  <statement>"; `push N` / `pop` = execution-flow stack (seq
   Unknown tokens print as Name(field=value, …) — nothing is dropped. Locals named CallFunc_<Fn>_ReturnValue are call results.
 ```
 
+## All tables in SQLite (`just tables`)
+
+```bash
+just tables                      # build if the pak changed (~20 s, one provider load via reader `tables-dump`), print counts
+just tables essence              # FTS5 over table name, row name, text values: table, row, snippet (300 hits max)
+just tables-sql "select name, rows, row_struct from tables where kind='DataTable'"
+```
+```yaml
+db: build/game-data.sqlite (gitignored, game-derived); rebuilt when pak size/mtime changes
+schema: {tables: [name, path, kind, row_struct, rows, columns], rows: [tbl, row, json], curves: [tbl, row, x, y], fts: [tbl, row, text]}
+rows_json: BP field GUID suffixes stripped, like `just data table`
+curves: one (x, y) per key of every row that has Keys (CurveTables)
+cover: every asset whose registry class ends in DataTable / CurveTable
+```
+
 ## Blueprint cross-reference index (`callers` … `ast`)
 
 "How does the game do X" in one command, over every Blueprint (9143 packages incl. level scripts, widgets, anim BPs).

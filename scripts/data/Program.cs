@@ -3,6 +3,7 @@
 //   paths            every file path in the paks
 //   registry         "<object path>\t<class>" from AssetRegistry.bin
 //   export <out> <p>… one JSON file per package under <out>/<p>.json
+//   tables-dump <out.jsonl>  one JSON line per DataTable/CurveTable/CompositeDataTable: path, kind, row_struct, rows (loads the provider once)
 //   script <out> <p>… same, only the exports that carry Blueprint logic (functions, classes, delegate bindings)
 // Env: PAKS (Content/Paks dir), AES_KEY_FILE (0x… hex), OODLE_DIR (where the Oodle lib is cached).
 using System.Security.Cryptography;
@@ -14,6 +15,7 @@ using CUE4Parse.UE4.Assets;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Versions;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 if (args.FirstOrDefault() == "key") return Key.Find(args[1], args[2]);
 
@@ -38,6 +40,20 @@ switch (args.FirstOrDefault())
         foreach (var a in new FAssetRegistryState(p.CreateReader(reg)).PreallocatedAssetDataBuffers)
             stdout.WriteLine($"{a.ObjectPath}\t{a.AssetClass}");
         break;
+    case "tables-dump":
+        var rg = p.Files.Keys.First(k => k.EndsWith("AssetRegistry.bin", StringComparison.OrdinalIgnoreCase));
+        using (var w = new StreamWriter(args[1]))
+            foreach (var a in new FAssetRegistryState(p.CreateReader(rg)).PreallocatedAssetDataBuffers.Where(a => a.AssetClass.Text.EndsWith("DataTable") || a.AssetClass.Text.EndsWith("CurveTable")))
+            {
+                var obj = a.ObjectPath.Split('.')[0];
+                try
+                {
+                    foreach (var e in p.LoadPackage(obj.Replace("/Game/", "Archon/Content/").TrimStart('/')).GetExports().Select(JObject.FromObject).Where(e => e["Rows"] != null))
+                        w.WriteLine(new JObject { ["path"] = obj, ["kind"] = e["Type"], ["row_struct"] = e.SelectToken("Properties.RowStruct.ObjectName"), ["rows"] = e["Rows"] }.ToString(Formatting.None));
+                }
+                catch (Exception ex) { Console.Error.WriteLine($"!! {obj}: {ex.Message}"); }
+            }
+        break;
     case "export" or "script":
         var fail = 0;
         foreach (var path in args.Skip(2))
@@ -57,7 +73,7 @@ switch (args.FirstOrDefault())
         }
         return fail == 0 ? 0 : 1;
     default:
-        Console.Error.WriteLine("usage: key <exe> <pak> | paths | registry | export|script <outdir> <package path>…");
+        Console.Error.WriteLine("usage: key <exe> <pak> | paths | registry | tables-dump <out.jsonl> | export|script <outdir> <package path>…");
         return 2;
 }
 return 0;
