@@ -112,6 +112,18 @@ dps-install:
 data *args:
     @PAKS="{{win64}}/../../Content/Paks" {{python}} scripts/data.py "$@"
 
+# game crash dumps (UE writes <Proton prefix>/drive_c/users/steamuser/AppData/Local/Archon/Saved/Crashes/UE4CC-*/UE4Minidump.dmp): newest first, error + fault site; details: `.claude/skills/sundaria-modding/scripts/minidump.py [dmp]`
+crashes n="10":
+    #!/usr/bin/env bash
+    d="{{win64}}/../../../../../compatdata/587520/pfx/drive_c/users/steamuser/AppData/Local/Archon/Saved/Crashes"
+    [ -d "$d" ] || d="$(ls -d ~/.steam/steam/steamapps/compatdata/587520/pfx/drive_c/users/steamuser/AppData/Local/Archon/Saved/Crashes 2>/dev/null)"
+    [ -d "$d" ] || { echo "no Crashes folder (Windows: %LOCALAPPDATA%\\Archon\\Saved\\Crashes)"; exit 1; }
+    ls -t "$d" | head -{{n}} | while read c; do
+      f=$(python3 .claude/skills/sundaria-modding/scripts/minidump.py "$d/$c/UE4Minidump.dmp" 2>&1 | grep -m1 '^fault' | cut -d' ' -f2)
+      e=$(grep -o '<ErrorMessage>[^<]*' "$d/$c/CrashContext.runtime-xml" | cut -c15- | head -c 90)
+      echo "$(date -r "$d/$c" '+%m-%d %H:%M')  ${f:-?}  $e  $c"
+    done
+
 # game running (dev install): ask the live game, YAML out: get <path> | find <class> | call | trace <regex> <s> | shot | log | feature [<name> on|off] | ping
 [positional-arguments]
 game *args:

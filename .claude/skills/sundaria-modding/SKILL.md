@@ -29,7 +29,7 @@ Unsure how the game works? Look it up first (≤1 s each); guesses + probe build
 | react to a game event (a function call, the world tick, a widget's calls), no polling: `game::On` / `OnWorldTick` / `OnClass` / `OnGameTick` | `references/game-events.md` |
 | any game object: paths, offsets, verified or not, combat-log, damage types | `references/game-facts.md` |
 | build/compile errors, hot-reload internals, SDK re-dump, updater | `references/toolchain.md` |
-| something fails or crashed | `references/gotchas.md` |
+| something fails or crashed | game crashed: `just crashes` first (every UE crash dump, newest first, fault site), then `scripts/minidump.py <dmp>` and `references/gotchas.md`; the mod log `dos-tool.log` `[crash maybe]` lines add the stack |
 | a question about the RUNNING game (live values, actors nearby, what fires, how it looks now): `just game get/find/call/trace/shot/log`; switch a feature on/off without the Insert menu: `just game feature` | `references/live-bridge.md` |
 | new machine (SDK, MSVC kit), working together, trunk/flags | repo `CLAUDE.md` → `just sdk-pull` |
 | extend a game screen (inventory, bank, menus): its UMG widgets, styles, how to add ours; `just ui <Class>` dumps live trees | `references/game-ui.md` |
@@ -48,6 +48,6 @@ Unsure how the game works? Look it up first (≤1 s each); guesses + probe build
 | `just game` (repo `scripts/game.py`) | live game over 127.0.0.1 (dev install): `get` path, `find` actors, `call`, `trace` ProcessEvent, `shot` PNG, `log`, `feature` list/toggle → `references/live-bridge.md` |
 | `scripts/new-feature.sh` | scaffold `features/<kebab>/` (+ `--logic`: header + test) |
 | `scripts/dev-check.sh` | game alive? hot-swap happened? log tail |
-| `scripts/minidump.py` | crash dump → fault module+offset + stack, ours as function file:line (`--dll` for a rebuild) |
+| `scripts/minidump.py` | crash dump (default: newest in the Proton prefix `…/Archon/Saved/Crashes/UE4CC-*/UE4Minidump.dmp`) → fault module+offset + stack, ours as function file:line (`--dll` for a rebuild) |
 | `scripts/skeleton_fbx.py`, `retarget.py`, `retarget_map.py`, `helper_model.py` | animation pipeline (Blender headless): bone dump → FBX parts, retarget, helper-bone rules |
 | `assets/feature.cpp.tmpl`, `logic.hpp.tmpl`, `logic_test.cpp.tmpl` | templates used by new-feature.sh |
