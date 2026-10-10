@@ -40,7 +40,7 @@ int main() {
     for (int g = 0; g < 8; g++) {
         const std::vector<Layer> p = Plan(d, g, false);
         assert(p.size() == count[g]);
-        for (const Layer& l : p) assert(l.tpl == d.fly.tpl && l.scale == 0.4f && l.bright == 5.0f);
+        for (const Layer& l : p) assert(l.tpl == d.fly.tpl && l.scale == 0.6f && l.bright == 10.0f);
     }
     Config e = d;  // glow switched on in the editor: one glow component first
     e.glow.on = true;

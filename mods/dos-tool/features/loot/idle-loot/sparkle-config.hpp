@@ -44,16 +44,16 @@ namespace idle_loot {
     };
 
     // Defaults. Glow: P_ky_aura_yellow (tintable, not a trail: fx_HolyLightTrail is an anim trail, it emits nothing on static loot;
-    // P_StaffGlow_01 has no colour path), size by grade. Fireflies: 0.4x, brightness x5, blue and above, two for red and eternal.
+    // P_StaffGlow_01 has no colour path), off by default. Fireflies (fx_fireFlies): 0.6x, brightness x10, copies by grade (green and above).
     inline Config Defaults() {
         Config c;
         c.glow.tpl = IndexOf("P_ky_aura_yellow");
         c.glow.on = false;  // maintainer 2026-10-10: fireflies only (no tintable glow found)
         c.fly.tpl = IndexOf("fx_fireFlies");
-        std::fill(c.fly.size, c.fly.size + kGrades, 0.4f);
+        std::fill(c.fly.size, c.fly.size + kGrades, 0.6f);
         const int fly[kGrades] = {0, 0, 1, 2, 4, 0, 6, 10};  // grey white green blue purple yellow(crafting) red eternal
         std::copy(fly, fly + kGrades, c.fly.copies);
-        c.fly.bright = 5.0f;
+        c.fly.bright = 10.0f;
         c.fly.minGrade = 2;
         return c;
     }
