@@ -12,7 +12,7 @@ namespace cast_mode {
         None,
         Ally,         // marker on the ally the trace would hit (heals, buffs)
         Enemy,        // marker on the enemy the trace would hit
-        Ring,         // our circle where the aim meets the ground (projectiles with splash; forced slots)
+        Ring,         // our circle where the aim meets the ground (only for slots forced in the menu)
         GameReticle,  // the game's own cast-area decal (BP_GroundTargetAbility: Heavenly Strike, Meteor Strike, traps ...)
     };
     struct Traits {
@@ -22,7 +22,6 @@ namespace cast_mode {
         bool charge;         // kMaxHoldLevel > 0: hold to charge
         bool groundTarget;   // BP_GroundTargetAbility
         bool projectile;     // mSpawnProjectile
-        float splash;        // GetProjectileDamageRadius
     };
     enum class Override { Auto, Always, Never };  // per slot, from the menu
 
@@ -31,10 +30,8 @@ namespace cast_mode {
         if (t.groundTarget) return Shape::GameReticle;
         if (t.targetingType == 2) return allies ? Shape::Ally : o == Override::Always ? Shape::Ring : Shape::None;
         if (t.targetingType == 1) return enemies ? Shape::Enemy : o == Override::Always ? Shape::Ring : Shape::None;
-        if (t.targetingType == 0 && t.projectile) {
-            if (t.splash > 0) return Shape::Ring;
-            if (enemies) return Shape::Enemy;
-        }
+        // a projectile flies at what you aim at: mark that character, also when it splashes on impact (Holy Blast)
+        if (t.targetingType == 0 && t.projectile && enemies) return Shape::Enemy;
         return o == Override::Always ? Shape::Ring : Shape::None;  // melee swings, dodge, self buffs
     }
 

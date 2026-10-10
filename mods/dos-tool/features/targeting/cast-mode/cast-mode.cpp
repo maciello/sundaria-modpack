@@ -28,13 +28,16 @@
 #include "BP_GroundTargetAbility_classes.hpp"
 #include "BP_GroundTargetAbility_parameters.hpp"
 #include "BP_GameAbility_ChannelAbility_classes.hpp"
+#include "BPA_Base_3rd_classes.hpp"
 #include "BP_GameState_parameters.hpp"
 
 // Cast mode (#107, marker of #104): pressing an aimed ability starts aiming instead of casting. While aiming:
 //   ally / enemy abilities    the character the game's own trace would hit is marked
 //   ground-target abilities   the game's own cast-area decal (the one it shows during the cast time) follows the aim
-//   projectiles with splash   a circle of the splash radius where the aim meets the ground
+//   projectiles               the enemy they would hit is marked (no area circle, also when they splash)
 // Left click or the same key casts, right click cancels. Channelled and hold abilities never aim (cast_mode::Classify).
+// While aiming the hero holds a channelling pose: the loop clip of the Cleric's Channel Heal in the upper-body slot
+// (legs keep walking). The clip, not its montage: the montage's notifies (AnimLockStart/End) message the ability.
 // How: the controller's InpActEvt_Ability<N> key events are filtered before the game runs them (game::SetEventFilter);
 // the cast is the game's own EnqueueAbilityInput(slot, press) + (slot, release), so the ability activates and traces
 // exactly as if the key had been pressed at that moment. Game thread only, except the drawing (render thread, floats).
@@ -47,7 +50,7 @@ namespace {
     }
 
     // Settings: menu (render thread) writes, game thread reads.
-    std::atomic<bool> g_on{false}, g_allies{true}, g_enemies{true};
+    std::atomic<bool> g_on{false}, g_allies{true}, g_enemies{true}, g_pose{true}, g_otherHand{false};
     std::atomic<int> g_always{0}, g_never{0};  // bit = EAbilityInputName slot: aim with a circle / never aim (menu override)
 
     ref::Cached<UClass> g_pcCls{[] { return ABP_PlayerControllerGame_C::StaticClass(); }};
@@ -57,7 +60,6 @@ namespace {
     ref::Fn g_fnCooldown{UGameplayAbility::StaticClass, "GameplayAbility", "K2_CheckAbilityCooldown"};
     ref::Fn g_fnRange{UBP_GameAbilityBase_C::StaticClass, "BP_GameAbilityBase_C", "GetAbilityTraceRange"};
     ref::Fn g_fnEnemies{ABP_GameState_C::StaticClass, "BP_GameState_C", "I_AreActorsEnemies"};
-    ref::Fn g_fnSplash{UBP_GameAbilityBase_C::StaticClass, "BP_GameAbilityBase_C", "GetProjectileDamageRadius"};
     ref::Fn g_fnCastRadius{UBP_GroundTargetAbility_C::StaticClass, "BP_GroundTargetAbility_C", "GetCastRadius"};
     ref::Fn g_fnCastArea{ABP_PlayerControllerGame_C::StaticClass, "BP_PlayerControllerGame_C", "I_CastAreaSwitch"};
     ref::Cached<UClass> g_groundCls{[] { return UBP_GroundTargetAbility_C::StaticClass(); }};
@@ -98,7 +100,6 @@ namespace {
     struct Slot {
         bool aimed = false;
         cast_mode::Shape shape = cast_mode::Shape::None;
-        float splash = 0;  // Ring: projectile splash radius, 0 = unknown
         ref::Ref ability;
         std::string name;
     };
@@ -129,11 +130,6 @@ namespace {
         t.charge = base->kMaxHoldLevel > 0;
         t.groundTarget = groundCls && ab->IsA(groundCls);
         t.projectile = base->mSpawnProjectile;
-        if (UFunction* fn = t.projectile ? g_fnSplash.Get() : nullptr) {
-            Params::BP_GameAbilityBase_C_GetProjectileDamageRadius r{};
-            ab->ProcessEvent(fn, &r);
-            t.splash = r.DamageRadius;
-        }
         const cast_mode::Override o = g_never.load() >> slot & 1 ? cast_mode::Override::Never
                                     : g_always.load() >> slot & 1 ? cast_mode::Override::Always : cast_mode::Override::Auto;
         const cast_mode::Shape shape = cast_mode::Classify(t, o, g_allies.load(), g_enemies.load());
@@ -143,7 +139,6 @@ namespace {
         if (!cd.ReturnValue) return out;  // on cooldown: the game shows its own message
         out.aimed = true;
         out.shape = shape;
-        out.splash = t.splash;
         out.ability = ref::Ref(ab);
         out.name = ab->Class->GetName();
         return out;
@@ -207,7 +202,47 @@ namespace {
         g_reticleOn = on;
     }
 
+    // Aiming pose. R/L = the AnimBP's two upper-body slot chains; it shows the mirrored one when MirrorAnims?? is set.
+    constexpr const wchar_t* kPoseClip[2] = {
+        L"/Game/Blueprints/Ability/Abilities/Cleric/ChannelHeal/Animation/H_M_TP_Cleric_tSpear_R_ChannelHeal01_Loop.H_M_TP_Cleric_tSpear_R_ChannelHeal01_Loop",
+        L"/Game/Blueprints/Ability/Abilities/Cleric/DrainLife/Animation/Clips/H_M_TP_Cleric_tSpear_L_ChannelHeal01_Loop.H_M_TP_Cleric_tSpear_L_ChannelHeal01_Loop"};
+    constexpr const wchar_t* kPoseSlot[2] = {L"TP_Upper_R", L"TP_Upper_L"};
+    ref::Ref g_poseClip[2];
+    FName g_poseSlot;
+    bool g_poseOn = false;
+
+    UAnimInstance* HeroAnim() {
+        AArchonCharacter* hero = Hero(umg::LocalPC());
+        UAnimInstance* ai = hero && PtrOk(hero->Mesh) ? hero->Mesh->AnimScriptInstance : nullptr;
+        return PtrOk(ai) ? ai : nullptr;
+    }
+
+    void Pose(bool on) {
+        if (on == g_poseOn) return;
+        UAnimInstance* ai = HeroAnim();
+        if (!ai) { g_poseOn = false; return; }
+        if (!on) {
+            ai->StopSlotAnimation(0.2f, g_poseSlot);  // the cast's own montage starts on the next input flush
+            g_poseOn = false;
+            return;
+        }
+        if (!g_pose.load()) return;
+        bool left = ai->IsA(UBPA_Base_3rd_C::StaticClass()) && static_cast<UBPA_Base_3rd_C*>(ai)->MirrorAnims__;
+        if (g_otherHand.load()) left = !left;
+        auto* clip = g_poseClip[left].Get<UAnimSequenceBase>();
+        if (!clip) {
+            UObject* o = UKismetSystemLibrary::LoadAsset_Blocking(
+                UKismetSystemLibrary::Conv_SoftObjPathToSoftObjRef(UKismetSystemLibrary::MakeSoftObjectPath(FString(kPoseClip[left]))));
+            if (!PtrOk(o) || !o->IsA(UAnimSequenceBase::StaticClass())) { logger::log("[cast-mode] pose clip not found"); return; }
+            g_poseClip[left] = ref::Ref(o);
+            clip = static_cast<UAnimSequenceBase*>(o);
+        }
+        g_poseSlot = UKismetStringLibrary::Conv_StringToName(FString(kPoseSlot[left]));
+        g_poseOn = PtrOk(ai->PlaySlotAnimationAsDynamicMontage(clip, g_poseSlot, 0.2f, 0.2f, 1.0f, 9999, -1.0f, 0.0f));
+    }
+
     void End(const char* why) {
+        Pose(false);
         Reticle(false);  // a cast: the ability switches its own decal on again when its cast time starts
         g_state.aiming = false;
         g_aim = {};
@@ -278,7 +313,7 @@ namespace {
                 p = V(floor.Location);
             s.ground[0] = p.x, s.ground[1] = p.y, s.ground[2] = p.z;
             s.ring = true;
-            s.radius = g_aim.splash > 0 ? g_aim.splash : ab->TraceSphereRadiusOverride > 0 ? ab->TraceSphereRadiusOverride : 150.0f;
+            s.radius = ab->TraceSphereRadiusOverride > 0 ? ab->TraceSphereRadiusOverride : 150.0f;
             Publish(s);
             return;
         }
@@ -361,9 +396,10 @@ namespace {
                 {
                     static const char* kShape[] = {"none", "ally", "enemy", "ring", "game reticle"};
                     char buf[200];
-                    std::snprintf(buf, sizeof(buf), "[cast-mode] aiming %s (%s, splash %.0f)", found.name.c_str(), kShape[int(found.shape)], found.splash);
+                    std::snprintf(buf, sizeof(buf), "[cast-mode] aiming %s (%s)", found.name.c_str(), kShape[int(found.shape)]);
                     logger::log(buf);
                 }
+                Pose(true);
                 Predict(pc);
                 break;
             case cast_mode::Do::Confirm: Cast(pc, aimedSlot); break;
@@ -507,6 +543,10 @@ namespace {
             bool a = g_allies, e = g_enemies;
             if (ImGui::Checkbox("Ally abilities aim first (heals, buffs)", &a)) { g_allies = a; ImGui::MarkIniSettingsDirty(); }
             if (ImGui::Checkbox("Enemy abilities aim first (targeted spells, projectiles)", &e)) { g_enemies = e; ImGui::MarkIniSettingsDirty(); }
+            bool pose = g_pose, other = g_otherHand;
+            if (ImGui::Checkbox("Channelling pose while aiming", &pose)) { g_pose = pose; ImGui::MarkIniSettingsDirty(); }
+            ImGui::SameLine();
+            if (ImGui::Checkbox("other hand", &other)) { g_otherHand = other; ImGui::MarkIniSettingsDirty(); }
             ImGui::TextDisabled("Per slot: Auto = by ability type, Ring = always aim with a ground circle, Off = never aim");
             int always = g_always, never = g_never;
             for (int i = 0; i < 12; i++) {
@@ -529,12 +569,16 @@ namespace {
             const std::string k = key;
             if (k == "allies") g_allies = std::atoi(value) != 0;
             else if (k == "enemies") g_enemies = std::atoi(value) != 0;
+            else if (k == "pose") g_pose = std::atoi(value) != 0;
+            else if (k == "otherhand") g_otherHand = std::atoi(value) != 0;
             else if (k == "always") g_always = std::atoi(value);
             else if (k == "never") g_never = std::atoi(value);
         }
         void Save(std::vector<std::pair<std::string, std::string>>& out) override {
             out.push_back({"allies", g_allies ? "1" : "0"});
             out.push_back({"enemies", g_enemies ? "1" : "0"});
+            out.push_back({"pose", g_pose ? "1" : "0"});
+            out.push_back({"otherhand", g_otherHand ? "1" : "0"});
             out.push_back({"always", std::to_string(g_always.load())});
             out.push_back({"never", std::to_string(g_never.load())});
         }
