@@ -15,7 +15,8 @@ namespace idle_loot {
     constexpr const char* kGradeName[kGrades] = {"grey", "white", "green", "blue", "purple", "yellow", "red", "eternal"};
     constexpr float kLiftItem = 15, kLiftChest = 45;  // cm above the actor's root
     constexpr float kChestSize = 1.5f;                // chests: sizes x this
-    constexpr float kCopySpread = 8;                  // cm: copies of one layer are stacked this far apart
+    constexpr float kCopySpread = 8;
+    constexpr int kMaxCopies = 12;                  // cm: copies of one layer are stacked this far apart
 
     constexpr std::size_t IndexOf(const char* n) {
         for (std::size_t i = 0; i < kTemplateCount; i++) {
@@ -47,14 +48,13 @@ namespace idle_loot {
     inline Config Defaults() {
         Config c;
         c.glow.tpl = IndexOf("P_ky_aura_yellow");
-        const float glow[kGrades] = {0.5f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.2f};
-        std::copy(glow, glow + kGrades, c.glow.size);
-        c.fly.tpl = IndexOf("hp_mag_alchemyOrb_fireflies");
+        c.glow.on = false;  // maintainer 2026-10-10: fireflies only (no tintable glow found)
+        c.fly.tpl = IndexOf("fx_fireFlies");
         std::fill(c.fly.size, c.fly.size + kGrades, 0.4f);
-        const int fly[kGrades] = {0, 0, 0, 1, 1, 0, 2, 2};
+        const int fly[kGrades] = {0, 0, 1, 2, 4, 0, 6, 10};  // grey white green blue purple yellow(crafting) red eternal
         std::copy(fly, fly + kGrades, c.fly.copies);
         c.fly.bright = 5.0f;
-        c.fly.minGrade = 3;
+        c.fly.minGrade = 2;
         return c;
     }
 
@@ -75,7 +75,7 @@ namespace idle_loot {
         std::vector<Layer> out;
         const int g = std::clamp(grade, 0, kGrades - 1);
         for (const LayerCfg* l : {&c.glow, &c.fly}) {
-            const int n = std::clamp(l->copies[g], 0, 4);
+            const int n = std::clamp(l->copies[g], 0, kMaxCopies);
             if (!l->on || g < l->minGrade) continue;
             for (int i = 0; i < n; i++)
                 out.push_back({l->tpl, l->size[g] * (chest ? kChestSize : 1.0f), l->bright,

@@ -219,7 +219,7 @@ namespace {
                 ch |= ImGui::SliderFloat("##size", &l.size[g], 0.05f, 4.0f, "%.2fx");
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(70);
-                ch |= ImGui::SliderInt("##copies", &l.copies[g], 0, 4);
+                ch |= ImGui::SliderInt("##copies", &l.copies[g], 0, kMaxCopies);
                 ImGui::SameLine();
                 ImGui::TextUnformatted(kGradeName[g]);
                 ImGui::PopID();

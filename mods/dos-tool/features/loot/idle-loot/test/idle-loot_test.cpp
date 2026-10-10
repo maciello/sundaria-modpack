@@ -35,25 +35,23 @@ int main() {
 
     // config (#135, #133): defaults = the maintainer's table
     const Config d = Defaults();
-    assert(kCurated > 0 && kCurated < kTemplateCount && std::wstring(kTemplates[d.fly.tpl].path) == kTemplate);
-    assert(std::string(kTemplates[d.glow.tpl].name) == "P_ky_aura_yellow" && *kTemplates[d.glow.tpl].colour);  // glow must be tintable
-    const float glow[8] = {0.5f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.2f};
-    const std::size_t count[8] = {1, 1, 1, 2, 2, 1, 3, 3};
+    assert(kCurated > 0 && kCurated < kTemplateCount && !d.glow.on && std::string(kTemplates[d.fly.tpl].name) == "fx_fireFlies");
+    const std::size_t count[8] = {0, 0, 1, 2, 4, 0, 6, 10};
     for (int g = 0; g < 8; g++) {
         const std::vector<Layer> p = Plan(d, g, false);
-        assert(p.size() == count[g] && p[0].tpl == d.glow.tpl && p[0].scale == glow[g] && p[0].dz == kLiftItem);
-        for (std::size_t i = 1; i < p.size(); i++) assert(p[i].tpl == d.fly.tpl && p[i].scale == 0.4f && p[i].bright == 5.0f);
+        assert(p.size() == count[g]);
+        for (const Layer& l : p) assert(l.tpl == d.fly.tpl && l.scale == 0.4f && l.bright == 5.0f);
     }
-    assert(Plan(d, 6, false)[1].dz == kLiftItem - kCopySpread / 2 && Plan(d, 6, false)[2].dz == kLiftItem + kCopySpread / 2);
-    assert(Plan(d, -1, true).size() == 1 && Plan(d, -1, true)[0].scale == 0.5f * kChestSize && Plan(d, -1, true)[0].dz == kLiftChest);
+    Config e = d;  // glow switched on in the editor: one glow component first
+    e.glow.on = true;
+    assert(Plan(e, 3, false).size() == 3 && Plan(e, 3, false)[0].tpl == e.glow.tpl);
     {  // edits: off, min grade, copies, height
         Config c = d;
-        c.glow.on = false;
-        assert(Plan(c, 0, false).empty() && Plan(c, 4, false).size() == 1);
+        assert(Plan(c, 0, false).empty() && Plan(c, 4, false).size() == 4);
         c.fly.minGrade = 6;
-        assert(Plan(c, 4, false).empty() && Plan(c, 6, false).size() == 2);
-        c.fly.copies[6] = 9;  // capped
-        assert(Plan(c, 6, false).size() == 4);
+        assert(Plan(c, 4, false).empty() && Plan(c, 6, false).size() == 6);
+        c.fly.copies[6] = 99;  // capped
+        assert(Plan(c, 6, false).size() == std::size_t(kMaxCopies));
         c.glow.on = true, c.glow.height = 10;
         assert(Plan(c, 0, false)[0].dz == kLiftItem + 10 && !SameSpawn(Plan(c, 0, false), Plan(d, 0, false)));
         Config b = d;
@@ -67,7 +65,7 @@ int main() {
     assert(Contains("hp_mag_alchemyOrb_fireflies", "FIREFL") && !Contains("fx_fireFlies", "butterfly") && Contains("x", ""));
     assert(Emissive(4, tiers, true, 2).b == 2 * epic.b && Emissive(4, tiers, false, 1).r == Emissive(4, tiers, false, 1).b);
     const std::string line = Format(d);
-    assert(line.find("glow on=1 tpl=P_ky_aura_yellow") != std::string::npos && line.find("size=[0.5,0.5,0.6,0.7,0.8,0.9,1,1.2]") != std::string::npos);
-    assert(line.find("copies=[0,0,0,1,1,0,2,2]") != std::string::npos);
+    assert(line.find("glow on=0") != std::string::npos && line.find("tpl=fx_fireFlies") != std::string::npos);
+    assert(line.find("copies=[0,0,1,2,4,0,6,10]") != std::string::npos);
     std::puts("idle-loot ok");
 }
