@@ -19,6 +19,7 @@
 #include "BP_AffixContainerEquip_classes.hpp"
 #include "BP_AffixContainerEquip_parameters.hpp"
 #include "BP_GameAbilityBase_classes.hpp"
+#include "BP_ProjectileBase_classes.hpp"
 #include "BP_GameAbility_MeleeAttack_classes.hpp"
 #include "BP_GameAbility_Eviscerate_classes.hpp"
 #include "BP_GameAbility_ShootArrow_classes.hpp"
@@ -48,13 +49,15 @@ namespace {
     std::vector<Rec> g_recs;
     std::atomic<bool> g_on{false}, g_dirty{false};
     std::atomic<int> g_has{0};                       // g_recs.size(), readable from the filter on any thread
-    std::atomic<int32_t> g_nNotify{-1}, g_nHit{-1};  // FName indices of the damage entry events, seeded on the world tick
+    std::atomic<int32_t> g_nNotify{-1}, g_nHit{-1}, g_nRecv{-1};  // FName indices of the damage entry events, seeded on the world tick
     ref::Ref g_swapped;                              // character whose weapons currently hold vanilla for a primary hit
     int g_swapLogs = 0;
     std::atomic<float> g_k{dw::kDefault};
     game::Drain g_drain;
     ref::Fn g_notifyFn{UBP_GameAbilityBase_C::StaticClass, "BP_GameAbilityBase_C", "GameplayAnimNotifyEvent"};
     ref::Fn g_hitFn{UBP_GameAbilityBase_C::StaticClass, "BP_GameAbilityBase_C", "OnProjectileHit"};
+    ref::Fn g_recvFn{ABP_ProjectileBase_C::StaticClass, "BP_ProjectileBase_C", "ReceiveHit"};
+    ref::Cached<UClass> g_projCls{[] { return ABP_ProjectileBase_C::StaticClass(); }};
     ref::Cached<UClass> g_primary[] = {
         {[] { return UBP_GameAbility_MeleeAttack_C::StaticClass(); }}, {[] { return UBP_GameAbility_Eviscerate_C::StaticClass(); }},
         {[] { return UBP_GameAbility_ShootArrow_C::StaticClass(); }},  {[] { return UBP_GameAbility_AimedShot_C::StaticClass(); }},
@@ -121,9 +124,18 @@ namespace {
     bool Filter(void* obj, void* fn, void*) {
         if (!g_has.load(std::memory_order_relaxed) || !fn) return false;
         const int32_t n = static_cast<UFunction*>(fn)->Name.ComparisonIndex;
-        if (n != g_nNotify.load(std::memory_order_relaxed) && n != g_nHit.load(std::memory_order_relaxed)) return false;
+        const bool recv = n == g_nRecv.load(std::memory_order_relaxed);
+        if (n != g_nNotify.load(std::memory_order_relaxed) && n != g_nHit.load(std::memory_order_relaxed) && !recv) return false;
         auto* o = static_cast<UObject*>(obj);
         if (!game::OnGameThread() || !g_on || !PtrOk(o) || !PtrOk(o->Class) || g_swapped.ptr) return false;
+        // A projectile's hit (BP_ProjectileBase::ReceiveHit -> ServerApplyGameplayEffectsOnExplode) calls the ability's
+        // OnProjectileHit inside the script VM, so the damage runs inside ReceiveHit with obj = the projectile.
+        if (recv) {
+            UClass* pc = g_projCls.Get();
+            if (!pc || !o->IsA(pc)) return false;
+            o = static_cast<ABP_ProjectileBase_C*>(o)->InstigatorAbility;
+            if (!PtrOk(o) || !PtrOk(o->Class)) return false;
+        }
         bool primary = false;
         for (auto& c : g_primary) primary |= o->Class == c.Get();
         if (!primary) return false;
@@ -154,9 +166,11 @@ namespace {
     // World tick: k changed / just enabled -> redo the known characters and the local one.
     void OnTick(void*, void*, void*) {
         if (!g_on || !game::OnGameThread()) return;
-        if (g_nNotify < 0) {
-            UFunction* a = g_notifyFn.Get(); UFunction* b = g_hitFn.Get();
-            if (PtrOk(a) && PtrOk(b)) { g_nNotify = a->Name.ComparisonIndex; g_nHit = b->Name.ComparisonIndex; }
+        if (g_nRecv < 0) {
+            UFunction* a = g_notifyFn.Get(); UFunction* b = g_hitFn.Get(); UFunction* c = g_recvFn.Get();
+            if (PtrOk(a) && PtrOk(b) && PtrOk(c)) {
+                g_nNotify = a->Name.ComparisonIndex; g_nHit = b->Name.ComparisonIndex; g_nRecv = c->Name.ComparisonIndex;
+            }
         }
         if (!g_dirty.exchange(false)) return;
         std::vector<ref::Ref> known;
@@ -186,6 +200,7 @@ namespace {
             game::On("BP_CharacterBase_C", "FOnEquipContainerAttributeSetUpdate", &OnEquip, true);
             game::On(nullptr, "GameplayAnimNotifyEvent", &AfterHit, true);
             game::On(nullptr, "OnProjectileHit", &AfterHit, true);
+            game::On(nullptr, "ReceiveHit", &AfterHit, true);
             game::SetEventFilter(&Filter, true);
             game::OnWorldTick(&OnTick, true);
             g_dirty = true;
@@ -199,6 +214,7 @@ namespace {
             game::SetEventFilter(&Filter, false);
             game::On(nullptr, "GameplayAnimNotifyEvent", &AfterHit, false);
             game::On(nullptr, "OnProjectileHit", &AfterHit, false);
+            game::On(nullptr, "ReceiveHit", &AfterHit, false);
             g_drain.Request(true, "dual-wield", [] { RestoreAll(); });
         }
 
