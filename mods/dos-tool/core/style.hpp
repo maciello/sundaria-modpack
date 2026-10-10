@@ -36,6 +36,8 @@ namespace style {
         constexpr Rgba kHpChip{255, 248, 235, 230};
         constexpr Rgba kHeal{90, 255, 170};
         constexpr Rgba kTaken{255, 80, 70};
+        constexpr Rgba kTargetEnemy{255, 120, 90};  // cast mode: the enemy an ability would hit (ally = kHeal)
+        constexpr Rgba kAim{255, 232, 160};         // cast mode: ground circle of an area ability
         constexpr Rgba kGood{120, 230, 120};       // suggestion badge: upgrade
         constexpr Rgba kSell{240, 170, 60};        // suggestion badge: sell
     }
