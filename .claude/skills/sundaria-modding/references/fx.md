@@ -19,11 +19,13 @@ api:   # core/fx.hpp; all game thread except Release
   Color|Float|Vector(id, name, …):  instance parameters (Cascade *ParticleParameter name; Niagara "User.Name")
   MaterialColor|MaterialFloat(id, element, name, …): dynamic material instance on emitter `element` (created once)
   Alive(id), Remove(id), Release(owner)
+  Describe(id) -> "active=1 visible=1 owner_hidden=0 loc=(x,y,z) scale=s": log it after Attach to prove the component is live (idle-loot `sparkle on`)
 knobs: {Place.x/y/z: cm offset (attached) or world cm, Place.scale: uniform (volume + sprite size + speed), Place.cull: cm, colour: linear RGB × intensity}
 not_knobs: spawn rate, count, lifetime, orbit: baked into the template (Cascade has no instance params for them); pick another row
 cost: each call one ProcessEvent; templates loaded once per path; core subscribes the world tick only while effects exist
 colour_routes:
   instance_param: none of the game's Cascade systems has one; Niagara User.Color on NS_Skill_Portal*, NS_Ability_Avatar/Sacrifice/ShadowCloakA, Blood_VFX P_* …⊇
+  hdr: "material colour params are HDR: fx_fireFlies_Full's Emissive Thorax is (5000, 2130, 0). Tint at that magnitude (idle-loot kGlow 2500 × linear grade colour); ×1-3 is invisible (#131, gotchas)"
   material_param: "MaterialColor with the colour_params name `just data fx` prints per emitter (fx_fireFlies: Emissive Thorax)"
   particle_colour_only: M_FlickeringSparkle_*, M_ky_starDust, fx_base_flareBASE, M_GFXLU/GPS DustGlow …⊇ (fixed colour, or swap the template)
 ```
@@ -36,7 +38,7 @@ Look: read from those numbers, not seen in game unless a shot is named.
 
 | template (`/Game/…`) | em. | mode, life | colour route | look |
 |---|---|---|---|---|
-| Environments/HumanProps/Magic/Particles/hp_mag_alchemyOrb_fireflies | 1 | burst 5, forever | material `Emissive Thorax` | 5 motes orbiting ≤ 20 cm, each flickering at its own rate; idle-loot uses it (shot: pending) |
+| Environments/HumanProps/Magic/Particles/hp_mag_alchemyOrb_fireflies | 1 | burst 5, forever | material `Emissive Thorax` | 5 motes orbiting ≤ 20 cm, each flickering at its own rate; idle-loot uses it (shot: pending; Insert menu > Idle loot sparkle > Preview sparkle shows grades 0-7 for 5 s) |
 | FX/Environmental/Particles/fx_fireFlies | 1 | burst 5, forever | material `Emissive Thorax` | same fireflies, orbit 50-100 cm; its light-module emitter is off at LOD 0 |
 | FX/Classes/Champion/Particles/P_Champion_HandGlow_01 | 2 | 200/s 0.15-0.3 s + light rays | none | dense flickering sparkle ball ≤ 5 cm (a hand glow) |
 | FX/Classes/Wizard/Particles/P_StaffGlow_01 | 2 | 50/s 0.15-0.7 s + ray burst | none | orange sparkle spray ≤ 10 cm (staff tip) |

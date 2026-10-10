@@ -15,11 +15,17 @@ namespace idle_loot {
     // dynamic parameter ThoraxFlickerRate 0.05..5): a sparse, random, continuous twinkle.
     constexpr const wchar_t* kTemplate = L"/Game/Environments/HumanProps/Magic/Particles/hp_mag_alchemyOrb_fireflies.hp_mag_alchemyOrb_fireflies";
     constexpr const wchar_t* kGlowParam = L"Emissive Thorax";  // vector param of its material fx_fireFlies_Full (MI value FFFF00)
-    constexpr float kGlow = 3.0f;                       // emissive = grade colour (linear) × this
+    // emissive = grade colour (linear) × this. The template's own material instance is HDR: Emissive Thorax = (5000, 2130, 0)
+    // (luminance ~2600); ×3 was ~1000× dimmer on 5-10 cm sprites = invisible (#131).
+    constexpr float kGlow = 2500.0f;
     constexpr float kPileR = 150;                       // cm: loot this close shares the best grade among it
     constexpr float kLiftItem = 15, kLiftChest = 45;    // cm above the actor's root
-    constexpr float kScaleItem = 1.0f, kScaleChest = 2.0f;  // component scale: orbit ≤ 20 cm, sprites 5-10 cm (× this)
+    constexpr float kScaleItem = 2.0f, kScaleChest = 3.0f;  // component scale: orbit ≤ 20 cm, sprites 5-10 cm (× this)
     constexpr float kCull = 3000;                       // cm: cull distance of the component
+    // "Preview sparkle" (Insert menu): one sparkle per grade 0..7 in a row beside the hero, removed after kPreviewFor.
+    constexpr int kPreviewGrades = 8;
+    constexpr float kPreviewAhead = 250, kPreviewGap = 60;  // cm: row centre in front of the hero, spacing along the row
+    constexpr double kPreviewFor = 5.0;                     // s
     constexpr double kSettle = 2.0;                     // s: after a loot event, re-read loot state on every world tick this long
 
     // Per actor: the best known grade among the unlooted loot within kPileR (-1: none known), or kLooted.

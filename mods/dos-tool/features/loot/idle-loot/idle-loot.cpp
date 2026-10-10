@@ -1,4 +1,5 @@
 #include "feature.hpp"
+#include "imgui.h"
 #include "game.hpp"
 #include "logger.hpp"
 #include "ref.hpp"
@@ -27,6 +28,9 @@ namespace {
     };
     std::unordered_map<std::uintptr_t, Spark> g_sparks;  // key = loot actor address; game thread only
     std::atomic<bool> g_on{false};
+    std::atomic<bool> g_previewAsk{false};  // Insert menu -> game thread
+    std::vector<fx::Id> g_preview;           // game thread
+    double g_previewEnd = 0;
     thread_local bool t_busy = false;
     // Events after which a loot actor's state may have changed (each reaches ProcessEvent: native event, bound delegate
     // or received RPC/RepNotify); on any class (Blueprint overrides declare their own), filtered to loot in OnLootEvent.
@@ -78,13 +82,41 @@ namespace {
             keep.emplace(all[i].id, s);
             char b[120];
             std::snprintf(b, sizeof b, "[idle-loot] sparkle on %s %llx, grade %d", chest ? "chest" : "item", (unsigned long long)all[i].id, grades[i]);
-            logger::log(b);
+            logger::log(std::string(b) + " " + fx::Describe(s.id));
         }
         for (auto& [k, s] : g_sparks) {  // looted, streamed out or destroyed
             fx::Remove(s.id);
             logger::log("[idle-loot] sparkle off " + std::to_string(k));
         }
         g_sparks.swap(keep);
+    }
+
+    void StopPreview() {
+        for (fx::Id id : g_preview) fx::Remove(id);
+        g_preview.clear();
+    }
+
+    // One sparkle per grade, a row across the hero's view at kPreviewAhead.
+    void StartPreview() {
+        float x, y, z, fx_, fy_;
+        if (!game::LocalPawn(x, y, z, fx_, fy_)) return;
+        StopPreview();
+        std::array<style::Rgba, 8> tiers;
+        if (!loot::GradeColors(tiers))
+            for (int g = 0; g < 8; g++) tiers[g] = style::rarity::Of(g);
+        for (int g = 0; g < kPreviewGrades; g++) {
+            const float side = (g - (kPreviewGrades - 1) * 0.5f) * kPreviewGap;
+            fx::Place p;
+            p.x = x + fx_ * kPreviewAhead - fy_ * side, p.y = y + fy_ * kPreviewAhead + fx_ * side, p.z = z - 60 + kLiftItem;
+            p.scale = kScaleItem, p.cull = kCull;
+            const fx::Id id = fx::At(kOwner, kTemplate, p);
+            if (!id) continue;
+            Spark sp{ref::Ref(), id, g};
+            Tint(sp, g, tiers);
+            g_preview.push_back(id);
+            logger::log("[idle-loot] preview grade " + std::to_string(g) + " " + fx::Describe(id));
+        }
+        g_previewEnd = Now() + kPreviewFor;
     }
 
     void OnLootEvent(void* obj, void*, void*) {  // a watched function ran: re-read loot state for kSettle
@@ -97,6 +129,8 @@ namespace {
 
     void OnTick(void* obj, void* fn, void*) {
         if (t_busy || !game::OnGameThread()) return;
+        if (g_previewAsk.exchange(false)) StartPreview();
+        if (!g_preview.empty() && Now() >= g_previewEnd) StopPreview();
         loot::OnEvent(obj, fn);  // tracker: world scan on a new world, grade colours
         if (loot::Version() == g_version && Now() >= g_settleUntil) return;
         t_busy = true;
@@ -121,8 +155,14 @@ namespace {
             Listen(true);
         }
 
+        void Menu() override {
+            if (ImGui::Button("Preview sparkle")) g_previewAsk = true;  // needs the feature on: the world tick serves it
+        }
+
         void Off() override {
+            g_previewAsk = false;
             Listen(false);
+            g_preview.clear();  // fx::Release destroys them
             fx::Release(kOwner);  // the next world tick destroys our components
             g_on = false;
             g_sparks.clear();
