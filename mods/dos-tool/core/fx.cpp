@@ -52,7 +52,7 @@ namespace {
         ref::Ref comp;
         std::vector<std::pair<int, ref::Ref>> mids;  // emitter element -> its dynamic material instance
     };
-    std::unordered_map<fx::Id, Entry> g_live;  // game thread (Release's fallback: after its wait ran out)
+    std::unordered_map<fx::Id, Entry> g_live;  // game thread 
     std::map<std::wstring, ref::Ref> g_templates;
     std::map<std::wstring, FName> g_names;
     fx::Id g_next = 1;

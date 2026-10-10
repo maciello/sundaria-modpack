@@ -209,7 +209,8 @@ namespace boss_intro::game_side {
     int Resume() {
         g_pauseFight = 0;
         g_resumed = 0;
-        g_resume.Request(true, "boss-intro", [] { g_resumed = ResumeNow(); });
+        // No world tick in time: a frozen boss is worse than a plain float write off-thread (CustomTimeDilation, no UFunction)
+        if (!g_resume.Request(true, "boss-intro", [] { g_resumed = ResumeNow(); })) g_resumed = ResumeNow();
         return g_resumed.exchange(0);
     }
 

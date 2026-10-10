@@ -11,3 +11,5 @@ bad=$(grep -rlE 'umg::Spawn\(|WidgetBlueprintLibrary::StaticClass|"AddToViewport
     grep -qsE 'game::Drain|fx::Release\(' "$d"/*.cpp "$d"/*.hpp || echo "$f"
   done)
 [ -z "$bad" ] || { echo "spawner without game::Drain / fx::Release in its folder (scripts/widget-off-check.sh):"; echo "$bad"; exit 1; }
+# Drain::Request runs on the unloading thread, not the game thread: it must never run the removal itself (callable stays unnamed).
+grep -qE 'bool Request\(bool needed, const char\* who, F&&\)' ../core/drain.hpp || { echo "Drain::Request may not run its callable off the game thread (scripts/widget-off-check.sh)"; exit 1; }

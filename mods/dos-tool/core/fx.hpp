@@ -34,6 +34,6 @@ namespace fx {
     void MaterialFloat(Id id, int element, const wchar_t* name, float v);
 
     void Remove(Id id);
-    // Off(): every effect `owner` spawned is destroyed on the next world tick (game::Drain), else here after 500 ms.
+    // Off(): every effect `owner` spawned is destroyed on the next world tick (game::Drain); none within 2 s (unfocused game): left to the engine.
     void Release(const char* owner);
 }
