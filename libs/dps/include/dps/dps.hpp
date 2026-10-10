@@ -88,6 +88,9 @@ namespace dps {
         // An item the build already wears (same slot, spec, level, grade, stats) scores 0 with replacesSlot = its slot.
         ItemScore ScoreItem(const Prepared& prepared, const Item& item, int slot = -1) const;
         ItemScore ScoreItem(const Build& build, const Scenario& scenario, const Item& item, int slot = -1) const;
+        // The slot the game compares / equips `item` into (BP_AffixContainerEquip::I_AffixGetPotentialItemSlotForItemSpec): weapons in
+        // the held set (build.activeSet, -1 = set 0), rings, trinkets; alt = the second hand / ring / trinket (ALT held). -1 = any other item.
+        int TargetSlot(const Build& build, const Item& item, bool alt) const;
         // Best item per equip slot from candidates (gear of other heroes, bank, ...): coordinate ascent per weapon type.
         // The hero's own equipped items are ignored; its class, level, abilities, primary stats and heroism are used.
         BestInSlotResult BestInSlot(const Build& hero, const Scenario& scenario, std::span<const Item> candidates) const;

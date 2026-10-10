@@ -108,6 +108,30 @@ int main() {
         assert(!score(2).fits);   // an empty set: nothing to compare
     }
 
+    // the slot the game compares: first ring / trinket / hand while free, ALT = the second
+    {
+        Build t;
+        t.cls = "Rogue", t.level = 10;
+        const Item ring = It("r", "Ring", {{"RAP", 1}}), sword = It("s", "WeaponAny", {}, "Shortsword"), bow = It("b", "WeaponDoubleHanded", {}, "Longbow"),
+                   xbow = It("x", "WeaponDoubleHanded", {}, "Arbalest");
+        assert(m.TargetSlot(t, ring, false) == 14 && m.TargetSlot(t, ring, true) == 14);
+        t.equipped = {It("r1", "Ring", {}, "", 14)};
+        assert(m.TargetSlot(t, ring, false) == 15 && m.TargetSlot(t, ring, true) == 15);
+        t.equipped.push_back(It("r2", "Ring", {}, "", 15));
+        assert(m.TargetSlot(t, ring, false) == 14 && m.TargetSlot(t, ring, true) == 15);
+        assert(m.TargetSlot(t, It("t", "Trinket", {}), true) == 9 && m.TargetSlot(t, It("h", "Head", {}), false) == -1);
+        assert(m.TargetSlot(t, sword, false) == 8 && m.TargetSlot(t, bow, false) == 7 && m.TargetSlot(t, xbow, false) == 8);   // bows go left
+        t.equipped = {It("s1", "WeaponAny", {}, "Shortsword", 8)};
+        assert(m.TargetSlot(t, sword, false) == 7);                                // right hand taken, left free
+        t.equipped.push_back(It("s2", "WeaponAny", {}, "Shortsword", 7));
+        assert(m.TargetSlot(t, sword, false) == 8 && m.TargetSlot(t, sword, true) == 7);   // both taken: ALT = the left hand
+        t.activeSet = 1;
+        assert(m.TargetSlot(t, sword, false) == 18 && m.TargetSlot(t, bow, false) == 17);   // set 1 is empty
+        // scoring into a given slot: an empty ring slot is filled, a worn one replaced
+        assert(m.ScoreItem(*p, ring, 14).replacesSlot == -1 && m.ScoreItem(*p, ring, 14).fits);
+        assert(m.ScoreItem(*p2, It("r3", "Ring", {{"RAP", 20}}), 14).replacesSlot == 14);
+    }
+
     // best in slot: the stronger bow and the two RAP rings, the Health ring stays out
     std::vector<Item> cands = {It("bow", "WeaponDoubleHanded", {{"WeaponDamage", 100}}, "Longbow"),
                                It("greatbow", "WeaponDoubleHanded", {{"WeaponDamage", 150}}, "Greatbow"),

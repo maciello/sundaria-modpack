@@ -194,6 +194,7 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
   | downgrade | equipping it lowers the current hero's DPS by ≥ `kNeutralBand` (no other hero gains ≥ `kMinGain`) | `-4.2%` | game `ComparisonColorNegative` = token `kGameNegative` |
   | neutral | the current hero can use it, \|change\| < `kNeutralBand` | `±0%` | `kGameText` |
   | none | the current hero cannot use it (doesn't fit, not equipable), or no DPS data yet | chip collapsed | — |
+- The % is against the held weapon set (controller `WeaponMode`, 3 sets) and, for weapons, rings and trinkets, the slot the game would equip into (first free, else the first; ALT held = the second hand / ring / trinket); both re-score on a switch / ALT.
 - Detail lines (the game's item details panel, styled like its orange "Learned" line, as the sell reason): `Upgrade: +4.2% DPS` / `Downgrade: -4.2% DPS`,
   `Better for <hero> (<class>): +6.1% DPS` (best other hero), `Best in slot: <class>[, <class>]` (no owned item of that class's slot beats it).
 - Colour is never the only channel: the "+" / "-" and "%" say upgrade / downgrade, a name says other hero.

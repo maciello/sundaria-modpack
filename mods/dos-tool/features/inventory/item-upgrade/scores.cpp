@@ -35,6 +35,7 @@ namespace {
     std::string g_status = "not started";
     std::uint64_t g_ownedSig = 0, g_ctxSig = 0;
     int g_heroSlot = -2, g_set = -1;  // g_set: the held weapon set (BP_PlayerControllerGame_C::WeaponMode), -1 = unknown
+    bool g_alt = false;               // ALT held: the game compares with the second hand / ring / trinket (HasToggledComparison)
     std::vector<items::Item> g_owned;                     // bag + bank
     std::vector<dps::Item> g_ownedDps;                    // parallel to g_owned
     std::unordered_map<std::uint64_t, int> g_byPos;       // Pos → index into g_owned
@@ -114,6 +115,10 @@ namespace {
         return int(static_cast<SDK::ABP_PlayerControllerGame_C*>(pc)->WeaponMode);
     }
 
+    bool AltHeld(SDK::ABP_PlayerControllerOnline_C* pc) {
+        return pc->IsA(SDK::ABP_PlayerControllerGame_C::StaticClass()) && static_cast<SDK::ABP_PlayerControllerGame_C*>(pc)->HasToggledComparison;
+    }
+
     bool Ready() { return g_self.prep || !g_others.empty() || (g_preview && !g_model); }
 
     void BestInSlot(const dps::Model& m, const std::vector<dps::Item>& equipped) {
@@ -145,15 +150,17 @@ namespace item_upgrade::scores {
         const io::Located l = io::Locate();
         const std::uint64_t ownedSig = io::Signature(l.bag) ^ (io::Signature(l.bank) * 31) ^ 1;
         const int set = HeldSet(pc);
-        if (ownedSig == g_ownedSig && hero == g_heroSlot && set == g_set) return Ready();
+        const bool alt = AltHeld(pc);
+        if (ownedSig == g_ownedSig && hero == g_heroSlot && set == g_set && alt == g_alt) return Ready();
 
         LARGE_INTEGER t0, t1, f;
         QueryPerformanceCounter(&t0);
         g_ownedSig = ownedSig;
         g_set = set;
+        g_alt = alt;
         g_owned.clear();
         std::vector<dps::Item> equipped;
-        std::uint64_t ctx = (std::uint64_t(hero) + 1) * 4 + std::uint64_t(set + 1);
+        std::uint64_t ctx = ((std::uint64_t(hero) + 1) * 4 + std::uint64_t(set + 1)) * 2 + alt;
         for (items::Item& it : io::Read(l.bag, false, true)) {
             if (it.where == items::Where::Equipped) {
                 equipped.push_back(ToDps(it));
@@ -181,7 +188,7 @@ namespace item_upgrade::scores {
         changed = true;
         QueryPerformanceCounter(&t1);
         QueryPerformanceFrequency(&f);
-        g_status = "set " + std::to_string(set) + ", " + std::to_string(g_owned.size()) + " owned (bank " + (bank.live ? "live" : bank.seen ? "cached" : "not seen yet") + "), hero " +
+        g_status = "set " + std::to_string(set) + (alt ? " ALT" : "") + ", " + std::to_string(g_owned.size()) + " owned (bank " + (bank.live ? "live" : bank.seen ? "cached" : "not seen yet") + "), hero " +
                    (g_self.cls.empty() ? "slot " + std::to_string(hero) + " has no snapshot" : g_self.name + " " + g_self.cls) + ", " +
                    std::to_string(g_others.size()) + " other heroes, " + std::to_string(g_bis.size()) + " best in slot, " +
                    std::to_string(double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart)).substr(0, 5) + " ms";
@@ -204,7 +211,7 @@ namespace item_upgrade::scores {
         if (hit == g_cache.end()) {
             Score s;
             if (g_self.prep) {
-                const dps::ItemScore r = g_model->ScoreItem(*g_self.prep, d);
+                const dps::ItemScore r = g_model->ScoreItem(*g_self.prep, d, g_model->TargetSlot(g_self.build, d, g_alt));
                 s.self = r.deltaPct;
                 s.selfFits = r.fits;
             }
@@ -226,6 +233,7 @@ namespace item_upgrade::scores {
         g_ownedSig = g_ctxSig = 0;
         g_heroSlot = -2;
         g_set = -1;
+        g_alt = false;
         g_owned.clear();
         g_ownedDps.clear();
         g_byPos.clear();

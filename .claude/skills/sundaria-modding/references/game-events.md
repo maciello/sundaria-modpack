@@ -64,3 +64,16 @@ signal: "host: the equip event above (UpdateFromWeaponMode -> ReCalculate); clie
 use: "item-upgrade/scores.cpp HeldSet() -> dps::Build.activeSet: only that set's weapons count (libs/dps Prepare)"
 check: "just data bp BP_PlayerControllerGame I_GetWeaponMode ; just data writers WeaponMode"
 ```
+
+## ALT compare and the target slot (#129)
+```yaml
+alt: "BP_PlayerControllerGame_C::HasToggledComparison (bool, offset 0x0BEC; I_GetComparisonMode reads it). Written by I_SetComparisonMode / ServerSetComparison,
+      which WidgetItemInventory_C::OnKeyDown / OnKeyUp call: the OnClass(WidgetItemInventory_C) bag event fires on both (tiles::Ev::Bag), read the field then"
+slot_rule: "BP_AffixContainerEquip_C::I_AffixGetPotentialItemSlotForItemSpec(spec) -> ItemSlot, GetDesiredEquipSlot(Slot1, Slot2, alt) = !Slot1 || (Slot1 && Slot2 && !alt) picks the FIRST slot
+            Ring (first 14, second 15), Trinket (9, 10); weapons (left/right of the held set, enum ids WeaponLeft 7, WeaponRight 8, WeaponAny 9, WeaponDoubleHanded 10):
+            WeaponLeft -> left, WeaponRight -> right, WeaponDoubleHanded -> right unless the type is Bow2H (left), Shield -> right iff left worn && (alt || right free),
+            other WeaponAny -> right iff right free || (left worn && !alt)"
+tooltip: "FHUDFunctionLibrary_C::GetFocusedComparisonSlot: Slot = Diff2Slot when ALT and Diff2Slot >= 0, else DiffSlot (client data store I_GetFocussedItemAttributes). Same toggle; slots from the store, not read by us"
+code: "libs/dps Model::TargetSlot (SDK-free, test dps_test.cpp), item-upgrade/scores.cpp passes it to ScoreItem; unverified in game"
+check: "just data bp BP_AffixContainerEquip I_AffixGetPotentialItemSlotForItemSpec ; just data bp BP_AffixContainerEquip GetDesiredEquipSlot"
+```

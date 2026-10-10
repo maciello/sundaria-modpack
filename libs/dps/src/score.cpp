@@ -48,8 +48,11 @@ namespace dps {
                 std::equal(e.stats.begin(), e.stats.end(), item.stats.begin(), [](const Stat& x, const Stat& y) { return x.name == y.name && x.value == y.value; }))
                 return {0.f, p.dps(), e.slot, true};
         if (!CanUse(t, p.build, item)) return s;   // not usable: fits = false
+        auto worn = [&](int at) {
+            return std::any_of(p.build.equipped.begin(), p.build.equipped.end(), [at](const Item& e) { return e.slot == at; });
+        };
         auto consider = [&](float dps, int replaces) {
-            if (slot >= 0 && replaces != slot) return;
+            if (slot >= 0 && replaces != slot && !(replaces < 0 && !worn(slot))) return;   // an empty target slot: the candidate that fills one
             if (!s.fits || dps > s.dps) s.fits = true, s.dps = dps, s.replacesSlot = replaces;
         };
         if (!IsWeaponSlot(item.equipSlot)) {
@@ -91,6 +94,26 @@ namespace dps {
         const float cur = p.dps();
         if (s.fits && cur > 0.f) s.deltaPct = (s.dps / cur - 1.f) * 100.f;
         return s;
+    }
+
+    int Model::TargetSlot(const Build& b, const Item& it, bool alt) const {
+        auto worn = [&](int at) {
+            return std::any_of(b.equipped.begin(), b.equipped.end(), [at](const Item& e) { return e.slot == at; });
+        };
+        // GetDesiredEquipSlot: the first slot while it is free; both worn: the first, the second with ALT
+        auto pick = [&](int first, int second) { return !worn(first) || (worn(second) && !alt) ? first : second; };
+        if (it.equipSlot == "Ring") return pick(14, 15);
+        if (it.equipSlot == "Trinket") return pick(9, 10);
+        if (!IsWeaponSlot(it.equipSlot)) return -1;
+        const int set = std::max(0, ActiveSet(b)), left = kSetLeft[set], right = kSetRight[set];
+        const std::string anim = AnimOf(tables(), &it);
+        bool toRight;
+        if (it.equipSlot == "WeaponLeft") toRight = false;
+        else if (it.equipSlot == "WeaponRight") toRight = true;
+        else if (it.equipSlot == "WeaponDoubleHanded") toRight = anim != "Bow2H";
+        else if (anim == "Shield") toRight = worn(left) && (alt || !worn(right));
+        else toRight = !worn(right) || (worn(left) && !alt);
+        return toRight ? right : left;
     }
 
     ItemScore Model::ScoreItem(const Build& build, const Scenario& scenario, const Item& item, int slot) const {
