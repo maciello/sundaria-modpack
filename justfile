@@ -124,6 +124,25 @@ crashes n="10":
       echo "$(date -r "$d/$c" '+%m-%d %H:%M')  ${f:-?}  $e  $c"
     done
 
+# every item id of the game (common: currency, essence, crafting, consumables …; armor; weapon) from the pak, cached in build/items/; `just items <regex>` filters by id or name
+items regex=".":
+    #!/usr/bin/env bash
+    set -e
+    c=build/items; mkdir -p $c
+    for t in CommonItem/ItemTable_CommonItem ArmorItem/ItemTable_Armor WeaponItem/ItemTable_Weapon; do
+      f=$c/$(basename $t).yaml; [ -s $f ] || just data table Archon/Content/DataTables/Item/$t > $f
+    done
+    {{python}} - "{{regex}}" $c/*.yaml <<'PY'
+    import re, sys, yaml
+    rx = re.compile(sys.argv[1], re.I)
+    for f in sys.argv[2:]:
+        for table, rows in (yaml.safe_load(open(f)) or {}).items():
+            for i, r in rows.items():
+                name = r.get("mDisplayName") or r.get("DisplayName") or ""
+                line = f"{i}\t{table.replace('ItemTable_', '')}\tq{r.get('Quality', '')}\tstack {r.get('MaxStack', '')}\t{name}"
+                if rx.search(line): print(line)
+    PY
+
 # game running (dev install): ask the live game, YAML out: get <path> | find <class> | call | trace <regex> <s> | shot | log | feature [<name> on|off] | ping
 [positional-arguments]
 game *args:
