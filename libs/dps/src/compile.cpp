@@ -1,6 +1,7 @@
 #include "compile.hpp"
 #include <algorithm>
 #include <cctype>
+#include <iterator>
 #include <map>
 
 namespace dps::compile {
@@ -49,6 +50,11 @@ namespace dps::compile {
         bool TwoDigitEnd(const std::string& s) {   // combo sections: Attack01, Attack02, ...
             const size_t n = s.size();
             return n >= 2 && std::isdigit(static_cast<unsigned char>(s[n - 1])) && std::isdigit(static_cast<unsigned char>(s[n - 2]));
+        }
+        // the basic attacks the mod's Dual-wield damage leaves at vanilla damage (dual-wield-damage.cpp g_primary)
+        bool Primary(const std::string& n) {
+            static const char* const names[] = {"Slash", "MeleeAttack", "Eviscerate", "ShootArrow", "AimedShot", "Smite", "FireBall"};
+            return std::find(std::begin(names), std::end(names), n) != std::end(names);
         }
         bool Has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
 
@@ -127,7 +133,7 @@ namespace dps::compile {
 
     dps_ctx Compiled::Ctx() const {
         return dps_ctx{A, K, int(cAb.size()), abCast.data(), abCd.data(), cAb.data(), cAp.data(), cMagic.data(), cElem.data(),
-                       cCoef.data(), cHits.data(), cTargets.data(), cDotDur.data(), cDotPer.data(), scen.data()};
+                       cCoef.data(), cHits.data(), cTargets.data(), cDotDur.data(), cDotPer.data(), cWd.data(), scen.data()};
     }
 
     int Compiled::Attr(const std::string& lower) const {
@@ -178,11 +184,13 @@ namespace dps::compile {
         if (!c.K) { error = "no damaging ability for " + p.cls + " with " + wt; return c; }
         c.A = I_AB + 2 * c.K;
         const float nt = float(std::max(sc.targets, 1));
+        const bool dual = !p.offhand.empty() && p.offhand != "Shield";   // a weapon in the other hand
         for (size_t j = 0; j < comps.size(); ++j) {
             const auto& [k, d] = comps[j];
             const int lv = c.abilities[k].level;
             c.cAb.push_back(k), c.cAp.push_back(d->apRule), c.cMagic.push_back(d->magic), c.cElem.push_back(d->element);
             c.cCoef.push_back(At(d->coef, lv));
+            c.cWd.push_back(dual && !Primary(c.abilities[k].name) ? 1.f + sc.dualWieldBonus : 1.f);   // only WeaponDamage: WeaponDamage_<element> is not written by the mod
             if (d->dot) c.cHits[j] = 1.f;
             c.cTargets.push_back(d->aoe == 0 ? 1.f : d->aoe == 1 ? nt : std::min(nt, float(d->aoeCap)));
             c.cDotDur.push_back(d->dot ? At(d->dotDuration, lv) : 0.f);

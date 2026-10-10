@@ -30,7 +30,7 @@ namespace dps::compile {
         std::vector<std::string> dropped;
         std::vector<float> base;                       // [A]: attack power from primaries + level, heroism
         std::unordered_map<std::string, int> statAttr; // lowercase stat name -> attribute index
-        std::vector<float> abCast, abCd, cCoef, cHits, cTargets, cDotDur, cDotPer;
+        std::vector<float> abCast, abCd, cCoef, cHits, cTargets, cDotDur, cDotPer, cWd;
         std::vector<int32_t> cAb, cAp, cMagic, cElem;
         std::array<float, layout::S_N> scen{};
         dps_ctx Ctx() const;

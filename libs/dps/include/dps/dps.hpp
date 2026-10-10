@@ -43,6 +43,7 @@ namespace dps {
         int targetLevelDelta = 2;
         float armor = 400, magicResist = 400, glancing = 0, deflect = 0, incomingDamageMod = 0;
         std::vector<std::pair<std::string, float>> resist;  // damage type (Fire, Nature, Slash, ...) -> resist
+        float dualWieldBonus = 0;                           // k of the mod's Dual-wield damage (0 = vanilla): two weapons -> non-primary abilities deal WeaponDamage x (1 + k)
         bool eventSim = false;                              // false: fluid priority rotation (smooth, default); true: discrete greedy sim
     };
 

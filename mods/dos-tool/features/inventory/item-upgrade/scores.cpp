@@ -4,6 +4,7 @@
 #include "../shared/sdk.hpp"
 #include "dps/dps.hpp"
 #include "logger.hpp"
+#include "tuning.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -43,7 +44,7 @@ namespace {
     std::vector<Hero> g_others;
     std::unordered_map<std::uint64_t, Score> g_cache;     // by item key
     std::unordered_map<std::uint64_t, std::vector<std::string>> g_bis;  // item key → classes it is best in slot for
-    const dps::Scenario g_scenario{};
+    dps::Scenario g_scenario{};  // dualWieldBonus follows tuning::dualWieldK (Dual-wield damage on = its k, else 0)
 
     std::uint64_t PosKey(bool bank, std::uint8_t type, int slot) { return (std::uint64_t(bank) << 40) | (std::uint64_t(type) << 32) | std::uint32_t(slot); }
     std::uint64_t KeyOf(const dps::Item& d) { return Key(d.spec, d.level, d.grade, d.stats); }
@@ -151,7 +152,13 @@ namespace item_upgrade::scores {
         const std::uint64_t ownedSig = io::Signature(l.bag) ^ (io::Signature(l.bank) * 31) ^ 1;
         const int set = HeldSet(pc);
         const bool alt = AltHeld(pc);
-        if (ownedSig == g_ownedSig && hero == g_heroSlot && set == g_set && alt == g_alt) return Ready();
+        const float k = tuning::dualWieldK.load();
+        if (ownedSig == g_ownedSig && hero == g_heroSlot && set == g_set && alt == g_alt && k == g_scenario.dualWieldBonus) return Ready();
+        if (k != g_scenario.dualWieldBonus) {  // every prepared hero and score was built with the old k
+            g_scenario.dualWieldBonus = k;
+            for (Hero& h : g_others) h.prep = nullptr;
+            g_ctxSig = 0;
+        }
 
         LARGE_INTEGER t0, t1, f;
         QueryPerformanceCounter(&t0);

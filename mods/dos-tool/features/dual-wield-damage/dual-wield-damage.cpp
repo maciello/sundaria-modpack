@@ -3,6 +3,7 @@
 #include "game.hpp"
 #include "logger.hpp"
 #include "ref.hpp"
+#include "tuning.hpp"
 #include "drain.hpp"
 #include "umg.hpp"
 #include "imgui.h"
@@ -196,6 +197,7 @@ namespace {
         DualWieldDamage() : Feature("Dual-wield damage", feature::Stage::Alpha) {}
 
         void OnFrame(const feature::Frame&) override {
+            tuning::dualWieldK = g_k.load();
             if (g_on.exchange(true)) return;
             game::On("BP_CharacterBase_C", "FOnEquipContainerAttributeSetUpdate", &OnEquip, true);
             game::On(nullptr, "GameplayAnimNotifyEvent", &AfterHit, true);
@@ -209,6 +211,7 @@ namespace {
         // Render thread: unsubscribe, hand the restore to the game thread.
         void Off() override {
             g_on = false;
+            tuning::dualWieldK = 0.0f;
             game::On("BP_CharacterBase_C", "FOnEquipContainerAttributeSetUpdate", &OnEquip, false);
             game::OnWorldTick(&OnTick, false);
             game::SetEventFilter(&Filter, false);

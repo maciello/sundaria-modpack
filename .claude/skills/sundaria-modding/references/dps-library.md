@@ -13,7 +13,7 @@ BestInSlot(hero|class+level, scenario, candidates): coordinate ascent per weapon
 StatWeights(build, scenario, grade): % DPS per affix as it rolls on each slot the class wears, best first
 inputs: Item {spec, equipSlot, weaponType (spec name), grade, level, slot (equipped only), stats {EStatType name: value}}
         Build {cls, level, primary[6], abilities (snapshot names -> level), abilityLevel, heroism, equipped}
-        Scenario {targets, fightSeconds, targetLevelDelta, armor, magicResist, glancing, deflect, incomingDamageMod, resist, eventSim}
+        Scenario {targets, fightSeconds, targetLevelDelta, armor, magicResist, glancing, deflect, incomingDamageMod, resist, eventSim, dualWieldBonus (k of Dual-wield damage; non-primary abilities x(1+k) with a weapon in both hands, game-facts dps_model)}
 ```
 
 ## Files (one responsibility each)

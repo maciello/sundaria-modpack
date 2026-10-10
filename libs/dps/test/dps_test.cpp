@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <map>
 
 using namespace dps;
 
@@ -46,8 +47,12 @@ static Tables Synthetic() {
     Ability stab;   // a Rogue: melee ability, any weapon, no ranged default attack
     stab.name = "Stab", stab.activateSection = "Hit";
     stab.montages = {{"Mon_Stab_H_M", {{"Hit", 1, 0, 0, 1.f}}}};
-    stab.damage = {d};
-    t.abilities["Rogue"] = {stab};
+    DamageComponent dm = d;
+    dm.apRule = 0;
+    stab.damage = {dm};
+    Ability evis = stab;   // the class's basic attack (Dual-wield damage leaves it at vanilla)
+    evis.name = "Eviscerate";
+    t.abilities["Rogue"] = {stab, evis};
     t.attackPower["RogueMelee"] = {"Strength", "Dexterity", 1.f, 1.f, 1.f};
     return t;
 }
@@ -130,6 +135,24 @@ int main() {
         // scoring into a given slot: an empty ring slot is filled, a worn one replaced
         assert(m.ScoreItem(*p, ring, 14).replacesSlot == -1 && m.ScoreItem(*p, ring, 14).fits);
         assert(m.ScoreItem(*p2, It("r3", "Ring", {{"RAP", 20}}), 14).replacesSlot == 14);
+    }
+
+    // dual-wield bonus k: x(1 + k) on non-primary abilities with a weapon in the other hand; primary, a lone 1H, k = 0 unchanged
+    {
+        Build r;
+        r.cls = "Rogue", r.level = 10;
+        auto perAbility = [&](std::vector<Item> eq, float k) {
+            r.equipped = std::move(eq);
+            Scenario s = sc;
+            s.dualWieldBonus = k;
+            std::map<std::string, float> out;
+            for (const AbilityDps& a : m.Dps(r, s).abilities) out[a.name] = a.dps;
+            return out;
+        };
+        const Item s1 = It("s1", "WeaponAny", {{"WeaponDamage", 100}, {"MAP", 180}}, "Shortsword", 7), s2 = It("s2", "WeaponAny", {{"WeaponDamage", 100}}, "Shortsword", 8);
+        const auto one = perAbility({s1}, 0.85f), dual0 = perAbility({s1, s2}, 0.f), dual = perAbility({s1, s2}, 0.85f);
+        assert(one.at("Stab") > 0.f && Near(one.at("Stab"), dual0.at("Stab")) && Near(one.at("Eviscerate"), dual0.at("Eviscerate")));
+        assert(Near(dual.at("Stab"), 1.85f * dual0.at("Stab")) && Near(dual.at("Eviscerate"), dual0.at("Eviscerate")));
     }
 
     // best in slot: the stronger bow and the two RAP rings, the Health ring stays out

@@ -15,7 +15,7 @@ namespace dps::kernel {
         const float L = s[S_L], Lt = s[S_LT], T = s[S_T];
         float ap[3];
         for (int i = 0; i < 3; ++i) ap[i] = f::AttackPower(x[I_AP + i], x[I_APB + i]);
-        const float base = x[I_WD] * (1.f + x[I_DPHYS]);
+        const float base = x[I_WD] * (1.f + x[I_DPHYS]);   // x c_wd[j] per component
         const float crit = f::CritChance(x[I_CC], x[I_BCB]);
         const float hitPhys = f::ExpectedHit(crit, x[I_CD], f::CritCut(s[S_GLANCE], Lt));
         const float hitMag = f::ExpectedHit(crit, x[I_CD], f::CritCut(s[S_DEFLECT], Lt));
@@ -40,7 +40,7 @@ namespace dps::kernel {
             const float dt = mag ? f::DamageByType(x[I_DEL + e]) : f::DamageByType(x[I_OUTPHYS]);
             const float rs = f::Resist(s[S_INC], mag ? s[S_RESEL + e] : s[S_RESPHYS]);
             const float a = ap[c.c_ap[j]];
-            const float perHit = base * (mag ? hitMag : hitPhys) * a * dt * rs * (mag ? armMag : armPhys) * abil;
+            const float perHit = base * c.c_wd[j] * (mag ? hitMag : hitPhys) * a * dt * rs * (mag ? armMag : armPhys) * abil;
             float mult = c.c_hits[j] * c.c_targets[j];
             if (c.c_dot_per[j] > 0.f) {   // DoT: one application per cast, ticks over min(duration, max(cd, cast))
                 mult *= std::min(c.c_dot_dur[j], std::max(d.cd[k], d.cast[k])) / c.c_dot_per[j];

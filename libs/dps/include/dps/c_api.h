@@ -13,6 +13,7 @@ typedef struct {
     const float *ab_cast, *ab_cd;                  /* [K] cast seconds at attack speed 0, cooldown seconds */
     const int32_t *c_ab, *c_ap, *c_magic, *c_elem; /* [C] ability index, 0 MAP 1 RAP 2 SP, magic flag, element */
     const float *c_coef, *c_hits, *c_targets, *c_dot_dur, *c_dot_per;
+    const float *c_wd;                             /* [C] weapon damage multiplier (dual-wield bonus on non-primary abilities, else 1) */
     const float *scen;                             /* layout.hpp S_* */
 } dps_ctx;
 typedef struct {                                   /* optional in-kernel assembly: base + sum of slot rows + pts @ Hm */
