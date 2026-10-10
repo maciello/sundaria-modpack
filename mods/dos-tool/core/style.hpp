@@ -59,16 +59,18 @@ namespace style {
         constexpr Rgba Of(combat::Element e) { return kColor[int(e) < kCount ? int(e) : 0]; }
     }
 
-    namespace rarity {  // EItemGrade 0..7 by rank; names and order unverified in game
+    namespace rarity {  // EItemGrade 0..7
+        // The game's own colours: BP_ArchonClientFunctionLibrary_C::GetItemColorForGrade (`just data bp
+        // /Game/Blueprints/BP_ArchonClientFunctionLibrary GetItemColorForGrade`), LinearColor -> sRGB bytes.
         constexpr Rgba kTier[] = {
-            {157, 157, 157},  // 0 poor
-            {255, 255, 255},  // 1 common
-            {30, 255, 0},     // 2 uncommon
-            {0, 112, 221},    // 3 rare
-            {163, 53, 238},   // 4 epic
-            {255, 128, 0},    // 5 legendary
-            {230, 204, 128},  // 6 artifact
-            {255, 70, 70},    // 7 mythic
+            {188, 188, 188},  // 0 grey    (0.5, 0.5, 0.5)
+            {255, 255, 255},  // 1 white   (1, 1, 1)
+            {0, 255, 0},      // 2 green   (0, 1, 0)
+            {0, 89, 255},     // 3 blue    (0, 0.1, 1)
+            {220, 37, 245},   // 4 purple  (0.7168, 0.0182, 0.91)
+            {255, 237, 0},    // 5 yellow  (1, 0.8431, 0): crafting / non-equipment
+            {255, 16, 0},     // 6 red     (1, 0.005, 0)
+            {0, 255, 255},    // 7 cyan    (0, 1, 1): eternal
         };
         constexpr int kCount = int(sizeof(kTier) / sizeof(kTier[0]));
         constexpr int kGlowFrom = 3;  // tiers below this get no idle glow/beam

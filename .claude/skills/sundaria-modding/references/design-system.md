@@ -34,7 +34,7 @@ Borderlands only for the boss name card (skewed slab, hard shadow, bold title).
 color:   {kInk: ink outline 20,12,8, kShadow: drop shadow, kText: 255 white, kTextSoft: 235,225,205, kTextMuted, kAccent: chrome accent = game accent orange 255,166,69,
           kPanel: 18,15,22 @.84, kPanelEdge: accent @.35, kGameText: 239 game button text, kGameHighlight: 252,255,0 game counts/marks, kGamePositive: 21,200,0 game stat-compare better, kTrack, kHpFill, kHpSheen, kHpChip, kHeal, kTaken, kGood: upgrade, kSell: sell}
 element: kColor[combat::Element] / Of(e)   # Physical white, Fire, Ice, Lightning, Holy, Poison, Shadow, Arcane, Environment
-rarity:  kTier[0..7] / Of(tier), kGlowFrom 3   # EItemGrade by rank, WoW quality colours; names + order unverified; the game's own GetItemColorForGrade wins once read
+rarity:  kTier[0..7] / Of(tier), kGlowFrom 3   # EItemGrade: grey, white, green, blue, purple, yellow (crafting), red, cyan (eternal) = the game's GetItemColorForGrade (#135); the live call still wins
 type:    {Ui(h), kXs 13, kSm 17, kMd 26, kLg 42, kXl 64, kAtlasPx 64, kNumberMin .8, kNumberMax 2.4, kStackCap 1.6, kHaloFrom 1.8,
           kCounterRatio .34, kCounterMinPx 12, kIconRatio .2, kIconMinR 6, kIconGlyph .68}   # px at 1080p
 space:   {k1 2, k2 4, k3 6, k4 8, k5 12, k6 16, k7 24, k8 32}   # px at 1080p
@@ -115,11 +115,17 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
 - Glow: 3 concentric CircleFilled r = (10, 16, 24)·Ui·depth, alpha .30/.15/.07, tier colour.
 - Beam: RectFilledMultiColor, width 6·Ui·depth, height 90·Ui·depth up from the ring centre, bottom tier @.55 → top tier @0.
 - Idle sparkle (unlooted only, #27 / #110: `features/loot/idle-loot`, constants in `idle-loot.hpp`). Ref: WoW lootable-corpse sparkles. Maintainer 2026-10-09: "too obvious… more particles and less often and more random… show the best colors"; then "visible through walls AND ui/gui", "go in the wrong direction when moving the camera", "more like burst not a random a little more continuous sparkle", "can we use unreal engines particle system".
+  - Layers per grade (#135, maintainer 2026-10-10; `Layers()` in `idle-loot.hpp`, tested). Every layer is tinted in the grade colour; a system that cannot be tinted is not used (maintainer: "if the glow cant change color or hue then we cant use it"; `P_StaffGlow_01` has no colour path: its materials `M_FlickeringSparkle_01` / `M_LightRaysCascading_02` have no vector parameter and its colour-over-life modules are constant curves).
+    | grade (EItemGrade) | 0 grey | 1 white | 2 green | 3 blue | 4 purple | 5 yellow | 6 red | 7 cyan (eternal) |
+    |---|---|---|---|---|---|---|---|
+    | glow `fx_HolyLightTrail` size | 0.5 | 0.5 | 0.6 | 0.7 | 0.8 | 0.9 | 1.0 | 1.2 |
+    | fireflies `hp_mag_alchemyOrb_fireflies` 0.4x, brightness x5 | – | – | – | 1 | 1 | – | 2 | 2 |
+    Fireflies only blue and above, none on white/green (too close to yellow/cyan) and none on yellow (their own colour is yellow); two for red and eternal (±8 cm apart). Closed chest (unknown grade): glow 0.6, no fireflies. Glow tint = `Emissive Color` + `TC_1..3` (the MI's colour slots) × `gain` 0.0012 (`sparkle-templates.hpp`), unverified in game. Insert menu: "Grade layers" off = the single picker template.
   - Medium: the game's Cascade system `hp_mag_alchemyOrb_fireflies` (`kTemplate`) attached to the loot actor's root through `core/fx.hpp` (catalogue `fx.md`): in the world, depth-tested, under the game UI. Never ImGui (`.claude/rules/design.md`).
   - Motion (the template's, not ours): 5 motes orbit the anchor for ever, ≤ 20 cm out, 0.1–0.25 turns/s on random axes; each flickers at its own random rate (material dynamic parameter 0.05–5). Continuous, sparse, unsynchronised; no bursts.
   - Anchor: root + 15 cm (items, `kLiftItem`) / + 45 cm (chests, `kLiftChest`); component scale 1 (items) / 2 (chests); cull 30 m (`kCull`).
   - Colour: material instance per component, vector `Emissive Thorax` = the game's `GetItemColorForGrade` (sRGB → linear) × `kGlow` 3 of the best grade among unlooted loot within 150 cm (`kPileR`); no known grade (closed chest) → `kTextSoft`, never a guessed tint.
-  - Looted / gone: the component is destroyed on the next world tick after the game's loot event (`OnTriggerChanged`, `OnLootReady`, `OnRep_LootIsReady`, `MulticastPlayPickupSound`, `I_SetInactiveLoot`, `ReceiveEndPlay`); state re-read for 2 s (`kSettle`). Destroyed actor: its component goes with it.
+  - Looted / gone: the component is parked (never destroyed, #132) on the next world tick after the game's loot event (`OnTriggerChanged`, `OnLootReady`, `OnRep_LootIsReady`, `MulticastPlayPickupSound`, `I_SetInactiveLoot`, `ReceiveEndPlay`); state re-read for 2 s (`kSettle`). Destroyed actor: its component goes with it.
   - Tuning knobs: `kGlow`, `kScaleItem`/`kScaleChest`, `kLift*`, `kCull`; rate/count/orbit belong to the template (no instance parameters).
   - Don't: overlay shapes, glow discs, rings or beams at rest; a fixed period; scale pulses.
 - Drop: ring + glow scale in with `kPop`; beam height 0 → full over 0.45 s OutCubic; burst = 8 radial lines, length 0 → 28·Ui, alpha 1 → 0 over 0.5 s, tier colour.

@@ -47,6 +47,23 @@ int main() {
     assert(!NeedsRespawn(t0, b2));
     b2.height = 5;
     assert(NeedsRespawn(t0, b2));
-    assert(Format(t0).find("template=hp_mag_alchemyOrb_fireflies scale=1.00") == 0);
+    assert(Format(t0).find("layered=1 template=hp_mag_alchemyOrb_fireflies scale=1.00") == 0);
+    // layers (#135): glow by grade, fireflies blue+ (two for red/eternal), none for white/green/yellow
+    Layer ly[3];
+    assert(kGlowFx != kFireflies && std::string(kTemplates[kGlowFx].name) == "fx_HolyLightTrail" && kTemplates[kFireflies].path == std::wstring(kTemplate));
+    const float staff[8] = {0.5f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.2f};
+    const std::size_t count[8] = {1, 1, 1, 2, 2, 1, 3, 3};
+    for (int g = 0; g < 8; g++) {
+        assert(Layers(g, ly) == count[g] && ly[0].tpl == kGlowFx && ly[0].scale == staff[g]);
+        for (std::size_t i = 1; i < count[g]; i++) assert(ly[i].tpl == kFireflies && ly[i].scale == 0.4f && ly[i].bright == 5.0f);
+    }
+    assert(Layers(6, ly) == 3 && ly[1].dz == -ly[2].dz && ly[1].dz != 0);
+    assert(Layers(3, ly) == 2 && ly[1].dz == 0);
+    assert(Layers(-1, ly) == 1);
+    {
+        Tuning x0, x1 = x0;
+        x1.layered = false;
+        assert(NeedsRespawn(x0, x1));
+    }
     std::puts("idle-loot ok");
 }

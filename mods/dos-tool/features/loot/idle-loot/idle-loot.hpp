@@ -60,7 +60,35 @@ namespace idle_loot {
     }
 
     // Insert-menu tuning (#133). tpl indexes kTemplates; scale/height change the spawn (respawn), bright/byGrade only the tint.
+    constexpr std::size_t IndexOf(const char* n) {
+        for (std::size_t i = 0; i < kTemplateCount; i++) {
+            const char *a = kTemplates[i].name, *b = n;
+            while (*a && *a == *b) a++, b++;
+            if (!*a && !*b) return i;
+        }
+        return 0;
+    }
+    constexpr std::size_t kFireflies = IndexOf("hp_mag_alchemyOrb_fireflies"), kGlowFx = IndexOf("fx_HolyLightTrail");
+
+    // Layers per grade (#135, maintainer spec). Grades are EItemGrade ranks; the game's colours (GetItemColorForGrade):
+    // 0 grey, 1 white, 2 green, 3 blue, 4 purple, 5 yellow (crafting/non-equipment), 6 red, 7 cyan (eternal). -1 = unknown.
+    //   glow fx_HolyLightTrail (tintable: Emissive Color + TC_1..3; P_StaffGlow_01 has no colour path, rejected), size by grade
+    //   fireflies hp_mag_alchemyOrb_fireflies at 0.4x, brightness x5, tinted: blue+ (1x), red and eternal 2x; none for
+    //   white/green (too close to the yellow/cyan neighbours) and yellow
+    struct Layer { std::size_t tpl; float scale, bright, dz; };
+    constexpr float kGlowScale[8] = {0.5f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.2f};
+    constexpr float kFlyScale = 0.4f, kFlyBright = 5.0f, kFlyDz = 8;  // dz: the two fireflies sit ±kFlyDz cm apart
+    inline int FirefliesFor(int grade) { return grade == 3 || grade == 4 ? 1 : grade == 6 || grade == 7 ? 2 : 0; }
+    inline std::size_t Layers(int grade, Layer (&out)[3]) {
+        std::size_t n = 0;
+        out[n++] = {kGlowFx, grade >= 0 && grade < 8 ? kGlowScale[grade] : 0.6f, 1, 0};
+        const int f = FirefliesFor(grade);
+        for (int i = 0; i < f; i++) out[n++] = {kFireflies, kFlyScale, kFlyBright, f == 1 ? 0.0f : (i ? kFlyDz : -kFlyDz)};
+        return n;
+    }
+
     struct Tuning {
+        bool layered = true;    // grade layers above; false: the single picked template (tpl)
         std::size_t tpl = 0;
         float scale = 1;        // x kScaleItem / kScaleChest
         float bright = 1;       // x kGlow
@@ -68,7 +96,7 @@ namespace idle_loot {
         bool byGrade = true;    // false: white
         bool operator==(const Tuning&) const = default;
     };
-    inline bool NeedsRespawn(const Tuning& a, const Tuning& b) { return a.tpl != b.tpl || a.scale != b.scale || a.height != b.height; }
+    inline bool NeedsRespawn(const Tuning& a, const Tuning& b) { return a.layered != b.layered || a.tpl != b.tpl || a.scale != b.scale || a.height != b.height; }
     inline Rgb Emissive(int grade, const std::array<style::Rgba, 8>& tiers, const Tuning& t) {
         const Rgb c = t.byGrade ? Glow(grade, tiers) : Rgb{kGlow, kGlow, kGlow};
         return {c.r * t.bright, c.g * t.bright, c.b * t.bright};
@@ -85,7 +113,7 @@ namespace idle_loot {
     // "Copy values": one log line holding everything needed to make the choice the code default.
     inline std::string Format(const Tuning& t) {
         char b[200];
-        std::snprintf(b, sizeof b, "template=%s scale=%.2f bright=%.2f height=%.0f byGrade=%d", kTemplates[t.tpl].name, t.scale, t.bright, t.height,
+        std::snprintf(b, sizeof b, "layered=%d template=%s scale=%.2f bright=%.2f height=%.0f byGrade=%d", int(t.layered), kTemplates[t.tpl].name, t.scale, t.bright, t.height,
                       int(t.byGrade));
         const wchar_t* w = kTemplates[t.tpl].path;
         return std::string(b) + " path=" + std::string(w, w + std::char_traits<wchar_t>::length(w));
