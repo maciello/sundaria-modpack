@@ -191,13 +191,14 @@ Outline recipe: `draw::OutlinedText` 8 taps at `stroke::Outline(px)`. Glow: same
   |---|---|---|---|
   | upgrade | equipping it in its best slot raises the current hero's DPS by ≥ `kMinGain` 1 % | `+4.2%` (one decimal; ≥ 10 %: `+12%`) | game `ComparisonColorPositive` = token `kGamePositive` |
   | other hero | no upgrade here, ≥ `kMinGain` for another saved hero (`dos-tool-chars/<slot>.yaml`) | that hero's name, ≤ 8 chars (cut, no ellipsis) | `kAccent` (the game's accent orange) |
-  | none | otherwise, or no DPS data yet | chip collapsed | — |
-- Detail lines (the game's item details panel, styled like its orange "Learned" line, as the sell reason): `Upgrade: +4.2% DPS`,
+  | downgrade | equipping it lowers the current hero's DPS by ≥ `kMinGain` | `-4.2%` | game `ComparisonColorNegative` = token `kGameNegative` |
+  | none | otherwise (\|change\| < 1 %, doesn't fit), or no DPS data yet | chip collapsed | — |
+- Detail lines (the game's item details panel, styled like its orange "Learned" line, as the sell reason): `Upgrade: +4.2% DPS` / `Downgrade: -4.2% DPS`,
   `Better for <hero> (<class>): +6.1% DPS` (best other hero), `Best in slot: <class>[, <class>]` (no owned item of that class's slot beats it).
-- Colour is never the only channel: the "+" and "%" say upgrade, a name says other hero.
+- Colour is never the only channel: the "+" / "-" and "%" say upgrade / downgrade, a name says other hero.
 - Motion: none (the game's tiles have none).
 - Code: `features/inventory/item-upgrade/` (constants + verdict logic `item-upgrade.hpp`, scores `scores.cpp`); chip widget `inventory/shared/marks.hpp` `ChipIn`. Dev install without DPS tables: preview marks (every third equipable an upgrade, every third "Preview"), details say "Preview, no DPS data yet".
-- Don't: ImGui over the bag, own art, a second chip per slot, numbers below `kMinGain` (noise), marks on consumables.
+- Don't: ImGui over the bag, own art, a second chip per slot, changes below `kMinGain` either way (noise), marks on consumables.
 
 ### Boss name card (#19, Borderlands style)
 - Cinematic layer: hides WorldNumber/Hud while shown. Letterbox: black rects top and bottom, 0 → 0.1h over 0.4 s InOutCubic, out the same.

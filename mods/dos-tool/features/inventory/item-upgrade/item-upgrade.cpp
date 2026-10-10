@@ -17,7 +17,7 @@
 #include <vector>
 
 // Item upgrade marks (#117, Alpha, opt-in): on each equipable item slot of the game's inventory and bank, a chip in the
-// game's count-chip style: "+4.2%" (DPS gain for the current hero, game compare green) or another hero's name (accent
+// game's count-chip style: "+4.2%" / "-4.2%" (DPS change for the current hero, game compare green / red) or another hero's name (accent
 // orange); the item details panel says the same in lines like its "Learned" line, plus best in slot.
 // Spec: references/design-system.md § Item upgrade marks. Game thread only; nothing is searched for: bags and details
 // panels come from the game's own events (shared/tiles.hpp), widgets are removed through a world tick (shared/marks.hpp).
@@ -61,7 +61,7 @@ namespace {
         }
         void* text = t.text.Get<void>();
         if (!text) return;
-        if (v.mark != t.mark && v.mark != Mark::None) marks::SetColor(text, v.mark == Mark::Upgrade ? style::color::kGamePositive : style::color::kAccent);
+        if (v.mark != t.mark && v.mark != Mark::None) marks::SetColor(text, v.mark == Mark::Upgrade ? style::color::kGamePositive : v.mark == Mark::Downgrade ? style::color::kGameNegative : style::color::kAccent);
         if (chip != t.chip && !chip.empty()) marks::SetText(text, chip);
         if (chip.empty() != t.chip.empty()) marks::SetVisible(t.box.Get<void>(), !chip.empty());
         t.mark = v.mark;

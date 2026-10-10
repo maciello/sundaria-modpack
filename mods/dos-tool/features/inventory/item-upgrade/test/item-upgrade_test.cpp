@@ -7,6 +7,7 @@ using namespace item_upgrade;
 
 int main() {
     assert(Pct(4.24f) == "+4.2%" && Pct(1.0f) == "+1.0%" && Pct(12.4f) == "+12%" && Pct(9.96f) == "+10%");
+    assert(Pct(-4.24f) == "-4.2%" && Pct(-12.4f) == "-12%");
     assert(Cut("dorfmatratze", 8) == "dorfmatr" && Cut("Ana", 8) == "Ana" && Cut("\xC3\xA4\xC3\xB6x", 2) == "\xC3\xA4\xC3\xB6");
 
     // upgrade for the current hero wins the chip; the best other hero still gets its line
@@ -19,6 +20,12 @@ int main() {
     v = Judge(0.9f, true, others, {});
     assert(v.mark == Mark::OtherHero && Chip(v) == "Brom" && Lines(v) == "Better for Brom (Champion): +6.1% DPS");
     assert(Judge(30, false, others, {}).mark == Mark::OtherHero);
+
+    // worse for the current hero, no other hero gains: downgrade; another hero gaining wins the chip
+    v = Judge(-4.24f, true, {{"Aria", "Wizard", 0.5f, true}}, {});
+    assert(v.mark == Mark::Downgrade && Chip(v) == "-4.2%" && Lines(v) == "Downgrade: -4.2% DPS");
+    assert(Judge(-4.2f, true, others, {}).mark == Mark::OtherHero);
+    assert(Judge(-0.9f, true, {}, {}).mark == Mark::None && Judge(-30, false, {}, {}).mark == Mark::None);
 
     // nothing worth saying
     v = Judge(0.5f, true, {{"Aria", "Wizard", 0.99f, true}}, {});

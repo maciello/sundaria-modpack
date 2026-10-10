@@ -28,6 +28,7 @@ namespace style {
         constexpr Rgba kGameText{239, 239, 239};   // the game's button text (0.937)
         constexpr Rgba kGameHighlight{252, 255, 0}; // the game's counts / active marks
         constexpr Rgba kGamePositive{21, 200, 0};   // the game's "better" stat-compare colour (WidgetItemSingleStat_C::ComparisonColorPositive)
+        constexpr Rgba kGameNegative{248, 42, 0};   // the game's "worse" stat-compare colour (ComparisonColorNegative, hex F82A00)
         constexpr Rgba kPanel{18, 15, 22, 214};    // menu/card plate
         constexpr Rgba kPanelEdge{255, 166, 69, 90};
         constexpr Rgba kTrack{45, 32, 32, 153};    // empty bar track
