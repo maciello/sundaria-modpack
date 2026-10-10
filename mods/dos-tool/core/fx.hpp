@@ -33,7 +33,8 @@ namespace fx {
     void MaterialColor(Id id, int element, const wchar_t* name, float r, float g, float b, float a = 1);
     void MaterialFloat(Id id, int element, const wchar_t* name, float v);
 
+    // Parks the component (inactive, hidden); the next Attach/At of the same template and parent reuses it. Never destroyed.
     void Remove(Id id);
-    // Off(): every effect `owner` spawned is destroyed on the next world tick (game::Drain, non-blocking; unload waits up to 2 s, then leaves them to the engine).
+    // Off(): every effect `owner` spawned is parked on the next world tick (game::Drain, non-blocking; unload waits up to 2 s, then leaves them to the engine).
     void Release(const char* owner);
 }

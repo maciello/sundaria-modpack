@@ -32,10 +32,10 @@ colour_routes:
 
 ```yaml
 lifetime_rule:   # #132, gotchas
-  - "a destroyed component keeps OwnerPrivate (comp+0xa0); GC BeginDestroy then RemoveOwnedComponent's a possibly freed owner → crash Archon+8792d1"
-  - "core/fx Destroy clears it after K2_DestroyComponent and skips owners with bActorIsBeingDestroyed; never destroy fx components any other way (no raw K2_DestroyComponent/DestroyComponent in a feature)"
-  - "owner of At = level WorldSettings, of Attach = the attach parent's actor; neither outlives a map change"
-  - "verify: log '[fx] destroyed <comp>, owner <actor> cleared' per Remove/Release; Insert > Preview sparkle ×N then change map = no crash"
+  - "never destroy a particle component (K2_DestroyComponent/DestroyComponent): GC BeginDestroy of ours crashed 10x walking a freed owner/Outer (RemoveOwnedComponent, GetWorld)"
+  - "Remove/Release park it (inactive, hidden); the next Attach/At with the same template + parent reuses it (material instances kept); it dies with its owner via the engine"
+  - "owner of At = level WorldSettings, of Attach = the attach parent's actor"
+  - "verify: log '[fx] new component for <tpl> (live N, parked M)' plateaus while sparkles flip in/out of range; no BeginDestroy crash over several map changes"
 ```
 
 ## Catalogue

@@ -18,8 +18,9 @@
 #include "Niagara_classes.hpp"
 #include "Niagara_parameters.hpp"
 
-// Spawned components are owned by the actor they attach to (or the world for At): they die with it; ours are
-// destroyed by Remove / Release, which then clear OwnerPrivate (Destroy). Registry and every UFunction call: game thread. (references/fx.md)
+// Spawned components are owned by the actor they attach to (or the level's WorldSettings for At) and die with it. Remove / Release
+// only park them (inactive, hidden); Spawn reuses a parked one: never DestroyComponent (#132). Registry and every UFunction call:
+// game thread. (references/fx.md)
 using namespace SDK;
 using umg::CallNative;
 using umg::PtrOk;
@@ -45,15 +46,22 @@ namespace {
         ref::Fn visible{USceneComponent::StaticClass, "SceneComponent", "IsVisible"};
         ref::Fn loc{USceneComponent::StaticClass, "SceneComponent", "K2_GetComponentLocation"};
         ref::Fn wscale{USceneComponent::StaticClass, "SceneComponent", "K2_GetComponentScale"};
-        ref::Fn destroy{UActorComponent::StaticClass, "ActorComponent", "K2_DestroyComponent"};
+        ref::Fn activate{UActorComponent::StaticClass, "ActorComponent", "Activate"};
+        ref::Fn deactivate{UActorComponent::StaticClass, "ActorComponent", "Deactivate"};
+        ref::Fn vis{USceneComponent::StaticClass, "SceneComponent", "SetVisibility"};
+        ref::Fn setRel{USceneComponent::StaticClass, "SceneComponent", "K2_SetRelativeLocation"};
+        ref::Fn setWorld{USceneComponent::StaticClass, "SceneComponent", "K2_SetWorldLocation"};
     } g_fn;
 
     struct Entry {
         std::string owner;
         ref::Ref comp;
         std::vector<std::pair<int, ref::Ref>> mids;  // emitter element -> its dynamic material instance
+        std::wstring path;                           // template it was spawned from
+        ref::Ref attach;                             // parent it hangs on (empty: At, world location)
     };
     std::unordered_map<fx::Id, Entry> g_live;  // game thread 
+    std::vector<Entry> g_pool;  // parked (inactive, hidden) components, reused by the next Spawn; game thread
     std::map<std::wstring, ref::Ref> g_templates;
     std::map<std::wstring, FName> g_names;
     fx::Id g_next = 1;
@@ -82,26 +90,17 @@ namespace {
         return ok ? o : nullptr;
     }
 
-    // UActorComponent::OwnerPrivate (comp+0xa0, SDK Pad_A0). DestroyComponent removes the component from its owner's
-    // OwnedComponents but leaves the pointer; UActorComponent::BeginDestroy then calls Owner->RemoveOwnedComponent on
-    // it again, possibly after the owner (a loot actor, the old level's WorldSettings after map travel) was freed:
-    // GC crash at Archon+8792d1 (#132). Nulling it after our destroy makes that second call (and GetWorld) skip the owner.
-    constexpr std::size_t kOwnerPrivate = 0xa0;
-
-    void Destroy(Entry& e) {
-        auto* c = e.comp.Get<UActorComponent>();
+    // Remove / Release never destroy a component. DestroyComponent + GC of our own particle components crashed the game
+    // 9 times in BeginDestroy (OwnedComponents.Remove, then GetWorld() through a dead Outer chain) however the owner
+    // pointer was handled (#132). So the component is parked (inactive, hidden) and Spawn reuses it for the same template
+    // and parent; it dies only with its owner, through the engine's own path, like every vanilla component.
+    void Park(Entry&& e) {
+        auto* c = e.comp.Get<USceneComponent>();
         if (!c) return;
-        Params::ActorComponent_GetOwner o{};
-        CallNative(c, g_fn.owner.Get(), &o);
-        AActor* owner = o.ReturnValue;
-        if (PtrOk(owner) && owner->bActorIsBeingDestroyed) return;  // the engine is tearing the owner and its components down
-        Params::ActorComponent_K2_DestroyComponent d{owner};  // UE destroys only when Object == the owner (gotchas)
-        CallNative(c, g_fn.destroy.Get(), &d);
-        if (!owner) return;
-        *reinterpret_cast<void**>(reinterpret_cast<char*>(c) + kOwnerPrivate) = nullptr;
-        char b[96];
-        std::snprintf(b, sizeof b, "[fx] destroyed %p, owner %p cleared", static_cast<void*>(c), static_cast<void*>(owner));
-        logger::log(b);
+        CallNative(c, g_fn.deactivate.Get(), nullptr);
+        Params::SceneComponent_SetVisibility v{false, false};
+        CallNative(c, g_fn.vis.Get(), &v);
+        g_pool.push_back(std::move(e));
     }
 
     void ReleaseNow() {
@@ -109,17 +108,18 @@ namespace {
         const std::vector<std::string> owners = std::move(g_releasing);
         g_releasing.clear();
         ReleaseSRWLockExclusive(&g_relMu);
-        std::erase_if(g_live, [&](auto& kv) {
-            if (std::find(owners.begin(), owners.end(), kv.second.owner) == owners.end()) return false;
-            Destroy(kv.second);
-            return true;
-        });
+        for (auto it = g_live.begin(); it != g_live.end();) {
+            if (std::find(owners.begin(), owners.end(), it->second.owner) == owners.end()) { ++it; continue; }
+            Park(std::move(it->second));
+            it = g_live.erase(it);
+        }
     }
 
     void Tick(void*, void*, void*) {  // world tick, subscribed while effects exist
         if (!game::OnGameThread()) return;
         if (g_drain.Serve(ReleaseNow)) return;
         std::erase_if(g_live, [](auto& kv) { return !kv.second.comp.Get(); });  // died with their actor / world
+        std::erase_if(g_pool, [](auto& e) { return !e.comp.Get(); });
         if (g_live.empty()) game::OnWorldTick(&Tick, g_ticking = false);
     }
 
@@ -141,6 +141,38 @@ namespace {
         }
         UFXSystemComponent* c = nullptr;
         const FVector at{p.x, p.y, p.z}, one{p.scale, p.scale, p.scale};
+        const std::wstring wpath(path);
+        for (std::size_t i = 0; i < g_pool.size(); i++) {  // reuse a parked component of the same template and parent
+            Entry& pe = g_pool[i];
+            auto* pc = pe.comp.Get<UFXSystemComponent>();
+            if (!pc) { g_pool.erase(g_pool.begin() + i--); continue; }
+            if (pe.path != wpath || (attach ? !pe.attach.Is(attach) : bool(pe.attach.Get()))) continue;
+            if (attach) {
+                Params::SceneComponent_K2_SetRelativeLocation l{};
+                l.NewLocation = at;
+                CallNative(pc, g_fn.setRel.Get(), &l);
+            } else {
+                Params::SceneComponent_K2_SetWorldLocation l{};
+                l.NewLocation = at;
+                CallNative(pc, g_fn.setWorld.Get(), &l);
+            }
+            Params::SceneComponent_SetRelativeScale3D sc{one};
+            CallNative(pc, g_fn.scale.Get(), &sc);
+            if (p.cull > 0) {
+                Params::PrimitiveComponent_SetCullDistance cd{p.cull};
+                CallNative(pc, g_fn.cull.Get(), &cd);
+            }
+            Params::SceneComponent_SetVisibility v{true, false};
+            CallNative(pc, g_fn.vis.Get(), &v);
+            Params::ActorComponent_Activate act{true};
+            CallNative(pc, g_fn.activate.Get(), &act);
+            pe.owner = owner ? owner : "";
+            const fx::Id rid = g_next++;
+            g_live[rid] = std::move(pe);
+            g_pool.erase(g_pool.begin() + i);
+            if (!g_ticking) game::OnWorldTick(&Tick, g_ticking = true);
+            return rid;
+        }
         if (niagara && attach) {
             Params::NiagaraFunctionLibrary_SpawnSystemAttached s{};
             s.SystemTemplate = static_cast<UNiagaraSystem*>(t), s.AttachToComponent = attach, s.Location = at;
@@ -176,7 +208,9 @@ namespace {
             CallNative(c, g_fn.cull.Get(), &cd);
         }
         const fx::Id id = g_next++;
-        g_live[id] = {owner ? owner : "", ref::Ref(c), {}};
+        logger::log("[fx] new component for " + std::string(wpath.begin(), wpath.end()).substr(wpath.rfind(L'/') + 1) + " (live " + std::to_string(g_live.size() + 1) +
+                    ", parked " + std::to_string(g_pool.size()) + ")");
+        g_live[id] = {owner ? owner : "", ref::Ref(c), {}, wpath, ref::Ref(attach)};
         if (!g_ticking) game::OnWorldTick(&Tick, g_ticking = true);
         return id;
     }
@@ -258,7 +292,7 @@ namespace fx {
     void Remove(Id id) {
         auto it = g_live.find(id);
         if (it == g_live.end()) return;
-        Destroy(it->second);
+        Park(std::move(it->second));
         g_live.erase(it);
     }
 
