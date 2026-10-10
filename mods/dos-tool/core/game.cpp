@@ -1421,6 +1421,19 @@ int game::CooldownEffects(void* ascp, void* abp, EffectRef* out, int max) {
     return n;
 }
 
+bool game::SetEffectDuration(void* ascp, int handle, float seconds) {
+    auto* asc = static_cast<UAbilitySystemComponent*>(ascp);
+    if (!PtrOk(asc) || handle <= 0 || seconds <= 0) return false;
+    auto& effects = asc->ActiveGameplayEffects.GameplayEffects_Internal;
+    for (int i = 0; i < effects.Num(); i++) {
+        FActiveGameplayEffect& e = effects[i];
+        if (*reinterpret_cast<const int32*>(reinterpret_cast<const uint8*>(&e) + 0x0C) != handle) continue;  // Handle, see CooldownEffects
+        e.Spec.Duration = seconds;
+        return true;
+    }
+    return false;
+}
+
 bool game::RemoveEffect(void* ascp, int handle) {
     auto* asc = static_cast<UAbilitySystemComponent*>(ascp);
     static ref::Fn remove{UAbilitySystemComponent::StaticClass, "AbilitySystemComponent", "RemoveActiveGameplayEffect"};

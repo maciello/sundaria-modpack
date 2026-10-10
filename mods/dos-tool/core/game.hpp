@@ -86,6 +86,9 @@ namespace game {
     struct EffectRef { int handle; float duration; };
     int CooldownEffects(void* asc, void* ability, EffectRef* out, int max);
     bool RemoveEffect(void* asc, int handle);
+    // Spec.Duration of one active effect: what K2_GetCooldownTimeRemainingAndDuration (the ability bar) reports. The
+    // effect's own expiry timer keeps its old time: remove the effect yourself when the new duration is over.
+    bool SetEffectDuration(void* asc, int handle, float seconds);
     // Free camera: while set, every camera manager's BlueprintUpdateCamera result (hub, lobby and gameplay
     // cameras all override it) is replaced with this pose on the game thread. nullptr = off.
     struct CamPose { float x, y, z, pitch, yaw; float fovDelta = 0; };  // fovDelta: added to the game's own FOV
