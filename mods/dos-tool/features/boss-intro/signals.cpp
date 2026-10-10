@@ -209,8 +209,10 @@ namespace boss_intro::game_side {
     int Resume() {
         g_pauseFight = 0;
         g_resumed = 0;
-        // No world tick in time: a frozen boss is worse than a plain float write off-thread (CustomTimeDilation, no UFunction)
-        if (!g_resume.Request(true, "boss-intro", [] { g_resumed = ResumeNow(); })) g_resumed = ResumeNow();
+        g_resume.Request(true, "boss-intro", [] { g_resumed = ResumeNow(); });
+        for (int i = 0; i < 1000 && !g_resume.Idle(); i++) Sleep(2);
+        // No world tick in time: a frozen boss is worse than plain float writes off-thread (CustomTimeDilation, no UFunction)
+        if (g_resume.Cancel()) g_resumed = ResumeNow();
         return g_resumed.exchange(0);
     }
 

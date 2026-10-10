@@ -1,4 +1,5 @@
 #include "overlay.hpp"
+#include "drain.hpp"
 #include "game.hpp"
 #include "logger.hpp"
 #include "feature.hpp"
@@ -374,6 +375,7 @@ void overlay::Shutdown() {
     // unload = vanilla. Off() runs with the ProcessEvent hook still alive: restores and widget removals that need the
     // game thread complete on a real world tick (kiero::shutdown disables every MinHook hook, that one included) (#84).
     for (feature::Feature* f : feature::Feature::All()) if (f->enabled) f->Off();
+    game::Drain::Flush();  // their removals run on a world tick; wait here, the render thread is idle
     kiero::shutdown();  // any ProcessEvent hook still left is gone here
     Sleep(100);         // in-flight hooked calls leave our code before the DLL goes
     if (g_oWndProc) { SetWindowLongPtr(g_hwnd, GWLP_WNDPROC, (LONG_PTR)g_oWndProc); g_oWndProc = nullptr; }

@@ -6,6 +6,7 @@
 #include "umg.hpp"
 
 #include <Windows.h>
+#include <algorithm>
 #include <cstddef>
 #include <cstdio>
 #include <map>
@@ -57,7 +58,8 @@ namespace {
     std::map<std::wstring, FName> g_names;
     fx::Id g_next = 1;
     bool g_ticking = false;
-    std::string g_releasing;
+    SRWLOCK g_relMu = SRWLOCK_INIT;
+    std::vector<std::string> g_releasing;  // owners asked to Release (Off(), any thread); drained on the game thread
     game::Drain g_drain;
 
     FName Name(const wchar_t* s) {
@@ -103,8 +105,12 @@ namespace {
     }
 
     void ReleaseNow() {
-        std::erase_if(g_live, [](auto& kv) {
-            if (kv.second.owner != g_releasing) return false;
+        AcquireSRWLockExclusive(&g_relMu);
+        const std::vector<std::string> owners = std::move(g_releasing);
+        g_releasing.clear();
+        ReleaseSRWLockExclusive(&g_relMu);
+        std::erase_if(g_live, [&](auto& kv) {
+            if (std::find(owners.begin(), owners.end(), kv.second.owner) == owners.end()) return false;
             Destroy(kv.second);
             return true;
         });
@@ -256,10 +262,10 @@ namespace fx {
         g_live.erase(it);
     }
 
-    void Release(const char* owner) {
-        g_releasing = owner ? owner : "";
-        bool any = false;
-        for (const auto& [id, e] : g_live) any |= e.owner == g_releasing;  // ponytail: racy read of the game thread's map, Off() only
-        g_drain.Request(any && g_ticking, "fx", ReleaseNow);
+    void Release(const char* owner) {  // any thread; never blocks, never touches the engine (game::Drain)
+        AcquireSRWLockExclusive(&g_relMu);
+        g_releasing.push_back(owner ? owner : "");
+        ReleaseSRWLockExclusive(&g_relMu);
+        g_drain.Request(true, "fx", ReleaseNow);
     }
 }

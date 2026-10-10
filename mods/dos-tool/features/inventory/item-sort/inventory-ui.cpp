@@ -147,7 +147,7 @@ namespace {
 
     std::vector<ref::Ref> g_pending;  // UWidgetitemBagHeaderMenu_C seen since the last world tick
 
-    void RemoveAll() {  // game thread (or Off() after its wait ran out)
+    void RemoveAll() {  // game thread (Drain)
         for (const Placed& p : g_placed) if (UObject* b = p.button.Get()) CallNative(b, g_fn.remove.Get(), nullptr);
         g_placed.clear();
         g_pending.clear();
@@ -215,8 +215,6 @@ namespace item_sort::ui {
     void Off() {
         g_drain.Request(!g_placed.empty(), "item-sort", RemoveAll);
         g_on = false;
-        Listen(false);
-        g_placed.clear();
-        g_pending.clear();
+        Listen(false);  // RemoveAll (game thread) clears g_placed / g_pending
     }
 }

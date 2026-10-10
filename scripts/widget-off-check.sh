@@ -11,5 +11,7 @@ bad=$(grep -rlE 'umg::Spawn\(|WidgetBlueprintLibrary::StaticClass|"AddToViewport
     grep -qsE 'game::Drain|fx::Release\(' "$d"/*.cpp "$d"/*.hpp || echo "$f"
   done)
 [ -z "$bad" ] || { echo "spawner without game::Drain / fx::Release in its folder (scripts/widget-off-check.sh):"; echo "$bad"; exit 1; }
-# Drain::Request runs on the unloading thread, not the game thread: it must never run the removal itself (callable stays unnamed).
-grep -qE 'bool Request\(bool needed, const char\* who, F&&\)' ../core/drain.hpp || { echo "Drain::Request may not run its callable off the game thread (scripts/widget-off-check.sh)"; exit 1; }
+# Drain::Request runs on the render thread (menu toggle): it must neither block (the game thread waits for the render
+# thread, so a world tick never comes) nor run the removal itself (engine calls off the game thread crash). #132
+req=$(awk '/void Request\(/{p=1} /Unload only/{p=0} p' ../core/drain.hpp)
+[ -n "$req" ] && ! echo "$req" | grep -qE 'Sleep\(|f\(\)|fn_\(\)' || { echo "Drain::Request may not block or run its callable (scripts/widget-off-check.sh)"; exit 1; }

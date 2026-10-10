@@ -164,7 +164,7 @@ namespace {
         });
     }
 
-    void RemoveAll() {  // game thread (or Off() after its wait ran out)
+    void RemoveAll() {  // game thread (Drain)
         for (Toast& t : g_toasts)
             if (auto* w = t.w.Get<UUserWidget>()) CallNative(w, g_fn.remove.Get(), nullptr);
         g_toasts.clear();
@@ -234,8 +234,7 @@ namespace {
             g_drain.Request(!g_toasts.empty(), "pickup-toast", RemoveAll);
             g_on = false;
             Listen(false);
-            g_toasts.clear();
-            g_owned.clear();
+            g_owned.clear();  // g_toasts: RemoveAll clears it on the game thread
             g_baseline = g_dirty = false;
         }
     } g_feature;

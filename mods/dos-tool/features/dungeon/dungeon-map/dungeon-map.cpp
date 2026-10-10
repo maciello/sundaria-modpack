@@ -51,7 +51,7 @@ namespace {
     double g_linkedAt = 0;
     float g_mapPx = 0;                 // minimap view size (px), read from the widget once per minimap
 
-    void RemoveAll() { dungeon_map::draw::Clear(); g_drawn = false; }  // game thread (or Off() after its wait ran out)
+    void RemoveAll() { dungeon_map::draw::Clear(); g_drawn = false; }  // game thread (Drain)
     double Now() { return double(GetTickCount64()) / 1000.0; }
 
     // The minimap's visible size in its own pixels: the retainer that clips it (game thread).
