@@ -5,10 +5,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cctype>
 #include <cstdint>
+#include <cstdio>
+#include <string>
 #include <vector>
 #include "style.hpp"
 #include "../shared/loot.hpp"
+#include "sparkle-templates.hpp"
 
 namespace idle_loot {
     // Cascade template: 5 fireflies orbiting the anchor forever, each flickering at its own random rate (material
@@ -53,5 +57,37 @@ namespace idle_loot {
     inline Rgb Glow(int grade, const std::array<style::Rgba, 8>& tiers) {
         const style::Rgba c = grade >= 0 && grade < 8 ? tiers[grade] : style::color::kTextSoft;
         return {ToLinear(c.r) * kGlow, ToLinear(c.g) * kGlow, ToLinear(c.b) * kGlow};
+    }
+
+    // Insert-menu tuning (#133). tpl indexes kTemplates; scale/height change the spawn (respawn), bright/byGrade only the tint.
+    struct Tuning {
+        std::size_t tpl = 0;
+        float scale = 1;        // x kScaleItem / kScaleChest
+        float bright = 1;       // x kGlow
+        float height = 0;       // cm added to kLiftItem / kLiftChest
+        bool byGrade = true;    // false: white
+        bool operator==(const Tuning&) const = default;
+    };
+    inline bool NeedsRespawn(const Tuning& a, const Tuning& b) { return a.tpl != b.tpl || a.scale != b.scale || a.height != b.height; }
+    inline Rgb Emissive(int grade, const std::array<style::Rgba, 8>& tiers, const Tuning& t) {
+        const Rgb c = t.byGrade ? Glow(grade, tiers) : Rgb{kGlow, kGlow, kGlow};
+        return {c.r * t.bright, c.g * t.bright, c.b * t.bright};
+    }
+    // Case-insensitive substring: the picker's search box.
+    inline bool Contains(const char* hay, const char* needle) {
+        for (; *hay; hay++) {
+            const char *h = hay, *n = needle;
+            while (*n && *h && std::tolower((unsigned char)*h) == std::tolower((unsigned char)*n)) h++, n++;
+            if (!*n) return true;
+        }
+        return !*needle;
+    }
+    // "Copy values": one log line holding everything needed to make the choice the code default.
+    inline std::string Format(const Tuning& t) {
+        char b[200];
+        std::snprintf(b, sizeof b, "template=%s scale=%.2f bright=%.2f height=%.0f byGrade=%d", kTemplates[t.tpl].name, t.scale, t.bright, t.height,
+                      int(t.byGrade));
+        const wchar_t* w = kTemplates[t.tpl].path;
+        return std::string(b) + " path=" + std::string(w, w + std::char_traits<wchar_t>::length(w));
     }
 }

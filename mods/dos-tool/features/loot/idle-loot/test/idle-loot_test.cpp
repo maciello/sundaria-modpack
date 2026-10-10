@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <string>
 
 int main() {
     using namespace idle_loot;
@@ -31,5 +32,21 @@ int main() {
     assert(std::fabs(epic.b - ToLinear(245) * kGlow) < 1e-6f);
     const Rgb unknown = Glow(-1, tiers);
     assert(std::fabs(unknown.r - ToLinear(style::color::kTextSoft.r) * kGlow) < 1e-6f);
+
+    // picker: curated list leads (the default template first), search is case-insensitive, brightness scales the tint
+    assert(kCurated > 0 && kCurated < kTemplateCount && std::wstring(kTemplates[0].path) == kTemplate);
+    assert(Contains("hp_mag_alchemyOrb_fireflies", "FIREFL") && !Contains("fx_fireFlies", "butterfly") && Contains("x", ""));
+    Tuning tn;
+    assert(Emissive(4, tiers, tn).b == epic.b);
+    tn.bright = 2;
+    assert(std::fabs(Emissive(4, tiers, tn).b - 2 * epic.b) < 1e-3f);
+    tn.byGrade = false;
+    assert(Emissive(4, tiers, tn).r == Emissive(4, tiers, tn).b);
+    Tuning t0, b2 = t0;
+    b2.bright = 3, b2.byGrade = false;
+    assert(!NeedsRespawn(t0, b2));
+    b2.height = 5;
+    assert(NeedsRespawn(t0, b2));
+    assert(Format(t0).find("template=hp_mag_alchemyOrb_fireflies scale=1.00") == 0);
     std::puts("idle-loot ok");
 }

@@ -46,7 +46,7 @@ Look: read from those numbers, not seen in game unless a shot is named.
 
 | template (`/Game/…`) | em. | mode, life | colour route | look |
 |---|---|---|---|---|
-| Environments/HumanProps/Magic/Particles/hp_mag_alchemyOrb_fireflies | 1 | burst 5, forever | material `Emissive Thorax` | 5 motes orbiting ≤ 20 cm, each flickering at its own rate; idle-loot uses it (shot: pending; Insert menu > Idle loot sparkle > Preview sparkle shows grades 0-7 for 5 s) |
+| Environments/HumanProps/Magic/Particles/hp_mag_alchemyOrb_fireflies | 1 | burst 5, forever | material `Emissive Thorax` | 5 motes orbiting ≤ 20 cm, each flickering at its own rate; idle-loot uses it (shot: pending; Insert menu > Idle loot sparkle: picker (curated + search over the 82 `just data fx` systems, `features/loot/idle-loot/sparkle-templates.hpp`), Size/Brightness/Height/Grade colour sliders, Preview sparkle (grades 0-7, 5 s), Copy values logs `[idle-loot] values …`) |
 | FX/Environmental/Particles/fx_fireFlies | 1 | burst 5, forever | material `Emissive Thorax` | same fireflies, orbit 50-100 cm; its light-module emitter is off at LOD 0 |
 | FX/Classes/Champion/Particles/P_Champion_HandGlow_01 | 2 | 200/s 0.15-0.3 s + light rays | none | dense flickering sparkle ball ≤ 5 cm (a hand glow) |
 | FX/Classes/Wizard/Particles/P_StaffGlow_01 | 2 | 50/s 0.15-0.7 s + ray burst | none | orange sparkle spray ≤ 10 cm (staff tip) |
