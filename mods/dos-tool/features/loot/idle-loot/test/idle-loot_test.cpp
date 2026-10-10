@@ -60,6 +60,10 @@ int main() {
         b.glow.bright = 3;  // tint only: no respawn
         assert(SameSpawn(Plan(b, 3, false), Plan(d, 3, false)) && !(b == d));
     }
+    {  // placed at the pile, re-placed only when it moved
+        const std::vector<Layer> a = Plan(d, 3, false, 100, 200, 300), b = Plan(d, 3, false, 103, 200, 300), c2 = Plan(d, 3, false, 120, 200, 300);
+        assert(a[0].x == 100 && a[0].z == 300 && SameSpawn(a, b) && !SameSpawn(a, c2));
+    }
     assert(Contains("hp_mag_alchemyOrb_fireflies", "FIREFL") && !Contains("fx_fireFlies", "butterfly") && Contains("x", ""));
     assert(Emissive(4, tiers, true, 2).b == 2 * epic.b && Emissive(4, tiers, false, 1).r == Emissive(4, tiers, false, 1).b);
     const std::string line = Format(d);

@@ -92,7 +92,7 @@ namespace {
     template <class F> void SpawnPlan(const std::vector<Layer>& plan, F&& spawn, std::vector<fx::Id>& ids) {
         for (const Layer& l : plan) {
             fx::Place p;
-            p.z = l.dz;
+            p.x = l.x, p.y = l.y, p.z = l.z + l.dz;  // world position: fx::At, nothing attached to the loot actor (#132)
             p.scale = l.scale;
             p.cull = kCull;
             ids.push_back(spawn(p, kTemplates[l.tpl].path));
@@ -113,7 +113,7 @@ namespace {
             if (grades[i] == kLooted) continue;
             void* a = reinterpret_cast<void*>(all[i].id);  // live: Each read it on this game-thread call
             const bool chest = all[i].kind == loot::Kind::Chest;
-            const std::vector<Layer> plan = Plan(cur, grades[i], chest);
+            const std::vector<Layer> plan = Plan(cur, grades[i], chest, all[i].x, all[i].y, all[i].z);
             if (plan.empty()) continue;  // nothing to show for this grade: an old spark of it is removed below
             auto it = g_sparks.find(all[i].id);
             if (it != g_sparks.end() && it->second.actor.Is(a) && AllAlive(it->second) && SameSpawn(it->second.plan, plan)) {
@@ -124,7 +124,7 @@ namespace {
                 continue;
             }
             Spark s{ref::Ref(a), {}, plan, grades[i], cur};
-            SpawnPlan(plan, [&](const fx::Place& p, const wchar_t* path) { return fx::Attach(kOwner, path, a, p); }, s.ids);
+            SpawnPlan(plan, [&](const fx::Place& p, const wchar_t* path) { return fx::At(kOwner, path, p); }, s.ids);
             fx::Id first = 0;
             for (fx::Id id : s.ids) if (!first) first = id;
             if (!first) continue;
@@ -159,8 +159,8 @@ namespace {
         for (int g = 0; g < kPreviewGrades; g++) {
             const float side = (g - (kPreviewGrades - 1) * 0.5f) * kPreviewGap;
             const float px = x + fx_ * kPreviewAhead - fy_ * side, py = y + fy_ * kPreviewAhead + fx_ * side;
-            Spark sp{ref::Ref(), {}, Plan(cur, g, false), g, cur};
-            SpawnPlan(sp.plan, [&](fx::Place p, const wchar_t* path) { p.x = px, p.y = py, p.z += z - 60; return fx::At(kOwner, path, p); }, sp.ids);
+            Spark sp{ref::Ref(), {}, Plan(cur, g, false, px, py, z - 60), g, cur};
+            SpawnPlan(sp.plan, [&](const fx::Place& p, const wchar_t* path) { return fx::At(kOwner, path, p); }, sp.ids);
             Tint(sp, g, tiers, cur);
             fx::Id first = 0;
             for (fx::Id id : sp.ids) if (id) { g_preview.push_back(id); if (!first) first = id; }

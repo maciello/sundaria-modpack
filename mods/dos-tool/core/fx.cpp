@@ -138,6 +138,8 @@ namespace {
             if (o->IsA(AActor::StaticClass())) attach = static_cast<AActor*>(o)->RootComponent;
             else if (o->IsA(USceneComponent::StaticClass())) attach = static_cast<USceneComponent*>(o);
             if (!PtrOk(attach)) return 0;
+            AActor* pa = attach->GetOwner();  // never hang a component on an actor the engine is tearing down (#132)
+            if (PtrOk(pa) && pa->bActorIsBeingDestroyed) return 0;
         }
         UFXSystemComponent* c = nullptr;
         const FVector at{p.x, p.y, p.z}, one{p.scale, p.scale, p.scale};
@@ -208,8 +210,14 @@ namespace {
             CallNative(c, g_fn.cull.Get(), &cd);
         }
         const fx::Id id = g_next++;
-        logger::log("[fx] new component for " + std::string(wpath.begin(), wpath.end()).substr(wpath.rfind(L'/') + 1) + " (live " + std::to_string(g_live.size() + 1) +
-                    ", parked " + std::to_string(g_pool.size()) + ")");
+        {   // discriminator for GC crashes (#132): who the component hangs on
+            AActor* ow = c->GetOwner();
+            char b[160];
+            std::snprintf(b, sizeof b, " comp %p owner %p attachParent %p", static_cast<void*>(c), static_cast<void*>(ow),
+                          static_cast<void*>(PtrOk(c) ? c->AttachParent : nullptr));
+            logger::log("[fx] new component for " + std::string(wpath.begin(), wpath.end()).substr(wpath.rfind(L'/') + 1) + " (live " +
+                        std::to_string(g_live.size() + 1) + ", parked " + std::to_string(g_pool.size()) + ")" + b);
+        }
         g_live[id] = {owner ? owner : "", ref::Ref(c), {}, wpath, ref::Ref(attach)};
         if (!g_ticking) game::OnWorldTick(&Tick, g_ticking = true);
         return id;

@@ -34,7 +34,7 @@ colour_routes:
 lifetime_rule:   # #132, gotchas
   - "never destroy a particle component (K2_DestroyComponent/DestroyComponent): GC BeginDestroy of ours crashed 10x walking a freed owner/Outer (RemoveOwnedComponent, GetWorld)"
   - "Remove/Release park it (inactive, hidden); the next Attach/At with the same template + parent reuses it (material instances kept); it dies with its owner via the engine"
-  - "owner of At = level WorldSettings, of Attach = the attach parent's actor"
+  - "owner of At = level WorldSettings, of Attach = the attach parent's actor; GC BeginDestroy derefs owner AND AttachParent, so never Attach to an actor you do not own (idle-loot uses At and follows the pile's position)"
   - "verify: log '[fx] new component for <tpl> (live N, parked M)' plateaus while sparkles flip in/out of range; no BeginDestroy crash over several map changes"
 ```
 

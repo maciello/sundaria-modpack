@@ -4,6 +4,7 @@
 // the particle components of one loot pile. Defaults = the maintainer's spec 2026-10-10.
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -58,13 +59,19 @@ namespace idle_loot {
     }
 
     // One particle component to spawn: template, size, tint magnitude, height above the actor root.
+    // World position (x, y, z) of the pile; the component sits at z + dz. Never attached to the loot actor (#132).
     struct Layer {
         std::size_t tpl;
         float scale, bright, dz;
-        bool SameSpawn(const Layer& o) const { return tpl == o.tpl && scale == o.scale && dz == o.dz; }  // else: respawn
+        float x, y, z;
+        bool SameSpawn(const Layer& o) const {  // else: re-place / respawn
+            constexpr float kMoved = 5;         // cm: loot that moved less keeps its component
+            return tpl == o.tpl && scale == o.scale && dz == o.dz && std::fabs(x - o.x) <= kMoved && std::fabs(y - o.y) <= kMoved &&
+                   std::fabs(z - o.z) <= kMoved;
+        }
     };
     // The components of one pile: grade -1 (unknown, closed chest) counts as grade 0.
-    inline std::vector<Layer> Plan(const Config& c, int grade, bool chest) {
+    inline std::vector<Layer> Plan(const Config& c, int grade, bool chest, float x = 0, float y = 0, float z = 0) {
         std::vector<Layer> out;
         const int g = std::clamp(grade, 0, kGrades - 1);
         for (const LayerCfg* l : {&c.glow, &c.fly}) {
@@ -72,7 +79,7 @@ namespace idle_loot {
             if (!l->on || g < l->minGrade) continue;
             for (int i = 0; i < n; i++)
                 out.push_back({l->tpl, l->size[g] * (chest ? kChestSize : 1.0f), l->bright,
-                               (chest ? kLiftChest : kLiftItem) + l->height + (i - (n - 1) * 0.5f) * kCopySpread});
+                               (chest ? kLiftChest : kLiftItem) + l->height + (i - (n - 1) * 0.5f) * kCopySpread, x, y, z});
         }
         return out;
     }
