@@ -82,9 +82,13 @@ def main(argv):
         for r in cur:
             print("\t".join(map(str, r)))
     elif argv:
-        q = " ".join(f'"{w}"*' for w in re.findall(r"\w+", " ".join(argv)))
-        for r in con.execute("select tbl, row, snippet(fts, -1, '[', ']', '…', 10) from fts where fts match ? order by rank limit 300", (q,)):
-            print("\t".join(r))
+        words = re.findall(r"\w+", " ".join(argv))
+        seen = set()  # exact phrase hits first, then every row holding all words as prefixes
+        for q in ('"' + " ".join(words) + '"', " ".join(f'"{w}"*' for w in words)):
+            for r in con.execute("select tbl, row, snippet(fts, -1, '[', ']', '…', 10) from fts where fts match ? order by rank limit 300", (q,)):
+                if (r[0], r[1]) not in seen and len(seen) < 300:
+                    seen.add((r[0], r[1]))
+                    print("\t".join(r))
     else:
         for k in ("tables", "rows", "curves"):
             print(k, con.execute(f"select count(*) from {k}").fetchone()[0])
