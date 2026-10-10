@@ -30,13 +30,20 @@ def ask(line, timeout, port=PORT):
     return json.loads(buf)
 
 
+WINDOWS = os.name == "nt"  # the game runs natively: host paths are the game's paths
+
+
 def to_windows(path):
-    """Host path -> the game's view (Proton maps Z: to /)."""
+    """Host path -> the game's view (Proton maps Z: to /; on Windows it is the same path)."""
+    if WINDOWS:
+        return os.path.abspath(path)
     return "Z:" + os.path.abspath(path).replace("/", "\\")
 
 
 def to_host(path, win64):
     """The game's Windows path -> host path."""
+    if WINDOWS:
+        return path
     if path[:3].upper() == "Z:\\":
         return path[2:].replace("\\", "/")
     mark = "\\Binaries\\Win64\\"
@@ -92,10 +99,15 @@ def main(args):
 
 def self_test():
     import threading
-    assert to_host("Z:\\tmp\\a.png", "") == "/tmp/a.png"
-    assert to_host("S:\\x\\Archon\\Binaries\\Win64\\dos-tool-shots\\1.png", "/g/Win64") == "/g/Win64/dos-tool-shots/1.png"
-    assert to_windows("/tmp/x.png") == "Z:\\tmp\\x.png"
-    assert line_for(["shot", "/tmp/a.png", "0", "0", "10", "10"]) == "shot Z:\\tmp\\a.png 0 0 10 10"
+    if WINDOWS:  # native game: paths pass through unchanged
+        assert to_host("D:\\g\\Win64\\dos-tool-shots\\1.png", "D:/g/Win64") == "D:\\g\\Win64\\dos-tool-shots\\1.png"
+        assert to_windows("C:\\tmp\\x.png") == "C:\\tmp\\x.png"
+        assert line_for(["shot", "C:\\tmp\\a.png", "0", "0", "10", "10"]) == "shot C:\\tmp\\a.png 0 0 10 10"
+    else:
+        assert to_host("Z:\\tmp\\a.png", "") == "/tmp/a.png"
+        assert to_host("S:\\x\\Archon\\Binaries\\Win64\\dos-tool-shots\\1.png", "/g/Win64") == "/g/Win64/dos-tool-shots/1.png"
+        assert to_windows("/tmp/x.png") == "Z:\\tmp\\x.png"
+        assert line_for(["shot", "/tmp/a.png", "0", "0", "10", "10"]) == "shot Z:\\tmp\\a.png 0 0 10 10"
     assert line_for(["get", "pawn.Health"]) == "get pawn.Health"
     assert line_for(["feature", "Character snapshot", "on"]) == "feature Character snapshot on"
     assert timeout_for(["trace", "Hit", "30"]) == 40
