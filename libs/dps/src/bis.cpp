@@ -86,7 +86,7 @@ namespace dps {
         std::map<std::pair<std::string, bool>, std::vector<int>> mains;   // (weapon type, two-handed) -> candidates
         for (int i = 0; i < int(cands.size()); ++i) {
             const Item& it = cands[i];
-            if (it.equipSlot.empty()) continue;
+            if (it.equipSlot.empty() || !CanUse(t, hero, it)) continue;
             if (!IsWeaponSlot(it.equipSlot)) { armor[it.equipSlot].push_back(i); continue; }
             if (!t.weaponStats.count(it.weaponType)) continue;
             if (it.equipSlot == "WeaponLeft") { left.push_back(i); continue; }

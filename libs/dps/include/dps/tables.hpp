@@ -62,6 +62,11 @@ namespace dps {
     };
     struct HeroismNode { int maxPoints = 0; float perPoint = 0; };   // HeroismPassive.MaxPoints, HeroismCurve
 
+    struct RangedAttack {      // AssignDefaultAbilityOnEquip: weapons of these types get this ability as the default attack
+        std::string ability;                 // ShootArrow: only classes that own it can attack with them; "" = rule absent
+        std::vector<std::string> types;      // EWeaponType names
+    };
+
     struct Tables {
         std::string origin;                                         // where they came from (file path, "game")
         std::vector<std::string> stats;                             // EStatType names
@@ -81,6 +86,7 @@ namespace dps {
         std::map<std::string, CraftPool> craftPools;
         std::map<int, ItemSpec> specs;
         std::map<std::string, HeroismNode> heroism;
+        RangedAttack rangedAttack;
         std::map<std::string, std::vector<Ability>> abilities;      // class -> abilities
     };
 }

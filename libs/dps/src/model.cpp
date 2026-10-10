@@ -44,6 +44,16 @@ namespace dps {
             auto w = t.weaponStats.find(it->weaponType);
             return w == t.weaponStats.end() ? std::string() : w->second.animationType;
         }
+        bool CanUse(const Tables& t, const Build& b, const Item& it) {
+            if (it.level > b.level) return false;
+            const RangedAttack& r = t.rangedAttack;
+            if (r.ability.empty() || !IsWeaponSlot(it.equipSlot)) return true;
+            const std::string anim = AnimOf(t, &it);
+            if (std::find(r.types.begin(), r.types.end(), anim) == r.types.end()) return true;
+            auto c = t.abilities.find(b.cls);
+            return c != t.abilities.end() &&
+                   std::any_of(c->second.begin(), c->second.end(), [&](const Ability& a) { return a.name == r.ability; });
+        }
         Mode MakeMode(const Tables& t, const Build& b, const Scenario& sc, const std::vector<const Item*>& common, WeaponSet w,
                       std::string& error) {
             Mode m;

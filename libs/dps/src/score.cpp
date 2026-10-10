@@ -47,6 +47,7 @@ namespace dps {
                 e.stats.size() == item.stats.size() &&
                 std::equal(e.stats.begin(), e.stats.end(), item.stats.begin(), [](const Stat& x, const Stat& y) { return x.name == y.name && x.value == y.value; }))
                 return {0.f, p.dps(), e.slot, true};
+        if (!CanUse(t, p.build, item)) return s;   // not usable: fits = false
         auto consider = [&](float dps, int replaces) {
             if (slot >= 0 && replaces != slot) return;
             if (!s.fits || dps > s.dps) s.fits = true, s.dps = dps, s.replacesSlot = replaces;

@@ -6,6 +6,7 @@
 //   armortypes|equipslots|classes <names...> | weapon <row> <animationType> <damageModifier> | wdtype <row> <type>
 //   ap <row> <stat1> <mod1> <stat2> <mod2> <levelMod> | primary <6 values> | maxlevel <n>
 //   pool <tag> mandatory <stat...> | pool <tag> <grade> <0 additional|1 filler|2 mandatory-by-grade> <stat...>
+//   rangedattack <ability> <types...>
 //   spec <id> <equipSlot> <armorType> <weaponType> <tag> <randomStatType> <job> | heroism <node> <maxPoints> <perPoint>
 //   ability <class> <name> <projectile 0|1> <activateSection>, then for it: learned <names...> | qualifier <types...>
 //     | playrate <type> <v> | animrate <5> | cooldown <5> | montage <name> | section <name> <hits shots lockEnd length>
@@ -70,6 +71,7 @@ namespace dps {
                     else if (k == "wdtype") { std::string r; in >> r; ok = bool(in >> t.weaponDamageType[r]); }
                     else if (k == "ap") { std::string r; in >> r; auto& a = t.attackPower[r]; ok = bool(in >> a.stat1 >> a.mod1 >> a.stat2 >> a.mod2 >> a.levelMod); }
                     else if (k == "primary") ok = Floats(in, t.primaryDefault);
+                    else if (k == "rangedattack") { ok = bool(in >> t.rangedAttack.ability); t.rangedAttack.types = Rest(in); }
                     else if (k == "maxlevel") ok = bool(in >> t.maxLevel);
                     else if (k == "pool") {
                         std::string tag, g; in >> tag >> g;

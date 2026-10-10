@@ -25,7 +25,8 @@ static Tables Synthetic() {
     t.weaponStats["Longbow"] = {"Bow2H", 2.5f};
     t.weaponStats["Greatbow"] = {"Bow2H", 2.5f};
     t.weaponStats["Arbalest"] = {"Crossbow2H", 2.5f};
-    t.weaponDamageType = {{"Longbow", "Pierce"}, {"Greatbow", "Pierce"}, {"Arbalest", "Pierce"}};
+    t.weaponStats["Shortsword"] = {"Sword", 2.5f};
+    t.weaponDamageType = {{"Shortsword", "Slash"}, {"Longbow", "Pierce"}, {"Greatbow", "Pierce"}, {"Arbalest", "Pierce"}};
     t.attackPower["RangerRanged"] = {"Dexterity", "Intelligence", 2.f, 1.f, 1.f};
     t.primaryDefault.fill(10.f);
     t.maxLevel = 20;
@@ -41,6 +42,13 @@ static Tables Synthetic() {
     d.src = "GE_Shot", d.coef.fill(1.f), d.apRule = 1;
     a.damage = {d};
     t.abilities["Ranger"] = {a};
+    t.rangedAttack = {"Shot", {"Bow2H", "Crossbow2H"}};
+    Ability stab;   // a Rogue: melee ability, any weapon, no ranged default attack
+    stab.name = "Stab", stab.activateSection = "Hit";
+    stab.montages = {{"Mon_Stab_H_M", {{"Hit", 1, 0, 0, 1.f}}}};
+    stab.damage = {d};
+    t.abilities["Rogue"] = {stab};
+    t.attackPower["RogueMelee"] = {"Strength", "Dexterity", 1.f, 1.f, 1.f};
     return t;
 }
 
@@ -96,6 +104,25 @@ int main() {
     int picked[5] = {};
     for (const SlotPick& s : bis.picks) if (s.candidate >= 0) picked[s.candidate]++;
     assert(!picked[0] && picked[1] && picked[2] && !picked[3] && picked[4]);
+
+    // use rules: item level above the hero's, and ranged weapons for a class without the ranged default attack
+    {
+        Item lvl = It("greatbow", "WeaponDoubleHanded", {{"WeaponDamage", 150}, {"RAP", 180}}, "Greatbow");
+        lvl.level = 11;
+        assert(!m.ScoreItem(*p, lvl).fits);
+        lvl.level = 10;
+        assert(m.ScoreItem(*p, lvl).fits);
+        std::vector<Item> over = {lvl, It("bow", "WeaponDoubleHanded", {{"WeaponDamage", 100}}, "Longbow")};
+        over[0].level = 11, over[0].stats = {{"WeaponDamage", 999}};
+        assert(m.BestInSlot("Ranger", 10, sc, over).picks[0].candidate == 1);   // the level-11 bow is skipped
+        Build rogue;
+        rogue.cls = "Rogue", rogue.level = 1;
+        rogue.equipped = {It("sword", "WeaponAny", {{"WeaponDamage", 10}}, "Shortsword", 7)};
+        auto rp = m.Prepare(rogue, sc);
+        assert(m.Dps(*rp).error.empty());
+        assert(!m.ScoreItem(*rp, It("arbalest", "WeaponDoubleHanded", {{"WeaponDamage", 999}}, "Arbalest")).fits);
+        assert(!m.ScoreItem(*rp, It("longbow", "WeaponDoubleHanded", {{"WeaponDamage", 999}}, "Longbow")).fits);
+    }
 
     // item generation: value = equivalency x slot share x MASTER x quality, rounded up (0.01 for percent stats)
     const Tables& t = m.tables();

@@ -44,6 +44,9 @@ namespace dps {
         Mode MakeMode(const Tables& t, const Build& b, const Scenario& sc, const std::vector<const Item*>& common, WeaponSet w,
                       std::string& error);
         std::string AnimOf(const Tables& t, const Item* it);
+        // The game's use rules: item level <= hero level (BP_AffixContainerEquip::I_AffixCanEmplace); a weapon whose type the
+        // default attack ability ShootArrow covers needs a class that owns it (BP_PlayerControllerGame::AssignDefaultAbilityOnEquip)
+        bool CanUse(const Tables& t, const Build& b, const Item& it);
     }
 
     class Prepared {

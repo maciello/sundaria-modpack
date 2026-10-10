@@ -54,4 +54,5 @@ just dps bench                      # kernel 10k rows + scoring 300 items
 - New stat with a reader: map it in `compile.cpp` (`statAttr`), give it an attribute in `layout.hpp` if new, use it in `kernel.cpp`/`formula.hpp`; test in `test/dps_test.cpp` with made-up numbers.
 - New ability rule (DoT row, AoE source, cooldown row): resolve it in `scripts/dps_tables.py`, carry it in `tables.hpp` + `tables_io.cpp` (format line), consume in `compile.cpp`.
 - New table: `tables.hpp` field + `tables_io.cpp` record + `dps_tables.py` writer, in one commit.
+- Use rules (`detail::CanUse`, game-facts `item_use_rules`): item level > hero level, or a Crossbow/Bow2H/Crossbow2H weapon for a class without ShootArrow → `fits=false`, BestInSlot skips. `just dps-tables` writes into the game dir by default: pass an `out` path (and `DPS_TABLES`) to keep a running game's tables untouched.
 - Assumptions (model, unverified): main hand = WeaponAny in the lowest equip slot; the off-hand weapon adds its stats except WeaponDamage / WeaponDamage_<element>; 2 Ring + 2 Trinket slots; BestInSlot is a local optimum.

@@ -141,6 +141,13 @@ def tables(m):
                              tok(sp["tag"]), str(sp["random_stat_type"] or 0), str(-1 if sp["job"] is None else sp["job"])]))
     hp, hc = m["HeroismPassive"]["v"], m["HeroismCurve"]["v"]
     out += [f"heroism {tok(n)} {int(hp[n]['MaxPoints'])} {num(hc[n])}" for n in hc if n in hp]
+    # default attack of ranged weapons = ShootArrow (BP_PlayerControllerGame::AssignDefaultAbilityOnEquip: tag Ability.Ranger.ShootArrow
+    # for Crossbow / Bow2H / Crossbow2H, else Ability.MeleeAttack); its WeaponTypesQualifier names exactly those types
+    for cls in CLASSES:
+        sa = m["abilities"][cls]["abilities"].get("ShootArrow")
+        if sa:
+            out.append(" ".join(["rangedattack", "ShootArrow", *map(tok, sa["weapon_qualifier"])]))
+            break
     for cls in CLASSES:
         ab = Abilities(m, cls)
         for name, a in m["abilities"][cls]["abilities"].items():
