@@ -8,11 +8,12 @@
 #include <vector>
 
 namespace items::tiles {
-    // Subscribes cb to every call on a bag or bag screen, the details panel's Tick, and the world tick.
+    // Subscribes cb to every call on a bag or bag screen, the details panel's Tick, the equipped-set change, and the world tick.
     void Listen(game::EventListener cb, bool on);
 
-    enum class Ev : std::uint8_t { Other, Bag, Detail };
+    enum class Ev : std::uint8_t { Other, Bag, Detail, Equip };
     // What a listener event is about. Bag: *what = the bag (UWidgetItemBag_C). Detail: *what = the details panel.
+    // Equip: the equipped set changed (equip, unequip, weapon swap; host only), *what = the character. references/game-events.md § Equipped set changed.
     Ev Classify(void* obj, void* fn, void** what);
 
     bool Note(std::vector<ref::Ref>& seen, void* w);  // adds w once; true = new

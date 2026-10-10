@@ -9,6 +9,7 @@ namespace item_upgrade::scores {
     // then), the other heroes' snapshots (on a hero switch). false = no DPS data yet (why: Status()).
     // changed = verdicts may differ from the last call: re-evaluate every slot.
     bool Refresh(bool& changed);
+    void Invalidate();  // the equipped set changed: the next Refresh re-reads and re-scores
     Verdict For(const items::tiles::Pos& p);  // cached per item key until the hero or its equipped set changes
     const std::string& Status();
     bool Preview();  // dev install without DPS tables: fake values to check the look; the details say so

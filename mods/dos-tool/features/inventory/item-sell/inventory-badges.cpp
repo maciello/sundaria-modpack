@@ -144,6 +144,7 @@ namespace {
             g_dirty = true;
             break;
         }
+        case tiles::Ev::Equip: g_dirty = true; break;
         case tiles::Ev::Other: break;
         }
         if (umg::IsWorldTick(fnp)) {  // adds widgets: world tick only (#50)

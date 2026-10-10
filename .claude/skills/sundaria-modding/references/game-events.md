@@ -40,3 +40,18 @@ cost: "per ProcessEvent: one atomic load + one hash lookup by function FName (+ 
 code: core/events.hpp (table, SDK-free, test core/test/events_test.cpp), core/events.cpp (subscribe, resolve, dispatch),
       core/game.cpp hkProcessEvent (calls events::Dispatch)
 ```
+
+## Equipped set changed (#127)
+```yaml
+event: {cls: BP_CharacterBase_C, fn: FOnEquipContainerAttributeSetUpdate, listen: "items::tiles::Listen -> tiles::Ev::Equip (inventory/shared/tiles.cpp)"}
+why: "bound delegate (BP_CharacterBase_C::OnBeginPlay @706 adds it to ItemContainerEquip.OnEquipContainerAttributeSetUpdate), so it enters ProcessEvent;
+      the callers of the Equip container's own I_OnItemAdded/Removed(Client) are interface calls in the script VM: invisible"
+broadcast: "BP_AffixContainerEquip_C::ReCalculateEquippedItemAttributeSet @147 (CallMulticastDelegate), after UpdateArmorSetBonuses + I_GetEquippedAttributeSetSum"
+fires:
+  equip/unequip: "OnItemAdded @6010 / OnItemRemoved @6093 -> DelayedAttributeSetCalculation(1.0) -> RetriggerableDelay -> ubergraph @15 -> ReCalculate: ~1 s after the LAST change of a burst, once"
+  weapon swap:   "I_OnWeaponModeChange @5888 -> UpdateFromWeaponMode @638 -> ReCalculate: immediately"
+  container load: "I_OnItemContainerLoaded @6890 -> ReCalculate"
+limits: "host/authority only: ReCalculate runs under HasAuthority and OnBeginPlay binds only if IsServerCached; a co-op client never sees it. Fires for any character with an equip container (filter by obj if it matters). Bag moves do not fire it (bag widget events cover those)"
+not_it: "WidgetItemIconContainerEquip_C::HandleDataStoreChanges watches 'UI.DraggedItemSpecId' only (drag highlight), not equipment"
+check: "just data bp BP_AffixContainerEquip ReCalculateEquippedItemAttributeSet | UpdateFromWeaponMode ; just data bp BP_CharacterBase OnBeginPlay"
+```

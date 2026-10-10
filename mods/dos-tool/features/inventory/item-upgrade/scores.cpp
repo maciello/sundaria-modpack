@@ -178,6 +178,8 @@ namespace item_upgrade::scores {
         return Ready();
     }
 
+    void Invalidate() { g_ownedSig = 0; g_ctxSig = 0; }
+
     Verdict For(const items::tiles::Pos& p) {
         const auto at = g_byPos.find(PosKey(p.bank, p.containerType, p.slot));
         if (at == g_byPos.end() || (!g_model && !g_preview)) return {};

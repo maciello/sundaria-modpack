@@ -12,6 +12,7 @@
 #include "umg.hpp"
 
 #include <Windows.h>
+#include <algorithm>
 #include <atomic>
 #include <string>
 #include <vector>
@@ -70,9 +71,12 @@ namespace {
 
     // O(slots on the open bags); a slot whose item is unchanged is skipped unless the scores changed.
     void UpdateSlots(bool all) {
-        std::erase_if(g_tiles, [](const Tile& t) { return !t.slot.Get() || (t.box.ptr && !t.box.Get()); });
+        const std::vector<void*> slots = tiles::Slots(g_bags);
+        std::erase_if(g_tiles, [&](const Tile& t) {  // only the slots of the open bags stay
+            return !t.slot.Get() || (t.box.ptr && !t.box.Get()) || std::find(slots.begin(), slots.end(), t.slot.ptr) == slots.end();
+        });
         int marked = 0, upgrades = 0, scored = 0;
-        for (void* c : tiles::Slots(g_bags)) {
+        for (void* c : slots) {
             Tile* t = nullptr;
             for (Tile& x : g_tiles) if (x.slot.ptr == c) t = &x;
             const tiles::Shown now = tiles::OfSlot(c);
@@ -133,6 +137,11 @@ namespace {
         }
         case tiles::Ev::Bag:  // O(open bags)
             tiles::Note(g_bags, what);
+            g_dirty = true;
+            break;
+        case tiles::Ev::Equip:  // O(1); the next world tick re-scores
+            logger::log("[item-upgrade] equipped set changed");
+            scores::Invalidate();
             g_dirty = true;
             break;
         case tiles::Ev::Other: break;
