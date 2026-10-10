@@ -32,7 +32,8 @@ namespace dps {
         std::vector<std::pair<std::string, int>> abilities; // learned ability -> level (char snapshot names); empty = all at abilityLevel
         int abilityLevel = 3;
         std::vector<std::pair<std::string, int>> heroism;   // heroism node -> points
-        std::vector<Item> equipped;                         // both weapon sets may be present; DPS = the better set
+        std::vector<Item> equipped;                         // all weapon sets may be present; DPS = the better set
+        int activeSet = -1;                                 // 0..2 = the weapon set the hero holds (game WeaponMode: slots 7+8 / 17+18 / 19+20): only it counts; -1 = the better one
     };
 
     struct Scenario {

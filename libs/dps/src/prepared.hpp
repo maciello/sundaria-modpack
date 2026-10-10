@@ -29,6 +29,9 @@ namespace dps {
         float Eval(const compile::Compiled& c, const Row& r, kernel::Detail* d = nullptr);
 
         bool IsWeaponSlot(const std::string& equipSlot);
+        // equip-container slots of weapon set 0..2 (the game's WeaponMode): left (off hand), right
+        constexpr int kSetLeft[3] = {7, 17, 19}, kSetRight[3] = {8, 18, 20};
+        inline int ActiveSet(const Build& b) { return b.activeSet >= 0 && b.activeSet < 3 ? b.activeSet : -1; }
         int Capacity(const std::string& equipSlot);   // equip slots of this kind on a hero (Ring, Trinket: 2)
         std::array<float, 6> Primary(const Tables& t, const Build& b);
 

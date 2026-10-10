@@ -9,6 +9,7 @@
 #include "WidgetItemIconContainer_classes.hpp"
 #include "WidgetItemDisplayDetail_classes.hpp"
 #include "BP_CharacterBase_classes.hpp"
+#include "BP_PlayerControllerGame_classes.hpp"
 #include "FItemContainerFunctions_classes.hpp"
 #include "FItemContainerFunctions_parameters.hpp"
 
@@ -19,6 +20,7 @@ using umg::PtrOk;
 namespace {
     ref::Fn g_convert{UFItemContainerFunctions_C::StaticClass, "FItemContainerFunctions_C", "ConvertCompressedItemSlot"};
     ref::Fn g_equipChanged{ABP_CharacterBase_C::StaticClass, "BP_CharacterBase_C", "FOnEquipContainerAttributeSetUpdate"};
+    ref::Fn g_setChanged{ABP_PlayerControllerGame_C::StaticClass, "BP_PlayerControllerGame_C", "OnRep_WeaponMode"};
     ref::Fn g_detailTick{UWidgetItemDisplayDetail_C::StaticClass, "WidgetItemDisplayDetail_C", "Tick"};
     ref::Cached<UClass> g_bagCls{[] { return UWidgetItemBag_C::StaticClass(); }};
     ref::Cached<UClass> g_invCls{[] { return UWidgetItemInventory_C::StaticClass(); }};
@@ -34,13 +36,14 @@ namespace items::tiles {
         for (const char* cls : {"WidgetItemBag_C", "WidgetItemInventory_C", "WidgetItemStorage_C"}) game::OnClass(cls, cb, on);
         game::On("WidgetItemDisplayDetail_C", "Tick", cb, on);
         game::On("BP_CharacterBase_C", "FOnEquipContainerAttributeSetUpdate", cb, on);
+        game::On("BP_PlayerControllerGame_C", "OnRep_WeaponMode", cb, on);
         game::OnWorldTick(cb, on);
     }
 
     Ev Classify(void* objp, void* fnp, void** what) {
         auto* obj = static_cast<UObject*>(objp);
         if (g_detailTick.Is(fnp)) { *what = obj; return Ev::Detail; }
-        if (g_equipChanged.Is(fnp)) { *what = obj; return Ev::Equip; }
+        if (g_equipChanged.Is(fnp) || g_setChanged.Is(fnp)) { *what = obj; return Ev::Equip; }
         UClass* c = obj->Class;
         UClass* bagCls = g_bagCls.Get();
         UObject* bag = !bagCls              ? nullptr

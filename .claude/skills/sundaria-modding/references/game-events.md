@@ -55,3 +55,12 @@ limits: "host/authority only: ReCalculate runs under HasAuthority and OnBeginPla
 not_it: "WidgetItemIconContainerEquip_C::HandleDataStoreChanges watches 'UI.DraggedItemSpecId' only (drag highlight), not equipment"
 check: "just data bp BP_AffixContainerEquip ReCalculateEquippedItemAttributeSet | UpdateFromWeaponMode ; just data bp BP_CharacterBase OnBeginPlay"
 ```
+
+## Held weapon set (#129)
+```yaml
+state: "BP_PlayerControllerGame_C::WeaponMode (EWeaponMode 0..2, RepNotify, offset 0x0B3A; I_GetWeaponMode reads it). Written by Remote_SwitchWeaponMode (server RPC) and SetupAbilityFromHeroSummary"
+slots: "equip-container slot per set (left/off hand, right): set 0 = 7, 8; set 1 = 17, 18; set 2 = 19, 20 (BP_AffixContainerEquip_C::GetWeaponModeFromEquipSlot, I_AffixGetPotentialItemSlotForItemSpec)"
+signal: "host: the equip event above (UpdateFromWeaponMode -> ReCalculate); client: BP_PlayerControllerGame_C::OnRep_WeaponMode (both in tiles::Ev::Equip; the client one unverified in game)"
+use: "item-upgrade/scores.cpp HeldSet() -> dps::Build.activeSet: only that set's weapons count (libs/dps Prepare)"
+check: "just data bp BP_PlayerControllerGame I_GetWeaponMode ; just data writers WeaponMode"
+```

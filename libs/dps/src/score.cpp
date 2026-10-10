@@ -13,7 +13,7 @@ namespace dps {
         float WithSet(const Tables& t, const Prepared& p, int mi, WeaponSet w) {
             float other = 0.f;
             for (int i = 0; i < int(p.modes.size()); ++i)
-                if (i != mi) other = std::max(other, p.modes[i].dps);
+                if (i != mi && ActiveSet(p.build) < 0) other = std::max(other, p.modes[i].dps);
             float d = 0.f;
             const Mode* m = mi >= 0 ? &p.modes[mi] : nullptr;
             if (m && m->main && w.main->weaponType == m->main->weaponType && AnimOf(t, w.off) == m->c.offhand) {
@@ -73,9 +73,12 @@ namespace dps {
             if (int(same.size()) < Capacity(item.equipSlot)) consider(with(nullptr), -1);
         } else if (t.weaponStats.count(item.weaponType)) {
             const bool twoH = item.equipSlot == "WeaponDoubleHanded";
-            const int mi = SetOf(p, twoH);
+            const bool single = ActiveSet(p.build) >= 0;   // the one mode is the held set, whatever its hands
+            const int mi = single ? 0 : SetOf(p, twoH);
             const Mode* m = mi >= 0 ? &p.modes[mi] : nullptr;
-            if (twoH) consider(WithSet(t, p, mi, {&item, nullptr}), m ? m->main->slot : -1);
+            if (m && (m->main->equipSlot == "WeaponDoubleHanded") != twoH) {   // one- vs two-hander: replaces the whole set
+                if (item.equipSlot != "WeaponLeft") consider(WithSet(t, p, mi, {&item, nullptr}), m->main->slot);
+            } else if (twoH) consider(WithSet(t, p, mi, {&item, nullptr}), m ? m->main->slot : -1);
             else if (item.equipSlot == "WeaponLeft") {
                 if (m) consider(WithSet(t, p, mi, {m->main, &item}), m->off ? m->off->slot : -1);
             } else if (!m) consider(WithSet(t, p, -1, {&item, nullptr}), -1);

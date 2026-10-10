@@ -93,6 +93,7 @@ namespace dps {
         for (const Item& it : p->build.equipped) {
             if (!IsWeaponSlot(it.equipSlot)) { p->common.push_back(&it); continue; }
             if (!t.weaponStats.count(it.weaponType)) continue;   // unknown weapon type: no set
+            if (const int set = ActiveSet(p->build); set >= 0 && it.slot >= 0 && it.slot != kSetLeft[set] && it.slot != kSetRight[set]) continue;   // another set's weapon
             (it.equipSlot == "WeaponDoubleHanded" ? twoH : it.equipSlot == "WeaponLeft" ? left : oneH).push_back(&it);
         }
         auto bySlot = [](const Item* a, const Item* b) { return a->slot < b->slot; };

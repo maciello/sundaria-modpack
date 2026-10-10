@@ -12,6 +12,7 @@
 #include <sstream>
 #include <unordered_map>
 #include "BP_PersistentPlayerAccount_classes.hpp"
+#include "BP_PlayerControllerGame_classes.hpp"
 
 // Scores per item key for the current hero (its snapshot + the live equipped set) and every other saved hero
 // (dos-tool-chars/<slot>.yaml, char-snapshot #102). Game thread. Cost: one bag + bank read when their raw records
@@ -33,7 +34,7 @@ namespace {
     bool g_preview = false;  // no tables + dev install: preview marks (fake values, labelled) to check the look
     std::string g_status = "not started";
     std::uint64_t g_ownedSig = 0, g_ctxSig = 0;
-    int g_heroSlot = -2;
+    int g_heroSlot = -2, g_set = -1;  // g_set: the held weapon set (BP_PlayerControllerGame_C::WeaponMode), -1 = unknown
     std::vector<items::Item> g_owned;                     // bag + bank
     std::vector<dps::Item> g_ownedDps;                    // parallel to g_owned
     std::unordered_map<std::uint64_t, int> g_byPos;       // Pos → index into g_owned
@@ -107,6 +108,12 @@ namespace {
         }
     }
 
+    // The held weapon set, off the local controller (a field read; OnRep_WeaponMode / the equip event say when it changed).
+    int HeldSet(SDK::ABP_PlayerControllerOnline_C* pc) {
+        if (!pc->IsA(SDK::ABP_PlayerControllerGame_C::StaticClass())) return -1;
+        return int(static_cast<SDK::ABP_PlayerControllerGame_C*>(pc)->WeaponMode);
+    }
+
     bool Ready() { return g_self.prep || !g_others.empty() || (g_preview && !g_model); }
 
     void BestInSlot(const dps::Model& m, const std::vector<dps::Item>& equipped) {
@@ -137,14 +144,16 @@ namespace item_upgrade::scores {
         const int hero = pc->AccountComponent->ActiveHeroSlot;
         const io::Located l = io::Locate();
         const std::uint64_t ownedSig = io::Signature(l.bag) ^ (io::Signature(l.bank) * 31) ^ 1;
-        if (ownedSig == g_ownedSig && hero == g_heroSlot) return Ready();
+        const int set = HeldSet(pc);
+        if (ownedSig == g_ownedSig && hero == g_heroSlot && set == g_set) return Ready();
 
         LARGE_INTEGER t0, t1, f;
         QueryPerformanceCounter(&t0);
         g_ownedSig = ownedSig;
+        g_set = set;
         g_owned.clear();
         std::vector<dps::Item> equipped;
-        std::uint64_t ctx = std::uint64_t(hero) + 1;
+        std::uint64_t ctx = (std::uint64_t(hero) + 1) * 4 + std::uint64_t(set + 1);
         for (items::Item& it : io::Read(l.bag, false, true)) {
             if (it.where == items::Where::Equipped) {
                 equipped.push_back(ToDps(it));
@@ -164,6 +173,7 @@ namespace item_upgrade::scores {
             g_ctxSig = ctx;
             g_cache.clear();
             g_self.build.equipped = equipped;
+            g_self.build.activeSet = set;
             if (m) g_self.prep = g_self.cls.empty() ? nullptr : m->Prepare(g_self.build, g_scenario);
             if (m) for (Hero& h : g_others) if (!h.prep) h.prep = m->Prepare(h.build, g_scenario);
         }
@@ -171,7 +181,7 @@ namespace item_upgrade::scores {
         changed = true;
         QueryPerformanceCounter(&t1);
         QueryPerformanceFrequency(&f);
-        g_status = std::to_string(g_owned.size()) + " owned (bank " + (bank.live ? "live" : bank.seen ? "cached" : "not seen yet") + "), hero " +
+        g_status = "set " + std::to_string(set) + ", " + std::to_string(g_owned.size()) + " owned (bank " + (bank.live ? "live" : bank.seen ? "cached" : "not seen yet") + "), hero " +
                    (g_self.cls.empty() ? "slot " + std::to_string(hero) + " has no snapshot" : g_self.name + " " + g_self.cls) + ", " +
                    std::to_string(g_others.size()) + " other heroes, " + std::to_string(g_bis.size()) + " best in slot, " +
                    std::to_string(double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart)).substr(0, 5) + " ms";
@@ -215,6 +225,7 @@ namespace item_upgrade::scores {
     void Reset() {
         g_ownedSig = g_ctxSig = 0;
         g_heroSlot = -2;
+        g_set = -1;
         g_owned.clear();
         g_ownedDps.clear();
         g_byPos.clear();

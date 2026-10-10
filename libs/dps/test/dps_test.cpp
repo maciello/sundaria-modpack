@@ -95,6 +95,19 @@ int main() {
     const ItemScore worn = m.ScoreItem(*p2, b.equipped[2]);
     assert(worn.fits && worn.replacesSlot == 15 && worn.deltaPct == 0.f);
 
+    // active weapon set (slots 7+8 / 17+18 / 19+20): only it counts; -1 = the better set
+    {
+        Build two = b;
+        two.equipped = {It("bow", "WeaponDoubleHanded", {{"WeaponDamage", 100}, {"RAP", 180}}, "Longbow", 8),
+                        It("greatbow", "WeaponDoubleHanded", {{"WeaponDamage", 150}, {"RAP", 180}}, "Greatbow", 18)};
+        const Item mid = It("mid", "WeaponDoubleHanded", {{"WeaponDamage", 120}, {"RAP", 180}}, "Longbow");
+        auto score = [&](int set) { two.activeSet = set; return m.ScoreItem(*m.Prepare(two, sc), mid); };
+        assert(Near(score(0).deltaPct, 20.f) && score(0).replacesSlot == 8);       // set 0 holds the 100 bow
+        assert(score(1).deltaPct < 0.f && score(1).replacesSlot == 18);            // set 1 holds the 150 bow
+        two.activeSet = 2;
+        assert(!score(2).fits);   // an empty set: nothing to compare
+    }
+
     // best in slot: the stronger bow and the two RAP rings, the Health ring stays out
     std::vector<Item> cands = {It("bow", "WeaponDoubleHanded", {{"WeaponDamage", 100}}, "Longbow"),
                                It("greatbow", "WeaponDoubleHanded", {{"WeaponDamage", 150}}, "Greatbow"),
