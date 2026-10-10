@@ -30,6 +30,14 @@ colour_routes:
   particle_colour_only: M_FlickeringSparkle_*, M_ky_starDust, fx_base_flareBASE, M_GFXLU/GPS DustGlow …⊇ (fixed colour, or swap the template)
 ```
 
+```yaml
+lifetime_rule:   # #132, gotchas
+  - "a destroyed component keeps OwnerPrivate (comp+0xa0); GC BeginDestroy then RemoveOwnedComponent's a possibly freed owner → crash Archon+8792d1"
+  - "core/fx Destroy clears it after K2_DestroyComponent and skips owners with bActorIsBeingDestroyed; never destroy fx components any other way (no raw K2_DestroyComponent/DestroyComponent in a feature)"
+  - "owner of At = level WorldSettings, of Attach = the attach parent's actor; neither outlives a map change"
+  - "verify: log '[fx] destroyed <comp>, owner <actor> cleared' per Remove/Release; Insert > Preview sparkle ×N then change map = no crash"
+```
+
 ## Catalogue
 `just data fx <path regex>` → usable templates (Cascade sprites, ≤ 3 emitters, spawn volume ≤ 150 cm, sprites ≤ 40 cm, no
 light, continuous or never-dying): 82 of 808 systems (664 Cascade + 144 Niagara) on 2026-10-09. `--all` lists all 808.

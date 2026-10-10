@@ -6,6 +6,7 @@
 #include "umg.hpp"
 
 #include <Windows.h>
+#include <cstddef>
 #include <cstdio>
 #include <map>
 #include <string>
@@ -17,7 +18,7 @@
 #include "Niagara_parameters.hpp"
 
 // Spawned components are owned by the actor they attach to (or the world for At): they die with it; ours are
-// destroyed by Remove / Release. Registry and every UFunction call: game thread. (references/fx.md)
+// destroyed by Remove / Release, which then clear OwnerPrivate (Destroy). Registry and every UFunction call: game thread. (references/fx.md)
 using namespace SDK;
 using umg::CallNative;
 using umg::PtrOk;
@@ -79,13 +80,26 @@ namespace {
         return ok ? o : nullptr;
     }
 
+    // UActorComponent::OwnerPrivate (comp+0xa0, SDK Pad_A0). DestroyComponent removes the component from its owner's
+    // OwnedComponents but leaves the pointer; UActorComponent::BeginDestroy then calls Owner->RemoveOwnedComponent on
+    // it again, possibly after the owner (a loot actor, the old level's WorldSettings after map travel) was freed:
+    // GC crash at Archon+8792d1 (#132). Nulling it after our destroy makes that second call (and GetWorld) skip the owner.
+    constexpr std::size_t kOwnerPrivate = 0xa0;
+
     void Destroy(Entry& e) {
         auto* c = e.comp.Get<UActorComponent>();
         if (!c) return;
         Params::ActorComponent_GetOwner o{};
         CallNative(c, g_fn.owner.Get(), &o);
-        Params::ActorComponent_K2_DestroyComponent d{o.ReturnValue};  // UE destroys only when Object == the owner (gotchas)
+        AActor* owner = o.ReturnValue;
+        if (PtrOk(owner) && owner->bActorIsBeingDestroyed) return;  // the engine is tearing the owner and its components down
+        Params::ActorComponent_K2_DestroyComponent d{owner};  // UE destroys only when Object == the owner (gotchas)
         CallNative(c, g_fn.destroy.Get(), &d);
+        if (!owner) return;
+        *reinterpret_cast<void**>(reinterpret_cast<char*>(c) + kOwnerPrivate) = nullptr;
+        char b[96];
+        std::snprintf(b, sizeof b, "[fx] destroyed %p, owner %p cleared", static_cast<void*>(c), static_cast<void*>(owner));
+        logger::log(b);
     }
 
     void ReleaseNow() {
