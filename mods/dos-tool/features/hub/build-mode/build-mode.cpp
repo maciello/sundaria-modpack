@@ -87,7 +87,8 @@ namespace {
 
         void Rescan(float x, float y, float z) {
             things.clear();
-            for (const props::Prop& p : props::Near(x, y, z, 2500.0f, mini_map::SceneNames())) {
+            props::Scan(x, y, z, 2500.0f, mini_map::SceneNames());
+            for (const props::Prop& p : props::Near()) {
                 Thing t;
                 t.name = p.name; t.x = p.x; t.y = p.y; t.z = p.z; t.cz = p.cz; t.yaw = p.yaw; t.radius = p.radius;
                 t.base = p.base; t.mesh = p.mesh; t.scale = p.scale; t.spawnId = props_spawn::IdOf(p.name);

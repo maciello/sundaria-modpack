@@ -8,7 +8,7 @@ set -eu
 ALLOW='core/game.cpp:SampleNow core/game.cpp:ForEachPlayerMovement core/game.cpp:BuildRoom core/game.cpp:CollisionTick
 core/game.cpp:ForEachActor core/game.cpp:LogActorsNow
 features/hub/shared/hub_ui.cpp:ForEachButton features/hub/shared/map_probe.cpp:Survey features/hub/shared/mini_map.cpp:ForEachActor
-features/hub/shared/props.cpp:Find features/hub/shared/props.cpp:NearNow features/hub/shared/npc_audio.cpp:Apply
+features/hub/shared/props.cpp:Find features/hub/shared/props.cpp:NearNow features/hub/shared/props_spawn.cpp:CatalogNow features/hub/shared/npc_audio.cpp:Apply
 features/loot/shared/track.cpp:Scan features/inventory/dps-probe/dps-probe.cpp:Enemies
 features/live-bridge/world.cpp:FindActors'
 cd mods/dos-tool

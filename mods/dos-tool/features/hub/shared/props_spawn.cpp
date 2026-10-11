@@ -32,6 +32,11 @@ namespace {
     std::unordered_map<int, std::string> g_names;     // id → actor name, guarded by g_mu (written by the game thread)
     std::atomic<bool> g_pending{false}, g_listening{false};
 
+    // catalog cache, guarded by g_mu (the walk itself is game thread, see CatalogNow)
+    std::vector<props_spawn::Item> g_catalog;
+    bool g_catalogAsked = false;
+    std::vector<props_spawn::Item> CatalogNow();
+
     // game thread
     std::unordered_map<int, ref::Ref> g_actors;
     ref::Ref g_world;
@@ -82,10 +87,18 @@ namespace {
     void OnEvent(void*, void*, void*) {
         if (!game::OnGameThread() || !g_pending.exchange(false)) return;
         std::vector<Req> batch;
+        bool catalog = false;
         AcquireSRWLockExclusive(&g_mu);
         batch.swap(g_queue);
+        catalog = g_catalogAsked;
+        g_catalogAsked = false;
         ReleaseSRWLockExclusive(&g_mu);
         for (const Req& r : batch) Run(r);
+        if (!catalog) return;
+        std::vector<props_spawn::Item> found = CatalogNow();
+        AcquireSRWLockExclusive(&g_mu);
+        g_catalog.swap(found);
+        ReleaseSRWLockExclusive(&g_mu);
     }
 
     void Post(const Req& r) {
@@ -93,41 +106,56 @@ namespace {
         g_queue.push_back(r);
         ReleaseSRWLockExclusive(&g_mu);
         g_pending = true;
-        if (!g_listening.exchange(true)) game::SetEventListener(OnEvent, true);
+        if (!g_listening.exchange(true)) game::OnGameTick(OnEvent, true);
     }
 
-    // render thread catalog cache, per map
-    std::vector<props_spawn::Item> g_catalog;
-    std::string g_catalogWorld;
+    void Wake() {  // ask the game thread for the catalog, nothing queued
+        g_pending = true;
+        if (!g_listening.exchange(true)) game::OnGameTick(OnEvent, true);
+    }
+
+    // Game thread. ponytail: walks the loaded levels' actors once per map, like props::NearNow.
+    std::vector<props_spawn::Item> CatalogNow() {
+        UWorld* w = UWorld::GetWorld();
+        std::vector<props_spawn::Item> out;
+        if (!PtrOk(w)) return out;
+        const std::string wn = w->GetName();
+        std::set<std::string> seen;
+        UClass* smcCls = UStaticMeshComponent::StaticClass();
+        for (int li = 0; li < w->Levels.Num(); li++) {  // once per map
+            ULevel* lvl = w->Levels[li];
+            if (!PtrOk(lvl)) continue;
+            for (int ai = 0; ai < lvl->Actors.Num(); ai++) {
+                AActor* a = lvl->Actors[ai];
+                if (!PtrOk(a) || !PtrOk(a->RootComponent) || !a->RootComponent->IsA(smcCls)) continue;
+                UStaticMesh* m = static_cast<UStaticMeshComponent*>(a->RootComponent)->StaticMesh;
+                if (!PtrOk(m)) continue;
+                const FVector s = a->RootComponent->RelativeScale3D;
+                const float r = m->ExtendedBounds.SphereRadius * std::fmax(std::fabs(s.X), std::fabs(s.Z));
+                if (r > 400.0f || r < 10.0f) continue;
+                const std::string path = PathOf(m);
+                if (seen.insert(path).second) out.push_back({path, m->GetName()});
+            }
+        }
+        std::sort(out.begin(), out.end(), [](const props_spawn::Item& a, const props_spawn::Item& b) { return a.label < b.label; });
+        logger::log("[props] catalog: " + std::to_string(out.size()) + " meshes in " + wn);
+        return out;
+    }
 }
 
 std::vector<props_spawn::Item> props_spawn::Catalog() {
-    UWorld* w = UWorld::GetWorld();
-    if (!PtrOk(w)) return {};
-    const std::string wn = w->GetName();
-    if (wn == g_catalogWorld) return g_catalog;
-    g_catalogWorld = wn;
-    g_catalog.clear();
-    std::set<std::string> seen;
-    UClass* smcCls = UStaticMeshComponent::StaticClass();
-    for (int li = 0; li < w->Levels.Num(); li++) {  // once per map
-        ULevel* lvl = w->Levels[li];
-        if (!PtrOk(lvl)) continue;
-        for (int ai = 0; ai < lvl->Actors.Num(); ai++) {
-            AActor* a = lvl->Actors[ai];
-            if (!PtrOk(a) || !PtrOk(a->RootComponent) || !a->RootComponent->IsA(smcCls)) continue;
-            UStaticMesh* m = static_cast<UStaticMeshComponent*>(a->RootComponent)->StaticMesh;
-            if (!PtrOk(m)) continue;
-            const FVector s = a->RootComponent->RelativeScale3D;
-            const float r = m->ExtendedBounds.SphereRadius * std::fmax(std::fabs(s.X), std::fabs(s.Z));
-            if (r > 400.0f || r < 10.0f) continue;
-            const std::string path = PathOf(m);
-            if (seen.insert(path).second) g_catalog.push_back({path, m->GetName()});
-        }
+    bool ask = false;
+    {
+        AcquireSRWLockExclusive(&g_mu);
+        ask = !g_catalogAsked;
+        if (ask) g_catalogAsked = true;
+        ReleaseSRWLockExclusive(&g_mu);
     }
-    std::sort(g_catalog.begin(), g_catalog.end(), [](const Item& a, const Item& b) { return a.label < b.label; });
-    logger::log("[props] catalog: " + std::to_string(g_catalog.size()) + " meshes in " + wn);
-    return g_catalog;
+    if (ask) Wake();
+    AcquireSRWLockShared(&g_mu);
+    std::vector<props_spawn::Item> out = g_catalog;
+    ReleaseSRWLockShared(&g_mu);
+    return out;
 }
 
 void props_spawn::Spawn(int id, const std::string& mesh, float x, float y, float z, float yaw, float scale) {
@@ -154,5 +182,6 @@ int props_spawn::IdOf(const std::string& actorName) {
 
 void props_spawn::Stop() {
     for (int i = 0; i < 50 && g_pending.load(); i++) Sleep(2);
-    if (g_listening.exchange(false)) game::SetEventListener(OnEvent, false);
+    if (g_listening.exchange(false)) game::OnGameTick(OnEvent, false);
 }
+
