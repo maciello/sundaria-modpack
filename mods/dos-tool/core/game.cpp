@@ -441,7 +441,7 @@ namespace {
     std::unordered_set<ref::Ref, ref::Hash> g_seen;
     struct Fired { ref::Ref fn, cls; ULONGLONG t; };
     std::vector<Fired> g_fresh;
-    constexpr int kFilters = 4;  // item-sort, cast-mode
+    constexpr int kFilters = 8;  // item-sort, dual-wield-damage, cast-mode, roll-cancel, room to grow
     std::atomic<game::EventFilter> g_filter[kFilters]{};
     bool AnyFilter() { for (auto& f : g_filter) if (f.load(std::memory_order_relaxed)) return true; return false; }
 
