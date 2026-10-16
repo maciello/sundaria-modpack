@@ -3,6 +3,7 @@
 #include "game.hpp"
 #include "logger.hpp"
 #include "feature.hpp"
+#include "menu_groups.hpp"
 
 #include <Windows.h>
 #include <d3d11.h>
@@ -280,20 +281,41 @@ static void DrawMenu(const game::Snapshot& snap) {
 
     static const char* const kStage[] = {"ALPHA", "BETA", "", "DEPRECATED"};
     static const ImVec4 kStageColor[] = {{1, 0.35f, 0.35f, 1}, {1, 0.8f, 0.3f, 1}, {}, {0.6f, 0.6f, 0.6f, 1}};
-    // In-development features first; finished (Stable) ones folded away under one header.
-    for (feature::Stage stage : {feature::Stage::Alpha, feature::Stage::Beta, feature::Stage::Stable, feature::Stage::Deprecated}) {
+    // Drawers (#142): stage, then a coarse category (from the feature's folder, core/menu_groups.hpp), then the mods.
+    // Beta first (what friends test), Alpha (dev installs only), finished features, deprecated last.
+    using menu_groups::Group;
+    static const char* const kDrawer[] = {"Alpha", "Beta", "Finished features", "Deprecated"};
+    for (feature::Stage stage : {feature::Stage::Beta, feature::Stage::Alpha, feature::Stage::Stable, feature::Stage::Deprecated}) {
         const int st = int(stage);
         if (stage == feature::Stage::Alpha && !g_dev) continue;
-        if (stage == feature::Stage::Stable && !ImGui::CollapsingHeader("Finished features")) continue;
-        for (feature::Feature* f : feature::Feature::All()) {
+        int total = 0, on = 0;
+        int groupTotal[int(Group::Count)] = {}, groupOn[int(Group::Count)] = {};
+        for (const feature::Feature* f : feature::Feature::All()) {
             if (f->stage != stage) continue;
-            ImGui::SeparatorText(f->name);
-            ImGui::PushID(f->name);
-            bool on = f->enabled;
-            if (ImGui::Checkbox("Enabled", &on)) SetEnabled(f, on);
-            if (*kStage[st]) { ImGui::SameLine(); ImGui::TextColored(kStageColor[st], "%s", kStage[st]); }
-            if (f->enabled) f->Menu();
-            ImGui::PopID();
+            const int g = int(menu_groups::Of(f->source));
+            total++, groupTotal[g]++;
+            if (f->enabled) on++, groupOn[g]++;
+        }
+        if (total == 0) continue;
+        char head[64];
+        std::snprintf(head, sizeof(head), "%s  (%d/%d on)###stage%d", kDrawer[st], on, total, st);
+        if (!ImGui::CollapsingHeader(head, stage == feature::Stage::Beta ? ImGuiTreeNodeFlags_DefaultOpen : 0)) continue;
+        for (int g = 0; g < int(Group::Count); g++) {
+            if (groupTotal[g] == 0) continue;
+            char node[80];
+            std::snprintf(node, sizeof(node), "%s  (%d/%d on)###g%d_%d", menu_groups::Name(Group(g)), groupOn[g], groupTotal[g], st, g);
+            if (!ImGui::TreeNodeEx(node, ImGuiTreeNodeFlags_SpanAvailWidth)) continue;
+            for (feature::Feature* f : feature::Feature::All()) {
+                if (f->stage != stage || int(menu_groups::Of(f->source)) != g) continue;
+                ImGui::SeparatorText(f->name);
+                ImGui::PushID(f->name);
+                bool en = f->enabled;
+                if (ImGui::Checkbox("Enabled", &en)) SetEnabled(f, en);
+                if (*kStage[st]) { ImGui::SameLine(); ImGui::TextColored(kStageColor[st], "%s", kStage[st]); }
+                if (f->enabled) f->Menu();
+                ImGui::PopID();
+            }
+            ImGui::TreePop();
         }
     }
 

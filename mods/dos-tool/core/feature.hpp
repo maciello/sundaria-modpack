@@ -35,7 +35,9 @@ namespace feature {
         bool wasEnabled;
         bool optIn = false;  // off by default even with dos-tool.dev (risky hooks, log spam)
         bool usesCombat = false;  // reads Frame::chars / combat: core samples characters only while an enabled feature sets this
-        Feature(const char* n, Stage s) : name(n), stage(s), enabled(s == Stage::Stable), wasEnabled(enabled) { All().push_back(this); }
+        const char* source;  // the .cpp that declares it (menu drawer by folder, core/menu_groups.hpp); set automatically
+        Feature(const char* n, Stage s, const char* src = __builtin_FILE())
+            : name(n), stage(s), enabled(s == Stage::Stable), wasEnabled(enabled), source(src) { All().push_back(this); }
         virtual void OnFrame(const Frame&) {}
         virtual void Menu() {}
         virtual void Off() {}
