@@ -3,6 +3,8 @@
 # Windows: needs Git for Windows (bash) + LLVM; put GAME_WIN64=<your>/steamapps/common/DungeonsofSundaria/Archon/Binaries/Win64 in .env
 set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-cu"]
 set dotenv-load
+# Python reads/writes the pak cache as UTF-8 on Windows too (default there is cp1252)
+export PYTHONUTF8 := "1"
 
 steam := if os_family() == "windows" { "C:/Program Files (x86)/Steam" } else { env_var_or_default("HOME", "") / ".steam/steam" }
 win64 := env_var_or_default("GAME_WIN64", steam / "steamapps/common/DungeonsofSundaria/Archon/Binaries/Win64")
