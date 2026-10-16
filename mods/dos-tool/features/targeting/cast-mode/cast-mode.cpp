@@ -2,6 +2,7 @@
 #include "cast-mode.hpp"
 #include "../shared/aim.hpp"
 #include "draw.hpp"
+#include "drain.hpp"
 #include "logger.hpp"
 #include "ref.hpp"
 #include "style.hpp"
@@ -35,7 +36,8 @@
 //   ally / enemy abilities    the character the game's own trace would hit is marked
 //   ground-target abilities   the game's own cast-area decal (the one it shows during the cast time) follows the aim
 //   projectiles               the enemy they would hit is marked (no area circle, also when they splash)
-//   always                    a thin circle around the hero at the ability's range (GetAbilityTraceRange)
+//   always                    the ability's range as a ring decal on the ground around the hero (the game's own
+//                             M_Decal_Adjustable_AOE, attached to the hero), so the reach can be judged on the floor
 // Left click or the same key casts, right click cancels. Channelled and hold abilities never aim (cast_mode::Classify).
 // While aiming the hero holds a channelling pose: the loop clip of the Cleric's Channel Heal in the upper-body slot
 // (legs keep walking). The clip, not its montage: the montage's notifies (AnimLockStart/End) message the ability.
@@ -160,7 +162,6 @@ namespace {
         bool ring = false;                  // our ground circle (want None)
         bool hasTarget = false;
         float head[3]{}, feet[3]{}, ground[3]{}, radius = 0;
-        float self[3]{}, range = 0;         // the hero's feet and the ability's reach (range ring)
         unsigned serial = 0;                // changes with the target (pop animation)
     };
     SRWLOCK g_mu = SRWLOCK_INIT;
@@ -243,7 +244,56 @@ namespace {
         g_poseOn = PtrOk(ai->PlaySlotAnimationAsDynamicMontage(clip, g_poseSlot, 0.2f, 0.2f, 1.0f, 9999, -1.0f, 0.0f));
     }
 
+    // Range ring on the ground: the game's adjustable AOE decal material (inside/outside radius %, colour, opacity) on a
+    // decal component attached to the hero, so it follows him and lies on whatever floor is below. One per aim.
+    constexpr const wchar_t* kRangeMat = L"/Game/FX/Base/Materials/M_Decal_Adjustable_AOE.M_Decal_Adjustable_AOE";
+    namespace range_spec {  // component geometry (#107, maintainer: "lass ihn auf dem Boden casten")
+        constexpr float kDepth = 400.0f;      // projection half depth (cm): reaches the floor from the capsule centre and slopes
+        constexpr float kInside = 0.95f, kOutside = 1.0f, kHardness = 0.85f, kOpacity = 0.75f, kEmissive = 1.5f;
+    }
+    ref::Ref g_rangeBase, g_rangeDecal, g_rangeOwner;
+    float g_rangeRadius = 0;
+
+    void RangeDecalOff() {
+        if (auto* d = g_rangeDecal.Get<UDecalComponent>()) d->K2_DestroyComponent(d);
+        g_rangeDecal = {}, g_rangeOwner = {};
+        g_rangeRadius = 0;
+    }
+
+    void RangeDecal(AArchonCharacter* hero, float radius, aim::Kind kind) {
+        if (radius <= 0 || !PtrOk(hero->RootComponent)) { RangeDecalOff(); return; }
+        if (g_rangeDecal.Get<UDecalComponent>() && g_rangeOwner.Is(hero) && std::fabs(g_rangeRadius - radius) < 1.0f) return;
+        RangeDecalOff();
+        auto* base = g_rangeBase.Get<UMaterialInterface>();
+        if (!base) {
+            UObject* o = UKismetSystemLibrary::LoadAsset_Blocking(
+                UKismetSystemLibrary::Conv_SoftObjPathToSoftObjRef(UKismetSystemLibrary::MakeSoftObjectPath(FString(kRangeMat))));
+            if (!PtrOk(o) || !o->IsA(UMaterialInterface::StaticClass())) { logger::log("[cast-mode] range decal material not found"); return; }
+            g_rangeBase = ref::Ref(o);
+            base = static_cast<UMaterialInterface*>(o);
+        }
+        UMaterialInstanceDynamic* mid = UKismetMaterialLibrary::CreateDynamicMaterialInstance(hero, base, FName(), EMIDCreationFlags::Transient);
+        if (!PtrOk(mid)) return;
+        const style::Rgba c = kind == aim::Kind::Ally ? style::color::kHeal : kind == aim::Kind::Enemy ? style::color::kTargetEnemy : style::color::kAim;
+        const FLinearColor col{c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, 1.0f};
+        auto name = [](const wchar_t* n) { return UKismetStringLibrary::Conv_StringToName(FString(n)); };
+        mid->SetVectorParameterValue(name(L"BaseColor"), col);
+        mid->SetVectorParameterValue(name(L"EmissiveColor"), FLinearColor{col.R * range_spec::kEmissive, col.G * range_spec::kEmissive, col.B * range_spec::kEmissive, 1.0f});
+        mid->SetScalarParameterValue(name(L"InsideRadiusPct"), range_spec::kInside);
+        mid->SetScalarParameterValue(name(L"OutsideRadiusPct"), range_spec::kOutside);
+        mid->SetScalarParameterValue(name(L"InsideEdgeHardness"), range_spec::kHardness);
+        mid->SetScalarParameterValue(name(L"OutsideEdgeHardness"), range_spec::kHardness);
+        mid->SetScalarParameterValue(name(L"MaxOpacity"), range_spec::kOpacity);
+        // pitch -90: the decal's X axis points down; Y/Z are the half extents on the floor
+        UDecalComponent* d = UGameplayStatics::SpawnDecalAttached(mid, FVector{range_spec::kDepth, radius, radius}, hero->RootComponent, FName(),
+                                                                  FVector{0, 0, 0}, FRotator{-90.0f, 0, 0}, EAttachLocation::KeepRelativeOffset, 0.0f);
+        if (!PtrOk(d)) return;
+        g_rangeDecal = ref::Ref(d), g_rangeOwner = ref::Ref(hero);
+        g_rangeRadius = radius;
+    }
+
     void End(const char* why) {
+        RangeDecalOff();
         Pose(false);
         Reticle(false);  // a cast: the ability switches its own decal on again when its cast time starts
         g_state.aiming = false;
@@ -283,12 +333,7 @@ namespace {
             ab->ProcessEvent(fn, &p);
             range = p.Range;
         }
-        {   // range ring: how far the ability reaches (the game clips its aim to this sphere around the hero)
-            const FVector at = hero->K2_GetActorLocation();
-            const float half = PtrOk(hero->CapsuleComponent) ? hero->CapsuleComponent->GetScaledCapsuleHalfHeight() : 90.0f;
-            s.self[0] = at.X, s.self[1] = at.Y, s.self[2] = at.Z - half;
-            s.range = range > 1.0f ? range : 0.0f;  // no range curve: no ring
-        }
+        RangeDecal(hero, range > 1.0f ? range : 0.0f, s.want);  // the game clips its aim to this sphere around the hero
         if (g_aim.shape == cast_mode::Shape::GameReticle) {  // the game draws and moves its decal itself
             Reticle(true);
             Publish(s);
@@ -448,7 +493,6 @@ namespace {
     namespace spec {  // component geometry at 1080p (proposed in #104; design lead's spec pending)
         constexpr float kChevronW = 22, kChevronH = 16, kChevronGap = 14, kGlyph = 9, kRingSeg = 40, kStroke = 2.5f;
         constexpr float kFillAlpha = 0.14f, kNoTargetR = 16;
-        constexpr float kRangeAlpha = 0.55f, kRangeInkAlpha = 0.35f, kRangeStroke = 1.5f;  // range ring: quieter than the marker
     }
 
     void Ring(ImDrawList* dl, const combat::View& v, const feature::Frame& f, const float c[3], float radius, style::Rgba col, float px, bool fill) {
@@ -465,26 +509,7 @@ namespace {
         dl->AddPolyline(pts, n, style::Pack(col, 1.0f), ImDrawFlags_Closed, px);
     }
 
-    // A big circle around the hero: parts behind the camera are left out (Ring() needs every point in view).
-    void RangeRing(ImDrawList* dl, const combat::View& v, const feature::Frame& f, const float c[3], float radius, style::Rgba col, float px) {
-        constexpr int kSeg = 96;
-        ImVec2 run[kSeg + 1];
-        int n = 0;
-        auto flush = [&] {
-            if (n >= 2) {
-                dl->AddPolyline(run, n, style::Pack(style::color::kInk, spec::kRangeInkAlpha), 0, px + 2.0f);
-                dl->AddPolyline(run, n, style::Pack(col, spec::kRangeAlpha), 0, px);
-            }
-            n = 0;
-        };
-        for (int i = 0; i <= kSeg; i++) {
-            const float a = 6.2831853f * float(i) / kSeg;
-            float sx, sy;
-            if (combat::Project(v, c[0] + std::cos(a) * radius, c[1] + std::sin(a) * radius, c[2] + 2.0f, f.w, f.h, sx, sy)) run[n++] = {sx, sy};
-            else flush();
-        }
-        flush();
-    }
+    game::Drain g_drain;  // Off(): the range decal is removed on the game thread
 
     struct CastMode : feature::Feature {
         bool listening = false;
@@ -511,7 +536,6 @@ namespace {
             const style::Rgba col = s.want == aim::Kind::Ally ? style::color::kHeal : s.want == aim::Kind::Enemy ? style::color::kTargetEnemy : style::color::kAim;
             const ImU32 ink = style::Pack(style::color::kInk, style::stroke::kOutlineAlpha);
 
-            if (s.range > 0) RangeRing(dl, view, f, s.self, s.range, col, spec::kRangeStroke * ui);
             if (s.want == aim::Kind::None) {
                 if (s.ring) Ring(dl, view, f, s.ground, s.radius, col, spec::kStroke * ui, true);  // else: the game's own decal
             } else if (!s.hasTarget) {  // aiming, nobody valid under the aim: a quiet ring at the crosshair
@@ -565,6 +589,7 @@ namespace {
             g_shown = {};
             ReleaseSRWLockExclusive(&g_mu);
             g_state = {};  // listeners are gone: no game-thread reader left
+            g_drain.Request(true, "cast-mode", [] { RangeDecalOff(); });  // the decal goes on the game thread
             // ponytail: a game decal we switched on stays until the next ground-target cast ends if the feature is
             // turned off in the middle of aiming (I_CastAreaSwitch needs the game thread).
         }
