@@ -35,6 +35,7 @@
 //   ally / enemy abilities    the character the game's own trace would hit is marked
 //   ground-target abilities   the game's own cast-area decal (the one it shows during the cast time) follows the aim
 //   projectiles               the enemy they would hit is marked (no area circle, also when they splash)
+//   always                    a thin circle around the hero at the ability's range (GetAbilityTraceRange)
 // Left click or the same key casts, right click cancels. Channelled and hold abilities never aim (cast_mode::Classify).
 // While aiming the hero holds a channelling pose: the loop clip of the Cleric's Channel Heal in the upper-body slot
 // (legs keep walking). The clip, not its montage: the montage's notifies (AnimLockStart/End) message the ability.
@@ -159,6 +160,7 @@ namespace {
         bool ring = false;                  // our ground circle (want None)
         bool hasTarget = false;
         float head[3]{}, feet[3]{}, ground[3]{}, radius = 0;
+        float self[3]{}, range = 0;         // the hero's feet and the ability's reach (range ring)
         unsigned serial = 0;                // changes with the target (pop animation)
     };
     SRWLOCK g_mu = SRWLOCK_INIT;
@@ -275,19 +277,24 @@ namespace {
         Shown s;
         s.aiming = true;
         s.want = g_aim.shape == cast_mode::Shape::Ally ? aim::Kind::Ally : g_aim.shape == cast_mode::Shape::Enemy ? aim::Kind::Enemy : aim::Kind::None;
-        if (g_aim.shape == cast_mode::Shape::GameReticle) {  // the game draws and moves its decal itself
-            Reticle(true);
-            Publish(s);
-            return;
-        }
-
         float range = 0;
         if (UFunction* fn = g_fnRange.Get()) {
             Params::BP_GameAbilityBase_C_GetAbilityTraceRange p{};
             ab->ProcessEvent(fn, &p);
             range = p.Range;
         }
-        if (range <= 1.0f) range = 1500.0f;  // no range curve: a sane reach for the circle
+        {   // range ring: how far the ability reaches (the game clips its aim to this sphere around the hero)
+            const FVector at = hero->K2_GetActorLocation();
+            const float half = PtrOk(hero->CapsuleComponent) ? hero->CapsuleComponent->GetScaledCapsuleHalfHeight() : 90.0f;
+            s.self[0] = at.X, s.self[1] = at.Y, s.self[2] = at.Z - half;
+            s.range = range > 1.0f ? range : 0.0f;  // no range curve: no ring
+        }
+        if (g_aim.shape == cast_mode::Shape::GameReticle) {  // the game draws and moves its decal itself
+            Reticle(true);
+            Publish(s);
+            return;
+        }
+        if (range <= 1.0f) range = 1500.0f;  // no range curve: a sane reach for the trace
         const float radius = ab->TraceSphereRadiusOverride > 0 ? ab->TraceSphereRadiusOverride : 30.0f;
         const aim::V3 cam = V(pc->PlayerCameraManager->GetCameraLocation());
         const FRotator rot = pc->PlayerCameraManager->GetCameraRotation();
@@ -441,6 +448,7 @@ namespace {
     namespace spec {  // component geometry at 1080p (proposed in #104; design lead's spec pending)
         constexpr float kChevronW = 22, kChevronH = 16, kChevronGap = 14, kGlyph = 9, kRingSeg = 40, kStroke = 2.5f;
         constexpr float kFillAlpha = 0.14f, kNoTargetR = 16;
+        constexpr float kRangeAlpha = 0.55f, kRangeInkAlpha = 0.35f, kRangeStroke = 1.5f;  // range ring: quieter than the marker
     }
 
     void Ring(ImDrawList* dl, const combat::View& v, const feature::Frame& f, const float c[3], float radius, style::Rgba col, float px, bool fill) {
@@ -455,6 +463,27 @@ namespace {
         if (fill) dl->AddConvexPolyFilled(pts, n, style::Pack(col, spec::kFillAlpha));
         dl->AddPolyline(pts, n, style::Pack(style::color::kInk, style::stroke::kOutlineAlpha), ImDrawFlags_Closed, px + 2.0f);
         dl->AddPolyline(pts, n, style::Pack(col, 1.0f), ImDrawFlags_Closed, px);
+    }
+
+    // A big circle around the hero: parts behind the camera are left out (Ring() needs every point in view).
+    void RangeRing(ImDrawList* dl, const combat::View& v, const feature::Frame& f, const float c[3], float radius, style::Rgba col, float px) {
+        constexpr int kSeg = 96;
+        ImVec2 run[kSeg + 1];
+        int n = 0;
+        auto flush = [&] {
+            if (n >= 2) {
+                dl->AddPolyline(run, n, style::Pack(style::color::kInk, spec::kRangeInkAlpha), 0, px + 2.0f);
+                dl->AddPolyline(run, n, style::Pack(col, spec::kRangeAlpha), 0, px);
+            }
+            n = 0;
+        };
+        for (int i = 0; i <= kSeg; i++) {
+            const float a = 6.2831853f * float(i) / kSeg;
+            float sx, sy;
+            if (combat::Project(v, c[0] + std::cos(a) * radius, c[1] + std::sin(a) * radius, c[2] + 2.0f, f.w, f.h, sx, sy)) run[n++] = {sx, sy};
+            else flush();
+        }
+        flush();
     }
 
     struct CastMode : feature::Feature {
@@ -482,6 +511,7 @@ namespace {
             const style::Rgba col = s.want == aim::Kind::Ally ? style::color::kHeal : s.want == aim::Kind::Enemy ? style::color::kTargetEnemy : style::color::kAim;
             const ImU32 ink = style::Pack(style::color::kInk, style::stroke::kOutlineAlpha);
 
+            if (s.range > 0) RangeRing(dl, view, f, s.self, s.range, col, spec::kRangeStroke * ui);
             if (s.want == aim::Kind::None) {
                 if (s.ring) Ring(dl, view, f, s.ground, s.radius, col, spec::kStroke * ui, true);  // else: the game's own decal
             } else if (!s.hasTarget) {  // aiming, nobody valid under the aim: a quiet ring at the crosshair
