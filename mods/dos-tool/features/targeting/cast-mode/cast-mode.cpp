@@ -284,6 +284,7 @@ namespace {
         mid->SetScalarParameterValue(name(L"InsideEdgeHardness"), range_spec::kHardness);
         mid->SetScalarParameterValue(name(L"OutsideEdgeHardness"), range_spec::kHardness);
         mid->SetScalarParameterValue(name(L"MaxOpacity"), range_spec::kOpacity);
+        mid->SetScalarParameterValue(name(L"ConeAngle"), 360.0f);  // the material's default is a 45 degree wedge
         // pitch -90: the decal's X axis points down; Y/Z are the half extents on the floor
         UDecalComponent* d = UGameplayStatics::SpawnDecalAttached(mid, FVector{range_spec::kDepth, radius, radius}, hero->RootComponent, FName(),
                                                                   FVector{0, 0, 0}, FRotator{-90.0f, 0, 0}, EAttachLocation::KeepRelativeOffset, 0.0f);
