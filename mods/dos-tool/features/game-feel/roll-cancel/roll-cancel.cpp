@@ -10,6 +10,7 @@
 #include <Windows.h>
 #include <atomic>
 #include <cctype>
+#include <cstdio>
 #include <string>
 #include "Engine_classes.hpp"
 #include "Archon_classes.hpp"
@@ -94,10 +95,14 @@ namespace {
         UArchonAbilitySystemComponent* asc = hero->mAbilitySystemComponent;
         UClass* dodgeCls = g_dodgeCls.Get();
         if (!PtrOk(asc) || !dodgeCls) return false;
+        // The roll is recognised by its montage: in game the dodge's montage plays with no AnimatingAbility set
+        // (log 2026-10-16: "animating=- montage=Mon_Dodge_H_M playing=1"), so the ability can't tell us.
         UGameplayAbility* animating = asc->LocalAnimMontageInfo.AnimatingAbility;
+        UAnimMontage* montage = asc->LocalAnimMontageInfo.AnimMontage;
         UAnimInstance* ai = PtrOk(hero->Mesh) ? hero->Mesh->AnimScriptInstance : nullptr;
-        const bool rolling = PtrOk(animating) && animating->IsA(dodgeCls) && PtrOk(ai) && PtrOk(asc->LocalAnimMontageInfo.AnimMontage)
-                             && ai->Montage_IsPlaying(asc->LocalAnimMontageInfo.AnimMontage);
+        const bool dodgeMontage = PtrOk(montage) && montage->GetName().starts_with("Mon_Dodge");
+        const bool rolling = PtrOk(ai) && (dodgeMontage || (PtrOk(animating) && animating->IsA(dodgeCls))) && PtrOk(montage)
+                             && ai->Montage_IsPlaying(montage);
         t_busy = true;
         const bool press = pc->IsInputKeyDown(*static_cast<FKey*>(parms));
         const roll_cancel::Options o{g_jump.load(), g_abilities.load()};
@@ -110,8 +115,11 @@ namespace {
             } else {
                 g_abilityCancels++;
             }
-            if (UFunction* fn = g_fnCancel.Get()) umg::CallNative(animating, fn, nullptr);
+            if (PtrOk(animating) && animating->IsA(dodgeCls))  // the ability, when the game does name it
+                if (UFunction* fn = g_fnCancel.Get()) umg::CallNative(animating, fn, nullptr);
+            ai->Montage_Stop(0.1f, montage);  // ends the roll's root motion: the jump check passes, the ability can start
             if (UFunction* fn = g_fnRemoveLock.Get()) umg::CallNative(asc, fn, nullptr);
+            logger::log(in == roll_cancel::Input::Jump ? "[roll-cancel] roll ended by jump" : "[roll-cancel] roll ended by ability");
         }
         t_busy = false;
         return false;
