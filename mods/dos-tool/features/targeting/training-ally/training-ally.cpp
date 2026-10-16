@@ -1,6 +1,7 @@
 #include "feature.hpp"
 #include "training-ally.hpp"
 #include "draw.hpp"
+#include "drain.hpp"
 #include "logger.hpp"
 #include "ref.hpp"
 #include "style.hpp"
@@ -60,6 +61,7 @@ namespace {
     };
     Shown g_shown;
     std::string g_status;  // menu line
+    game::Drain g_drain;   // Off(): the game thread gives the kingdom back
 
     void Publish(Shown s) {
         AcquireSRWLockExclusive(&g_mu);
@@ -291,11 +293,9 @@ namespace {
             g_on = false;
             if (listening) game::OnWorldTick(&OnTick, false);
             listening = false;
-            // listeners are gone: the game-thread state is ours. The kingdom is a plain field (I_GetKingdomId reads it).
-            if (auto* c = g_ally.Get<AArchonCharacter>()) c->ReplicatedKingdomId = g_origKingdom;
-            g_ally = {};
-            g_world = {};
-            Publish({});
+            // Off() is the render thread: the kingdom goes back on the game thread (I_SetKingdomId), which also forgets
+            // the ally there (the drain owns g_ally / g_world from here).
+            g_drain.Request(true, "training-ally", [] { Release(false); g_world = {}; });
         }
 
         void Menu() override {
