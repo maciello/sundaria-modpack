@@ -1,8 +1,8 @@
 #pragma once
 #include <algorithm>
 
-// SDK-free logic for Overwatch movement: blend the game's ground values toward snappy ones.
-namespace ow_movement {
+// SDK-free logic for smooth movement: blend the game's ground values toward snappy ones.
+namespace smooth_movement {
     // Same fields as game::Ground (kept SDK- and core-free for the test).
     struct Ground { float maxAccel, brakingWalking, groundFriction, brakingFrictionFactor, jumpZ; };
 

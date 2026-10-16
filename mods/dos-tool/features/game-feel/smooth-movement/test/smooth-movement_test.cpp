@@ -1,10 +1,10 @@
 // just test
-#include "ow-movement.hpp"
+#include "smooth-movement.hpp"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 
-using namespace ow_movement;
+using namespace smooth_movement;
 
 static bool Eq(float a, float b) { return std::fabs(a - b) < 1e-3f; }
 
