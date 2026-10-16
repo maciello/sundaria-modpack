@@ -83,6 +83,7 @@ test:
     {{python}} scripts/data.py --self-test
     {{python}} scripts/game.py --self-test
     {{python}} scripts/abilities.py --self-test
+    {{python}} scripts/icons.py --self-test
     {{python}} updater/test_update.py   # PWSH=/path/to/pwsh also tests update.ps1
     mkdir -p build && for t in mods/*/core/test/*_test.cpp mods/*/features/*/test/*_test.cpp mods/*/features/*/*/test/*_test.cpp; do m=$(dirname $(dirname $t)); {{cxx}} -std=c++20 -I$m -I$(echo $t | cut -d/ -f1-2)/core $t -o build/$(basename $t .cpp){{exe}} && build/$(basename $t .cpp){{exe}} || exit 1; done
     for t in libs/*/test/*_test.cpp; do l=$(dirname $(dirname $t)); b=build/$(basename $l)_$(basename $t .cpp){{exe}}; {{cxx}} -std=c++20 -O2 -I$l/include $t $l/src/*.cpp -o $b && $b || exit 1; done   # SDK-free libraries (libs/<lib>/{include,src,test})
@@ -111,6 +112,10 @@ dps-tables model out=dps_tables:
 # the tables file -> <Win64>/dos-tool-dps/tables.txt, where item upgrade reads it in game (until the in-game Source, #118)
 dps-install:
     mkdir -p "{{win64}}/dos-tool-dps" && cp "{{dps_tables}}" "{{win64}}/dos-tool-dps/tables.txt"
+
+# Skill icons (#145): <Win64>/dos-mods/skills.yaml -> dos-mods/icons/<id>.png via Fooocus on the dump host; --only ID, --force, --dry-run
+icons *args:
+    {{python}} scripts/icons.py --win64 "{{win64}}" {{args}}
 
 # offline game data from the pak: find <regex> [--class C] | show <asset> | table <asset> | bp <asset> [fn] | grep <regex> [--in <path regex>]
 [positional-arguments]

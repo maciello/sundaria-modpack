@@ -48,6 +48,7 @@ Unsure how the game works? Look it up first (≤1 s each); guesses + probe build
 | `scripts/sdk.py` | query the SDK: `class`, `chain`, `field <regex>`, `subs` |
 | `just data` (repo `scripts/data.py`) | offline pak data: `find`, `show` JSON, `table` YAML, `bp` bytecode, `grep` values; Blueprint xref index: `callers`, `writers`/`readers`, `calls`, `events`, `ast`; `fx` particle templates → `references/game-data.md`, `references/fx.md` |
 | `just game` (repo `scripts/game.py`) | live game over 127.0.0.1 (dev install): `get` path, `find` actors, `call`, `trace` ProcessEvent, `shot` PNG, `log`, `feature` list/toggle → `references/live-bridge.md` |
+| `just icons` (repo `scripts/icons.py`) | skill icons: `<Win64>/dos-mods/skills.yaml` (id + English `icon` hint) → `dos-mods/icons/<id>.png` 256² + `<id>.txt` prompt, Fooocus (DreamShaperXL Turbo) on `dumps` through its own venv's gradio_client; fixed seed per id, existing kept unless `--force`, `--only ID`, `--dry-run` |
 | `scripts/new-feature.sh` | scaffold `features/<kebab>/` (+ `--logic`: header + test) |
 | `scripts/dev-check.sh` | game alive? hot-swap happened? log tail |
 | `scripts/minidump.py` | crash dump (default: newest in the Proton prefix `…/Archon/Saved/Crashes/UE4CC-*/UE4Minidump.dmp`) → fault module+offset + stack, ours as function file:line (`--dll` for a rebuild) |
